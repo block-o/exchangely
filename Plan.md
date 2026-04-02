@@ -136,8 +136,8 @@ Purpose:
 ### Kafka/Compose Fixes
 
 - Kafka topics are created by Compose via `deploy/kafka/init-topics.sh`
-- backend no longer hard-fails startup if app-level topic bootstrap gets `EOF`
-- local stack is healthy even if Kafka admin API is noisy at app boot
+- backend no longer attempts app-level topic creation at startup
+- local stack avoids Kafka 4.1.2 `CreateTopics` API-version mismatch noise
 
 ### Docker/Platform Fixes
 
@@ -187,6 +187,9 @@ Verified locally in this workspace:
   - `make e2e`
   - verified locally via `./scripts/compose-smoke.sh`
   - smoke assertions cover health, seeded catalog endpoints, planner leadership, and sync-status rows
+- Kafka validation after backend restart is clean:
+  - no fresh `UnsupportedVersionException` entries in broker logs
+  - task and market consumer groups rejoin successfully
 
 Useful verification commands:
 

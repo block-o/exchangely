@@ -60,15 +60,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("seed catalog: %w", err)
 	}
 
-	if err := kafka.EnsureTopics(ctx, cfg.KafkaBrokers, []kafka.TopicConfig{
-		{Name: cfg.KafkaTasksTopic, NumPartitions: 12, ReplicationFactor: 1},
-		{Name: cfg.KafkaMarketTopic, NumPartitions: 12, ReplicationFactor: 1},
-	}); err != nil {
-		if !strings.Contains(err.Error(), "EOF") {
-			slog.Warn("kafka topic bootstrap degraded", "error", err)
-		}
-	}
-
 	marketRepo := postgresrepo.NewMarketRepository(db)
 	syncRepo := postgresrepo.NewSyncRepository(db)
 	leaseRepo := postgresrepo.NewLeaseRepository(db)

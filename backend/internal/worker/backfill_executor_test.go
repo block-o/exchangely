@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -49,7 +50,7 @@ func TestBackfillExecutorWritesCandlesAndProgress(t *testing.T) {
 	}
 }
 
-func TestBackfillExecutorFallsBackWhenSourceUnavailable(t *testing.T) {
+func TestBackfillExecutorFailsWhenSourceUnavailable(t *testing.T) {
 	candleRepo := &fakeCandleStore{}
 	syncRepo := &fakeSyncWriter{}
 	executor := NewBackfillExecutor(candleRepo, syncRepo, &fakeMarketSource{err: context.DeadlineExceeded}, nil)
@@ -63,14 +64,36 @@ func TestBackfillExecutorFallsBackWhenSourceUnavailable(t *testing.T) {
 		WindowEnd:   time.Date(2026, 4, 1, 2, 0, 0, 0, time.UTC),
 	}
 
-	if err := executor.Execute(context.Background(), item); err != nil {
-		t.Fatalf("execute failed: %v", err)
+	err := executor.Execute(context.Background(), item)
+	if err == nil {
+		t.Fatal("expected execute to fail when sources are unavailable")
 	}
-	if len(candleRepo.items) != 2 {
-		t.Fatalf("expected fallback candles, got %d", len(candleRepo.items))
+	if !errors.Is(err, ErrMarketSourceUnavailable) {
+		t.Fatalf("expected ErrMarketSourceUnavailable, got %v", err)
 	}
-	if candleRepo.items[0].Source != "consolidated" {
-		t.Fatalf("expected consolidated fallback candle, got %+v", candleRepo.items[0])
+	if len(candleRepo.items) != 0 {
+		t.Fatalf("expected no consolidated candles, got %d", len(candleRepo.items))
+	}
+}
+
+func TestBackfillExecutorFailsWhenSourceRegistryMissing(t *testing.T) {
+	candleRepo := &fakeCandleStore{}
+	syncRepo := &fakeSyncWriter{}
+	executor := NewBackfillExecutor(candleRepo, syncRepo, nil, nil)
+
+	err := executor.Execute(context.Background(), task.Task{
+		ID:          "backfill:BTCEUR:missing-source",
+		Type:        task.TypeBackfill,
+		Pair:        "BTCEUR",
+		Interval:    "1h",
+		WindowStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2026, 4, 1, 2, 0, 0, 0, time.UTC),
+	})
+	if err == nil {
+		t.Fatal("expected execute to fail without a source registry")
+	}
+	if !errors.Is(err, ErrMarketSourceUnavailable) {
+		t.Fatalf("expected ErrMarketSourceUnavailable, got %v", err)
 	}
 }
 

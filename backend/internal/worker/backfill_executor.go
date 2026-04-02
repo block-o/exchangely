@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"log"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 )
 
 var ErrHourlyDataUnavailable = errors.New("hourly data unavailable for daily consolidation")
+var ErrMarketSourceUnavailable = errors.New("market source unavailable")
 
 type CandleStore interface {
 	UpsertCandles(ctx context.Context, interval string, candles []candle.Candle) error
@@ -149,11 +149,11 @@ func (e *BackfillExecutor) materializeDaily(ctx context.Context, item task.Task)
 func (e *BackfillExecutor) fetchSourceCandles(ctx context.Context, item task.Task) ([]candle.Candle, error) {
 	base, quote, err := registry.ParsePairSymbol(item.Pair)
 	if err != nil {
-		return generateCandles(item, "bootstrap-fallback"), nil
+		return nil, fmt.Errorf("%w: %v", ErrMarketSourceUnavailable, err)
 	}
 
 	if e.sources == nil {
-		return generateCandles(item, "bootstrap-fallback"), nil
+		return nil, fmt.Errorf("%w: no source registry configured", ErrMarketSourceUnavailable)
 	}
 
 	items, err := e.sources.FetchCandles(ctx, ingest.Request{
@@ -168,45 +168,8 @@ func (e *BackfillExecutor) fetchSourceCandles(ctx context.Context, item task.Tas
 		return items, nil
 	}
 
-	log.Printf("market source fallback for %s %s: %v", item.Pair, item.Interval, err)
-	return generateCandles(item, "bootstrap-fallback"), nil
-}
-
-func generateCandles(item task.Task, source string) []candle.Candle {
-	step := time.Hour
-	if item.Interval == "1d" {
-		step = 24 * time.Hour
-	}
-
-	result := make([]candle.Candle, 0)
-	index := 0.0
-	basePrice := pairSeed(item.Pair)
-
-	for cursor := item.WindowStart.UTC(); cursor.Before(item.WindowEnd.UTC()); cursor = cursor.Add(step) {
-		open := basePrice + index
-		close := open + 1.75
-		result = append(result, candle.Candle{
-			Pair:      item.Pair,
-			Interval:  item.Interval,
-			Timestamp: cursor.Unix(),
-			Open:      open,
-			High:      close + 0.9,
-			Low:       open - 0.85,
-			Close:     close,
-			Volume:    500 + (index * 5),
-			Source:    source,
-			Finalized: true,
-		})
-		index += 1
-	}
-
-	return result
-}
-
-func pairSeed(pairSymbol string) float64 {
-	hasher := fnv.New32a()
-	_, _ = hasher.Write([]byte(pairSymbol))
-	return float64((hasher.Sum32()%5000)+1000) / 10
+	log.Printf("market source fetch failed for %s %s: %v", item.Pair, item.Interval, err)
+	return nil, fmt.Errorf("%w: %v", ErrMarketSourceUnavailable, err)
 }
 
 func backfillComplete(item task.Task) bool {

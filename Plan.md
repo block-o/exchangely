@@ -80,6 +80,9 @@ These decisions were already made and implemented enough that new work should bu
 - Kraken improvements
   - dynamic `AssetPairs` resolution
   - cooldown after rate-limit responses
+- registry improvements
+  - empty source responses now fall through to the next supporting source
+  - no-data conditions surface as task failures instead of silent success
 
 ### Frontend
 
@@ -179,8 +182,9 @@ Last observed backend state:
 
 ## Known Gaps / Risks
 
-1. Current backfill path still uses fallback candles when free remote sources do not provide reliable coverage.
-   - This is acceptable for scaffolding/progress, but not final data quality.
+1. Source coverage is still incomplete and tasks can fail when free remote sources do not provide reliable coverage.
+   - synthetic fallback candles have been removed from the executor to protect data quality
+   - source reliability and coverage still need to improve
 
 2. Realtime ingestion is still basic.
    - more robust polling/streaming and fallback logic is still needed
@@ -238,6 +242,11 @@ This was transient during startup; retry after a few seconds.
      - hourly -> daily promotion coverage has been added
      - planner lease and task consume coverage have been added
      - Kafka bootstrap coverage has been added
+
+2. Continue hardening backfill sources.
+   - reduce task failures caused by public-source gaps
+   - prefer archive-backed coverage where possible
+   - add better source selection and retry/cooldown behavior
 
 2. Improve backfill source strategy.
    - prefer archive sources first for historical windows

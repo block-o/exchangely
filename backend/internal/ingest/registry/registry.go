@@ -11,6 +11,7 @@ import (
 )
 
 var ErrNoSource = errors.New("no supported market source")
+var ErrNoData = errors.New("market source returned no candles")
 
 type Registry struct {
 	sources []ingest.Source
@@ -29,20 +30,31 @@ func New(sources ...ingest.Source) *Registry {
 
 func (r *Registry) FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error) {
 	var errs []error
+	attempted := false
+	emptyResult := false
 	for _, source := range r.sources {
 		if !source.Supports(request) {
 			continue
 		}
+		attempted = true
 
 		items, err := source.FetchCandles(ctx, request)
-		if err == nil {
+		if err == nil && len(items) > 0 {
 			return items, nil
+		}
+		if err == nil {
+			emptyResult = true
+			continue
 		}
 		errs = append(errs, fmt.Errorf("%s: %w", source.Name(), err))
 	}
 
-	if len(errs) == 0 {
+	if !attempted {
 		return nil, ErrNoSource
+	}
+
+	if emptyResult {
+		errs = append(errs, ErrNoData)
 	}
 
 	return nil, errors.Join(errs...)

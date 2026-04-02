@@ -47,6 +47,39 @@ func TestRegistryReturnsNoSourceError(t *testing.T) {
 	}
 }
 
+func TestRegistrySkipsEmptyResultsAndFallsThrough(t *testing.T) {
+	request := ingest.Request{Pair: "BTCEUR", Base: "BTC", Quote: "EUR", Interval: "1h"}
+	registry := New(
+		fakeSource{name: "empty", supports: true},
+		fakeSource{
+			name:       "supported",
+			supports:   true,
+			candleData: []candle.Candle{{Pair: "BTCEUR", Interval: "1h", Timestamp: 1}},
+		},
+	)
+
+	items, err := registry.FetchCandles(context.Background(), request)
+	if err != nil {
+		t.Fatalf("fetch failed: %v", err)
+	}
+	if len(items) != 1 || items[0].Pair != "BTCEUR" {
+		t.Fatalf("unexpected candles: %+v", items)
+	}
+}
+
+func TestRegistryReturnsNoDataWhenAllSourcesAreEmpty(t *testing.T) {
+	request := ingest.Request{Pair: "BTCEUR", Base: "BTC", Quote: "EUR", Interval: "1h"}
+	registry := New(
+		fakeSource{name: "empty-a", supports: true},
+		fakeSource{name: "empty-b", supports: true},
+	)
+
+	_, err := registry.FetchCandles(context.Background(), request)
+	if !errors.Is(err, ErrNoData) {
+		t.Fatalf("expected ErrNoData, got %v", err)
+	}
+}
+
 type fakeSource struct {
 	name       string
 	supports   bool

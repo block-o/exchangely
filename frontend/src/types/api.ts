@@ -1,0 +1,54 @@
+export type HealthResponse = {
+  status: string;
+  checks: Record<string, string>;
+  timestamp: number;
+};
+
+export type Asset = {
+  symbol: string;
+  name: string;
+  type: string;
+};
+
+export type Pair = {
+  base: string;
+  quote: string;
+  symbol: string;
+};
+
+export type Candle = {
+  pair: string;
+  interval: string;
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  source: string;
+  finalized: boolean;
+};
+
+export type Ticker = {
+  pair: string;
+  price: number;
+  variation_24h: number;
+  last_update_unix: number;
+  source: string;
+};
+
+export type SyncPairStatus = {
+  pair: string;
+  backfill_completed: boolean;
+  last_synced_unix: number;
+  next_target_unix: number;
+};
+
+export type SyncStatus = {
+  planner_leader: string;
+  pairs: SyncPairStatus[];
+};
+
+export type ListResponse<T> = {
+  data: T[];
+};

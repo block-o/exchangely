@@ -1,0 +1,16 @@
+env: development
+http_addr: ":8080"
+role: all
+database_url: postgres://postgres:postgres@localhost:5432/exchangely?sslmode=disable
+kafka:
+  brokers:
+    - localhost:9092
+  tasks_topic: exchangely.tasks
+  market_ticks_topic: exchangely.market.ticks
+planner:
+  lease_name: planner_leader
+  lease_ttl: 15s
+assets:
+  quote_assets:
+    - EUR
+    - USDT

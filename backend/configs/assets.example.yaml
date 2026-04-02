@@ -1,0 +1,12 @@
+base_assets:
+  - BTC
+  - ETH
+  - SOL
+  - XRP
+  - ADA
+  - LINK
+  - AVAX
+  - DOGE
+quote_assets:
+  - EUR
+  - USDT

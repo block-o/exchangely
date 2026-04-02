@@ -46,11 +46,21 @@ services:
     build:
       context: ./backend
     container_name: exchangely-backend
-    env_file:
-      - .env
     environment:
-      BACKEND_DATABASE_URL: postgres://postgres:postgres@timescaledb:5432/exchangely?sslmode=disable
-      BACKEND_KAFKA_BROKERS: kafka:9092
+      BACKEND_HTTP_ADDR: ${BACKEND_HTTP_ADDR:-:8080}
+      BACKEND_ENV: ${BACKEND_ENV:-development}
+      BACKEND_LOG_LEVEL: ${BACKEND_LOG_LEVEL:-debug}
+      BACKEND_ROLE: ${BACKEND_ROLE:-all}
+      BACKEND_DATABASE_URL: ${BACKEND_DATABASE_URL:-postgres://postgres:postgres@timescaledb:5432/exchangely?sslmode=disable}
+      BACKEND_KAFKA_BROKERS: ${BACKEND_KAFKA_BROKERS:-kafka:9092}
+      BACKEND_KAFKA_TOPIC_TASKS: ${BACKEND_KAFKA_TOPIC_TASKS:-exchangely.tasks}
+      BACKEND_KAFKA_TOPIC_MARKET_TICKS: ${BACKEND_KAFKA_TOPIC_MARKET_TICKS:-exchangely.market.ticks}
+      BACKEND_PLANNER_LEASE_NAME: ${BACKEND_PLANNER_LEASE_NAME:-planner_leader}
+      BACKEND_PLANNER_LEASE_TTL: ${BACKEND_PLANNER_LEASE_TTL:-15s}
+      BACKEND_PLANNER_TICK: ${BACKEND_PLANNER_TICK:-10s}
+      BACKEND_WORKER_POLL_INTERVAL: ${BACKEND_WORKER_POLL_INTERVAL:-5s}
+      BACKEND_WORKER_BATCH_SIZE: ${BACKEND_WORKER_BATCH_SIZE:-8}
+      BACKEND_DEFAULT_QUOTE_ASSETS: ${BACKEND_DEFAULT_QUOTE_ASSETS:-EUR,USDT}
     ports:
       - "8080:8080"
     depends_on:

@@ -1,7 +1,9 @@
 package router
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,11 +29,21 @@ func New(svcs Services) http.Handler {
 	})
 
 	mux.HandleFunc("/api/v1/assets", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, dto.ListResponse[any]{Data: toAnySlice(svcs.Catalog.Assets())})
+		items, err := svcs.Catalog.Assets(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, dto.ListResponse[any]{Data: toAnySlice(items)})
 	})
 
 	mux.HandleFunc("/api/v1/pairs", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, dto.ListResponse[any]{Data: toAnySlice(svcs.Catalog.Pairs())})
+		items, err := svcs.Catalog.Pairs(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, dto.ListResponse[any]{Data: toAnySlice(items)})
 	})
 
 	mux.HandleFunc("/api/v1/historical/", func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +56,12 @@ func New(svcs Services) http.Handler {
 
 		start := parseUnix(r.URL.Query().Get("start_time"))
 		end := parseUnix(r.URL.Query().Get("end_time"))
-		writeJSON(w, http.StatusOK, dto.ListResponse[any]{Data: toAnySlice(svcs.Market.Historical(pairSymbol, interval, start, end))})
+		items, err := svcs.Market.Historical(r.Context(), pairSymbol, interval, start, end)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, dto.ListResponse[any]{Data: toAnySlice(items)})
 	})
 
 	mux.HandleFunc("/api/v1/ticker/", func(w http.ResponseWriter, r *http.Request) {
@@ -54,11 +71,21 @@ func New(svcs Services) http.Handler {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, svcs.Market.Ticker(pairSymbol))
+		item, err := svcs.Market.Ticker(r.Context(), pairSymbol)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
 	})
 
 	mux.HandleFunc("/api/v1/system/sync-status", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, svcs.System.SyncStatus())
+		item, err := svcs.System.SyncStatus(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
 	})
 
 	mux.HandleFunc("/swagger/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
@@ -87,6 +114,17 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	if errors.Is(err, os.ErrNotExist) {
+		status = http.StatusNotFound
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		status = http.StatusNotFound
+	}
+	http.Error(w, err.Error(), status)
 }
 
 func toAnySlice[T any](items []T) []any {

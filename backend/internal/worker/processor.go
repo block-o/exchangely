@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"log"
+	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/task"
 )
@@ -9,9 +11,10 @@ import (
 type TaskStore interface {
 	Claim(ctx context.Context, id string) (bool, error)
 	Complete(ctx context.Context, id string) error
+	Fail(ctx context.Context, id, reason string) error
 }
 
-type UnlockFunc func() error
+type UnlockFunc = func() error
 
 type PairLocker interface {
 	Lock(ctx context.Context, pair string) (UnlockFunc, error)
@@ -48,8 +51,61 @@ func (p *Processor) Process(ctx context.Context, item task.Task) error {
 	defer unlock()
 
 	if err := p.executor.Execute(ctx, item); err != nil {
+		_ = p.store.Fail(ctx, item.ID, err.Error())
 		return err
 	}
 
 	return p.store.Complete(ctx, item.ID)
+}
+
+type PendingSource interface {
+	Pending(ctx context.Context, limit int) ([]task.Task, error)
+}
+
+type Runner struct {
+	source    PendingSource
+	processor *Processor
+	interval  time.Duration
+	batchSize int
+}
+
+func NewRunner(source PendingSource, processor *Processor, interval time.Duration, batchSize int) *Runner {
+	return &Runner{
+		source:    source,
+		processor: processor,
+		interval:  interval,
+		batchSize: batchSize,
+	}
+}
+
+func (r *Runner) Run(ctx context.Context) error {
+	ticker := time.NewTicker(r.interval)
+	defer ticker.Stop()
+
+	for {
+		if err := r.runBatch(ctx); err != nil {
+			return err
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (r *Runner) runBatch(ctx context.Context) error {
+	items, err := r.source.Pending(ctx, r.batchSize)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range items {
+		if err := r.processor.Process(ctx, item); err != nil {
+			log.Printf("worker task %s failed: %v", item.ID, err)
+		}
+	}
+
+	return nil
 }

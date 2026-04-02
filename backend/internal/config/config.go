@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,6 +18,9 @@ type Config struct {
 	KafkaMarketTopic   string
 	PlannerLeaseName   string
 	PlannerLeaseTTL    time.Duration
+	PlannerTick        time.Duration
+	WorkerPollInterval time.Duration
+	WorkerBatchSize    int
 	DefaultQuoteAssets []string
 }
 
@@ -32,6 +36,9 @@ func Load() Config {
 		KafkaMarketTopic:   getenv("BACKEND_KAFKA_TOPIC_MARKET_TICKS", "exchangely.market.ticks"),
 		PlannerLeaseName:   getenv("BACKEND_PLANNER_LEASE_NAME", "planner_leader"),
 		PlannerLeaseTTL:    parseDuration(getenv("BACKEND_PLANNER_LEASE_TTL", "15s")),
+		PlannerTick:        parseDuration(getenv("BACKEND_PLANNER_TICK", "10s")),
+		WorkerPollInterval: parseDuration(getenv("BACKEND_WORKER_POLL_INTERVAL", "5s")),
+		WorkerBatchSize:    parseInt(getenv("BACKEND_WORKER_BATCH_SIZE", "8"), 8),
 		DefaultQuoteAssets: splitCSV(getenv("BACKEND_DEFAULT_QUOTE_ASSETS", "EUR,USDT")),
 	}
 }
@@ -64,4 +71,13 @@ func parseDuration(value string) time.Duration {
 	}
 
 	return duration
+}
+
+func parseInt(value string, fallback int) int {
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
 }

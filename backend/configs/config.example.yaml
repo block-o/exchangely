@@ -10,6 +10,10 @@ kafka:
 planner:
   lease_name: planner_leader
   lease_ttl: 15s
+  tick: 10s
+worker:
+  poll_interval: 5s
+  batch_size: 8
 assets:
   quote_assets:
     - EUR

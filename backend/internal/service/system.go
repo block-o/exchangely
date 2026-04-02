@@ -2,21 +2,32 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
-	"github.com/block-o/exchangely/backend/internal/domain/pair"
+	"github.com/block-o/exchangely/backend/internal/domain/lease"
 	"github.com/block-o/exchangely/backend/internal/domain/syncstatus"
+	postgresrepo "github.com/block-o/exchangely/backend/internal/storage/postgres"
 )
 
 type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
+type SyncReader interface {
+	SnapshotRows(ctx context.Context) ([]postgresrepo.SyncRow, error)
+}
+
+type LeaseReader interface {
+	Current(ctx context.Context, name string) (lease.Lease, error)
+}
+
 type SystemService struct {
-	dbChecker     Pinger
-	kafkaChecker  Pinger
-	catalog       *CatalogService
-	plannerLeader string
+	dbChecker    Pinger
+	kafkaChecker Pinger
+	syncReader   SyncReader
+	leaseName    string
+	leaseReader  LeaseReader
 }
 
 type HealthStatus struct {
@@ -25,17 +36,14 @@ type HealthStatus struct {
 	Timestamp int64             `json:"timestamp"`
 }
 
-func NewSystemService(dbChecker, kafkaChecker Pinger, catalog *CatalogService) *SystemService {
+func NewSystemService(dbChecker, kafkaChecker Pinger, syncReader SyncReader, leaseReader LeaseReader, leaseName string) *SystemService {
 	return &SystemService{
-		dbChecker:     dbChecker,
-		kafkaChecker:  kafkaChecker,
-		catalog:       catalog,
-		plannerLeader: "unknown",
+		dbChecker:    dbChecker,
+		kafkaChecker: kafkaChecker,
+		syncReader:   syncReader,
+		leaseName:    leaseName,
+		leaseReader:  leaseReader,
 	}
-}
-
-func (s *SystemService) SetPlannerLeader(holder string) {
-	s.plannerLeader = holder
 }
 
 func (s *SystemService) Health(ctx context.Context) HealthStatus {
@@ -65,40 +73,31 @@ func (s *SystemService) Health(ctx context.Context) HealthStatus {
 	}
 }
 
-func (s *SystemService) SyncStatus() syncstatus.Snapshot {
-	pairs := s.catalog.Pairs()
-	items := make([]syncstatus.PairSyncStatus, 0, min(6, len(pairs)))
-	now := time.Now().UTC()
+func (s *SystemService) SyncStatus(ctx context.Context) (syncstatus.Snapshot, error) {
+	rows, err := s.syncReader.SnapshotRows(ctx)
+	if err != nil {
+		return syncstatus.Snapshot{}, err
+	}
 
-	for index, trackedPair := range pairs {
-		if index >= 6 {
-			break
-		}
+	holder := "unknown"
+	if current, err := s.leaseReader.Current(ctx, s.leaseName); err == nil {
+		holder = current.HolderID
+	} else if err != nil && err != sql.ErrNoRows {
+		return syncstatus.Snapshot{}, err
+	}
+
+	items := make([]syncstatus.PairSyncStatus, 0, len(rows))
+	for _, row := range rows {
 		items = append(items, syncstatus.PairSyncStatus{
-			Pair:              trackedPair.Symbol,
-			BackfillCompleted: index%2 == 0,
-			LastSyncedUnix:    now.Add(-time.Duration(index) * time.Hour).Unix(),
-			NextTargetUnix:    now.Add(time.Hour).Unix(),
+			Pair:              row.Pair,
+			BackfillCompleted: row.BackfillCompleted,
+			LastSyncedUnix:    row.LastSyncedUnix,
+			NextTargetUnix:    row.NextTargetUnix,
 		})
 	}
 
 	return syncstatus.Snapshot{
-		PlannerLeader: s.plannerLeader,
+		PlannerLeader: holder,
 		Pairs:         items,
-	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func Symbols(pairs []pair.Pair) []string {
-	out := make([]string, 0, len(pairs))
-	for _, item := range pairs {
-		out = append(out, item.Symbol)
-	}
-	return out
+	}, nil
 }

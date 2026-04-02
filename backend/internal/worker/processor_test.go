@@ -44,6 +44,10 @@ func (s *fakeStore) Complete(_ context.Context, _ string) error {
 	return nil
 }
 
+func (s *fakeStore) Fail(_ context.Context, _, _ string) error {
+	return nil
+}
+
 type fakeLocker struct{}
 
 func (l *fakeLocker) Lock(_ context.Context, _ string) (UnlockFunc, error) {

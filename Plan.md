@@ -106,6 +106,9 @@ These decisions were already made and implemented enough that new work should bu
   - Timescale `timescale/timescaledb:2.26.1-pg18`
 - one-shot Kafka topic bootstrap service:
   - `kafka-init`
+- repo-native Compose smoke verification:
+  - `scripts/compose-smoke.sh`
+  - `backend/tests/e2e/compose_smoke_test.go`
 
 ## Important Migrations Added Locally
 
@@ -179,6 +182,9 @@ Verified locally in this workspace:
   - `exchangely.tasks`
   - `exchangely.market.ticks`
 - system sync status endpoint works
+- a running Compose stack can now be smoke-tested with:
+  - `make e2e`
+  - verified locally via `./scripts/compose-smoke.sh`
 
 Useful verification commands:
 
@@ -209,6 +215,7 @@ Last observed backend state:
    - more robust polling/streaming and fallback logic is still needed
 
 3. There is not yet full Compose-level automated integration coverage.
+   - there is now a smoke-level Compose verification path, but not full failure-mode coverage
 
 4. Data-source strategy is still mixed between archive and live API.
    - source selection and rate-limit handling still need to improve over time
@@ -265,6 +272,7 @@ This was transient during startup; retry after a few seconds.
    - planner lease under the Compose stack
    - task enqueue/consume against Kafka + DB together
    - startup/bootstrap checks around topic init and API readiness
+   - extend beyond smoke coverage into behavioral assertions
 
 3. Standardize logging.
    - finish replacing any remaining ad hoc logging with shared `log/slog`

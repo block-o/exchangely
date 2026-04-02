@@ -27,5 +27,6 @@ Exchangely is an event-driven crypto market data platform focused on historical 
 
 - `make fmt` formats Go sources.
 - `make test` runs backend tests.
+- `make e2e` starts the Compose backend stack and runs the smoke e2e suite.
 - `make up` starts local infrastructure.
 - `make down` stops local infrastructure.

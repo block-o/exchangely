@@ -69,6 +69,7 @@ These decisions were already made and implemented enough that new work should bu
 - realtime Kafka task and market event plumbing
 - DB-backed REST API
 - shared structured logger bootstrap via Go `log/slog`
+- backend runtime logging standardized on `log/slog` levels
 
 ### Ingestion Sources
 
@@ -221,10 +222,6 @@ Last observed backend state:
 4. Data-source strategy is still mixed between archive and live API.
    - source selection and rate-limit handling still need to improve over time
 
-5. Logging is only partially standardized.
-   - main runtime paths now use Go’s structured `log/slog`
-   - remaining packages should be migrated to the same levelled logging style
-
 ## Current Uncommitted Files
 
 Refresh this section before handoff with `git status --short`.
@@ -275,9 +272,6 @@ This was transient during startup; retry after a few seconds.
    - startup/bootstrap checks around topic init and API readiness
    - extend beyond smoke coverage into behavioral assertions
 
-3. Standardize logging.
-   - finish replacing any remaining ad hoc logging with shared `log/slog`
-   - standardize field names and level usage across the whole backend
 
 2. Improve backfill source strategy.
    - prefer archive sources first for historical windows

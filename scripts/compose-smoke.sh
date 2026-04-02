@@ -3,6 +3,7 @@ set -eu
 
 STACK_SERVICES="timescaledb kafka kafka-init backend"
 BASE_URL="${EXCHANGELY_E2E_BASE_URL:-http://127.0.0.1:8080}"
+DATABASE_URL="${EXCHANGELY_E2E_DATABASE_URL:-postgres://postgres:postgres@127.0.0.1:5432/exchangely?sslmode=disable}"
 
 docker compose up -d --build $STACK_SERVICES
 
@@ -19,4 +20,4 @@ until curl -sS "$BASE_URL/api/v1/health" >/dev/null 2>&1; do
 done
 
 cd backend
-EXCHANGELY_E2E_BASE_URL="$BASE_URL" go test ./tests/e2e -count=1
+EXCHANGELY_E2E_BASE_URL="$BASE_URL" EXCHANGELY_E2E_DATABASE_URL="$DATABASE_URL" go test ./tests/e2e -count=1

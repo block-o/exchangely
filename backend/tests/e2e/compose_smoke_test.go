@@ -2,12 +2,15 @@ package e2e
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func TestRunningComposeStack(t *testing.T) {
@@ -15,8 +18,14 @@ func TestRunningComposeStack(t *testing.T) {
 	if baseURL == "" {
 		t.Skip("EXCHANGELY_E2E_BASE_URL is not set")
 	}
+	databaseURL := os.Getenv("EXCHANGELY_E2E_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("EXCHANGELY_E2E_DATABASE_URL is not set")
+	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
+	db := openDB(t, databaseURL)
+	defer db.Close()
 
 	t.Run("health", func(t *testing.T) {
 		var payload struct {
@@ -70,6 +79,27 @@ func TestRunningComposeStack(t *testing.T) {
 			t.Fatal("expected sync status to include tracked pairs")
 		}
 	})
+
+	t.Run("task flow", func(t *testing.T) {
+		waitFor(t, 20*time.Second, func() bool {
+			total, completedOrFailed, err := taskCounts(db)
+			if err != nil {
+				t.Fatalf("task counts query failed: %v", err)
+			}
+			return total > 0 && completedOrFailed > 0
+		})
+
+		total, completedOrFailed, err := taskCounts(db)
+		if err != nil {
+			t.Fatalf("task counts query failed: %v", err)
+		}
+		if total == 0 {
+			t.Fatal("expected planner to enqueue tasks")
+		}
+		if completedOrFailed == 0 {
+			t.Fatal("expected worker to advance at least one task out of pending/running")
+		}
+	})
 }
 
 func getJSON(t *testing.T, client *http.Client, url string, target any) {
@@ -110,4 +140,32 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
 	}
 
 	t.Fatalf("condition not met within %s", timeout)
+}
+
+func openDB(t *testing.T, dsn string) *sql.DB {
+	t.Helper()
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open database failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		t.Fatalf("ping database failed: %v", err)
+	}
+
+	return db
+}
+
+func taskCounts(db *sql.DB) (total int, completedOrFailed int, err error) {
+	row := db.QueryRow(`
+		SELECT COUNT(*),
+		       COUNT(*) FILTER (WHERE status IN ('completed', 'failed'))
+		FROM tasks
+	`)
+	err = row.Scan(&total, &completedOrFailed)
+	return
 }

@@ -186,7 +186,7 @@ Verified locally in this workspace:
 - a running Compose stack can now be smoke-tested with:
   - `make e2e`
   - verified locally via `./scripts/compose-smoke.sh`
-  - smoke assertions cover health, seeded catalog endpoints, planner leadership, and sync-status rows
+  - smoke assertions cover health, seeded catalog endpoints, planner leadership, sync-status rows, and task-state progress in the database
 - Kafka validation after backend restart is clean:
   - no fresh `UnsupportedVersionException` entries in broker logs
   - task and market consumer groups rejoin successfully
@@ -275,17 +275,22 @@ This was transient during startup; retry after a few seconds.
    - startup/bootstrap checks around topic init and API readiness
    - extend beyond smoke coverage into behavioral assertions
 
-
-2. Improve backfill source strategy.
+3. Improve backfill source strategy.
    - prefer archive sources first for historical windows
    - reduce live API usage during heavy backfill
    - add source-level throttling / cooldown beyond Kraken
    - detect and classify partial historical coverage earlier when provider APIs underfill a request
 
-3. Improve realtime mode.
+4. Improve realtime mode.
    - better source selection
    - more deterministic 24h ticker variation
    - clearer boundary between live ingestion and consolidation
+
+
+5. Evaluate Go Testcontainers for richer isolated integration tests.
+  - keep Docker Compose as the primary local stack and smoke/deployment-shape verification path
+  - use Testcontainers later if needed for per-test Kafka/Timescale lifecycles in `go test`
+
 
 ### Good candidate tasks for parallel agents
 

@@ -185,10 +185,12 @@ func (f *fakeCandleStore) HourlyCandles(_ context.Context, _ string, _ time.Time
 
 type fakeSyncWriter struct {
 	lastPair string
+	interval string
 }
 
-func (f *fakeSyncWriter) UpsertProgress(_ context.Context, pairSymbol string, _ time.Time, _ bool) error {
+func (f *fakeSyncWriter) UpsertProgress(_ context.Context, pairSymbol, interval string, _ time.Time, _ bool) error {
 	f.lastPair = pairSymbol
+	f.interval = interval
 	return nil
 }
 

@@ -108,8 +108,10 @@ func (r *Runner) runTick(ctx context.Context) error {
 	adapted := make(map[string]SyncState, len(states))
 	for symbol, state := range states {
 		adapted[symbol] = SyncState{
-			LastSynced:        state.LastSynced,
-			BackfillCompleted: state.BackfillCompleted,
+			HourlyLastSynced:        state.HourlyLastSynced,
+			DailyLastSynced:         state.DailyLastSynced,
+			HourlyBackfillCompleted: state.HourlyBackfillCompleted,
+			DailyBackfillCompleted:  state.DailyBackfillCompleted,
 		}
 	}
 

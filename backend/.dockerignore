@@ -1,7 +1,9 @@
 .git
 bin
+server
 dist
 tmp
 node_modules
 coverage
 dist
+vendor

@@ -7,15 +7,23 @@ import (
 )
 
 type SyncState struct {
-	LastSynced        time.Time
-	BackfillCompleted bool
+	HourlyLastSynced        time.Time
+	DailyLastSynced         time.Time
+	HourlyBackfillCompleted bool
+	DailyBackfillCompleted  bool
 }
 
 type SyncRow struct {
-	Pair              string
-	BackfillCompleted bool
-	LastSyncedUnix    int64
-	NextTargetUnix    int64
+	Pair                    string
+	BackfillCompleted       bool
+	LastSyncedUnix          int64
+	NextTargetUnix          int64
+	HourlyBackfillCompleted bool
+	DailyBackfillCompleted  bool
+	HourlySyncedUnix        int64
+	DailySyncedUnix         int64
+	NextHourlyTargetUnix    int64
+	NextDailyTargetUnix     int64
 }
 
 type SyncRepository struct {
@@ -28,7 +36,11 @@ func NewSyncRepository(db *sql.DB) *SyncRepository {
 
 func (r *SyncRepository) States(ctx context.Context) (map[string]SyncState, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT pair_symbol, last_synced_at, backfill_completed
+		SELECT pair_symbol,
+		       hourly_last_synced_at,
+		       daily_last_synced_at,
+		       hourly_backfill_completed,
+		       daily_backfill_completed
 		FROM sync_status
 	`)
 	if err != nil {
@@ -40,12 +52,20 @@ func (r *SyncRepository) States(ctx context.Context) (map[string]SyncState, erro
 	for rows.Next() {
 		var pairSymbol string
 		var state SyncState
-		var lastSynced sql.NullTime
-		if err := rows.Scan(&pairSymbol, &lastSynced, &state.BackfillCompleted); err != nil {
+		var hourlySynced sql.NullTime
+		var dailySynced sql.NullTime
+		if err := rows.Scan(&pairSymbol, &hourlySynced, &dailySynced, &state.HourlyBackfillCompleted, &state.DailyBackfillCompleted); err != nil {
 			return nil, err
 		}
-		if lastSynced.Valid {
-			state.LastSynced = lastSynced.Time.UTC()
+		if hourlySynced.Valid {
+			state.HourlyLastSynced = hourlySynced.Time.UTC()
+		}
+		if dailySynced.Valid {
+			state.DailyLastSynced = dailySynced.Time.UTC()
+		}
+		if !state.HourlyBackfillCompleted {
+			state.DailyBackfillCompleted = false
+			state.DailyLastSynced = time.Time{}
 		}
 		result[pairSymbol] = state
 	}
@@ -53,16 +73,46 @@ func (r *SyncRepository) States(ctx context.Context) (map[string]SyncState, erro
 	return result, rows.Err()
 }
 
-func (r *SyncRepository) UpsertProgress(ctx context.Context, pairSymbol string, lastSynced time.Time, backfillCompleted bool) error {
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO sync_status (pair_symbol, last_synced_at, backfill_completed, updated_at)
-		VALUES ($1, $2, $3, NOW())
-		ON CONFLICT (pair_symbol) DO UPDATE
-		SET last_synced_at = COALESCE(GREATEST(sync_status.last_synced_at, EXCLUDED.last_synced_at), EXCLUDED.last_synced_at),
-		    backfill_completed = EXCLUDED.backfill_completed,
-		    updated_at = NOW()
-	`, pairSymbol, lastSynced.UTC(), backfillCompleted)
-	return err
+func (r *SyncRepository) UpsertProgress(ctx context.Context, pairSymbol, interval string, lastSynced time.Time, backfillCompleted bool) error {
+	switch interval {
+	case "1d":
+		_, err := r.db.ExecContext(ctx, `
+			INSERT INTO sync_status (
+				pair_symbol,
+				daily_last_synced_at,
+				daily_backfill_completed,
+				last_synced_at,
+				backfill_completed,
+				updated_at
+			)
+			VALUES ($1, $2, $3, $2, FALSE, NOW())
+			ON CONFLICT (pair_symbol) DO UPDATE
+			SET daily_last_synced_at = COALESCE(GREATEST(sync_status.daily_last_synced_at, EXCLUDED.daily_last_synced_at), EXCLUDED.daily_last_synced_at),
+			    daily_backfill_completed = EXCLUDED.daily_backfill_completed,
+			    backfill_completed = sync_status.hourly_backfill_completed AND EXCLUDED.daily_backfill_completed,
+			    updated_at = NOW()
+		`, pairSymbol, lastSynced.UTC(), backfillCompleted)
+		return err
+	default:
+		_, err := r.db.ExecContext(ctx, `
+			INSERT INTO sync_status (
+				pair_symbol,
+				hourly_last_synced_at,
+				hourly_backfill_completed,
+				last_synced_at,
+				backfill_completed,
+				updated_at
+			)
+			VALUES ($1, $2, $3, $2, FALSE, NOW())
+			ON CONFLICT (pair_symbol) DO UPDATE
+			SET hourly_last_synced_at = COALESCE(GREATEST(sync_status.hourly_last_synced_at, EXCLUDED.hourly_last_synced_at), EXCLUDED.hourly_last_synced_at),
+			    hourly_backfill_completed = EXCLUDED.hourly_backfill_completed,
+			    last_synced_at = COALESCE(GREATEST(sync_status.last_synced_at, EXCLUDED.last_synced_at), EXCLUDED.last_synced_at),
+			    backfill_completed = EXCLUDED.backfill_completed AND sync_status.daily_backfill_completed,
+			    updated_at = NOW()
+		`, pairSymbol, lastSynced.UTC(), backfillCompleted)
+		return err
+	}
 }
 
 func (r *SyncRepository) MarkBackfillSeeded(ctx context.Context, pairSymbol string, lastSynced time.Time) error {
@@ -72,8 +122,17 @@ func (r *SyncRepository) MarkBackfillSeeded(ctx context.Context, pairSymbol stri
 	}
 
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO sync_status (pair_symbol, last_synced_at, backfill_completed, updated_at)
-		VALUES ($1, $2, FALSE, NOW())
+		INSERT INTO sync_status (
+			pair_symbol,
+			last_synced_at,
+			backfill_completed,
+			hourly_last_synced_at,
+			daily_last_synced_at,
+			hourly_backfill_completed,
+			daily_backfill_completed,
+			updated_at
+		)
+		VALUES ($1, $2, FALSE, $2, NULL, FALSE, FALSE, NOW())
 		ON CONFLICT (pair_symbol) DO NOTHING
 	`, pairSymbol, lastSyncedArg)
 	return err
@@ -82,9 +141,15 @@ func (r *SyncRepository) MarkBackfillSeeded(ctx context.Context, pairSymbol stri
 func (r *SyncRepository) SnapshotRows(ctx context.Context) ([]SyncRow, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT p.symbol,
-		       COALESCE(s.backfill_completed, FALSE),
-		       COALESCE(EXTRACT(EPOCH FROM s.last_synced_at)::BIGINT, 0),
-		       EXTRACT(EPOCH FROM NOW() + INTERVAL '1 hour')::BIGINT
+		       COALESCE(s.hourly_backfill_completed, FALSE) AND COALESCE(s.daily_backfill_completed, FALSE),
+		       COALESCE(EXTRACT(EPOCH FROM s.hourly_last_synced_at)::BIGINT, 0),
+		       EXTRACT(EPOCH FROM NOW() + INTERVAL '1 hour')::BIGINT,
+		       COALESCE(s.hourly_backfill_completed, FALSE),
+		       COALESCE(s.daily_backfill_completed, FALSE),
+		       COALESCE(EXTRACT(EPOCH FROM s.hourly_last_synced_at)::BIGINT, 0),
+		       COALESCE(EXTRACT(EPOCH FROM s.daily_last_synced_at)::BIGINT, 0),
+		       EXTRACT(EPOCH FROM NOW() + INTERVAL '1 hour')::BIGINT,
+		       EXTRACT(EPOCH FROM date_trunc('day', NOW() AT TIME ZONE 'UTC') + INTERVAL '1 day')::BIGINT
 		FROM pairs p
 		LEFT JOIN sync_status s ON s.pair_symbol = p.symbol
 		ORDER BY p.symbol
@@ -97,9 +162,25 @@ func (r *SyncRepository) SnapshotRows(ctx context.Context) ([]SyncRow, error) {
 	var items []SyncRow
 	for rows.Next() {
 		var item SyncRow
-		if err := rows.Scan(&item.Pair, &item.BackfillCompleted, &item.LastSyncedUnix, &item.NextTargetUnix); err != nil {
+		if err := rows.Scan(
+			&item.Pair,
+			&item.BackfillCompleted,
+			&item.LastSyncedUnix,
+			&item.NextTargetUnix,
+			&item.HourlyBackfillCompleted,
+			&item.DailyBackfillCompleted,
+			&item.HourlySyncedUnix,
+			&item.DailySyncedUnix,
+			&item.NextHourlyTargetUnix,
+			&item.NextDailyTargetUnix,
+		); err != nil {
 			return nil, err
 		}
+		if !item.HourlyBackfillCompleted {
+			item.DailyBackfillCompleted = false
+			item.DailySyncedUnix = 0
+		}
+		item.BackfillCompleted = item.HourlyBackfillCompleted && item.DailyBackfillCompleted
 		items = append(items, item)
 	}
 

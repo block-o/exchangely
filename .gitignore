@@ -8,3 +8,4 @@ vendor/
 *.log
 frontend/.vite/
 backend/bin/
+backend/server

@@ -14,6 +14,7 @@ import (
 	"github.com/block-o/exchangely/backend/internal/config"
 	"github.com/block-o/exchangely/backend/internal/httpapi/router"
 	"github.com/block-o/exchangely/backend/internal/ingest/binance"
+	"github.com/block-o/exchangely/backend/internal/ingest/binancevision"
 	"github.com/block-o/exchangely/backend/internal/ingest/kraken"
 	ingestregistry "github.com/block-o/exchangely/backend/internal/ingest/registry"
 	kafka "github.com/block-o/exchangely/backend/internal/messaging/kafka"
@@ -59,6 +60,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("seed catalog: %w", err)
 	}
 
+	if err := kafka.EnsureTopics(ctx, cfg.KafkaBrokers, []kafka.TopicConfig{
+		{Name: cfg.KafkaTasksTopic, NumPartitions: 12, ReplicationFactor: 1},
+		{Name: cfg.KafkaMarketTopic, NumPartitions: 12, ReplicationFactor: 1},
+	}); err != nil {
+		if !strings.Contains(err.Error(), "EOF") {
+			log.Printf("kafka topic bootstrap degraded: %v", err)
+		}
+	}
+
 	marketRepo := postgresrepo.NewMarketRepository(db)
 	syncRepo := postgresrepo.NewSyncRepository(db)
 	leaseRepo := postgresrepo.NewLeaseRepository(db)
@@ -83,6 +93,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	taskPublisher := kafka.NewTaskPublisher(cfg.KafkaBrokers, cfg.KafkaTasksTopic)
 	marketPublisher := kafka.NewMarketEventPublisher(cfg.KafkaBrokers, cfg.KafkaMarketTopic)
 	sourceRegistry := ingestregistry.New(
+		binancevision.NewClient("", nil),
 		kraken.NewClient("", nil),
 		binance.NewClient("", nil),
 	)

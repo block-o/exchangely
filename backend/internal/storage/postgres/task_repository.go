@@ -89,8 +89,10 @@ func (r *TaskRepository) Pending(ctx context.Context, limit int) ([]task.Task, e
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, task_type, pair_symbol, interval, window_start, window_end
 		FROM tasks
-		WHERE status IN ('pending', 'failed')
-		ORDER BY window_start,
+		WHERE status = 'pending'
+		   OR (status = 'failed' AND updated_at <= NOW() - INTERVAL '5 minutes')
+		ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END,
+		         window_start,
 		         CASE interval WHEN '1h' THEN 0 ELSE 1 END,
 		         created_at
 		LIMIT $1

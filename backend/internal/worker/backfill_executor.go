@@ -25,7 +25,7 @@ type CandleStore interface {
 }
 
 type SyncProgressWriter interface {
-	UpsertProgress(ctx context.Context, pairSymbol string, lastSynced time.Time, backfillCompleted bool) error
+	UpsertProgress(ctx context.Context, pairSymbol, interval string, lastSynced time.Time, backfillCompleted bool) error
 }
 
 type BackfillExecutor struct {
@@ -64,14 +64,14 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 		return err
 	}
 	if len(candles) == 0 {
-		return e.sync.UpsertProgress(ctx, item.Pair, item.WindowEnd.UTC(), backfillComplete(item))
+		return e.sync.UpsertProgress(ctx, item.Pair, item.Interval, item.WindowEnd.UTC(), backfillComplete(item))
 	}
 
 	if err := e.candles.UpsertCandles(ctx, item.Interval, candles); err != nil {
 		return err
 	}
 
-	return e.sync.UpsertProgress(ctx, item.Pair, item.WindowEnd.UTC(), backfillComplete(item))
+	return e.sync.UpsertProgress(ctx, item.Pair, item.Interval, item.WindowEnd.UTC(), backfillComplete(item))
 }
 
 func (e *BackfillExecutor) materializeCandles(ctx context.Context, item task.Task) ([]candle.Candle, error) {

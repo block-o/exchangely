@@ -8,26 +8,22 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/ingest"
 )
 
-var pairMap = map[string]string{
-	"BTCEUR":  "XBTEUR",
-	"ETHEUR":  "ETHEUR",
-	"SOLEUR":  "SOLEUR",
-	"XRPEUR":  "XRPEUR",
-	"ADAEUR":  "ADAEUR",
-	"LINKEUR": "LINKEUR",
-	"AVAXEUR": "AVAXEUR",
-	"DOGEEUR": "DOGEEUR",
-}
+const rateLimitCooldown = 30 * time.Second
 
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	mu         sync.RWMutex
+	pairMap    map[string]string
+	cachedAt   time.Time
+	cooldown   time.Time
 }
 
 func NewClient(baseURL string, httpClient *http.Client) *Client {
@@ -49,14 +45,17 @@ func (c *Client) Name() string {
 }
 
 func (c *Client) Supports(request ingest.Request) bool {
-	_, ok := pairMap[request.Pair]
-	return ok && request.Interval != ""
+	return request.Quote == "EUR" && (request.Interval == "1h" || request.Interval == "1d")
 }
 
 func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error) {
-	pairCode, ok := pairMap[request.Pair]
-	if !ok {
-		return nil, fmt.Errorf("pair %s is not mapped for kraken", request.Pair)
+	if err := c.cooldownError(); err != nil {
+		return nil, err
+	}
+
+	pairCode, err := c.resolvePairCode(ctx, request.Pair)
+	if err != nil {
+		return nil, err
 	}
 
 	interval, err := krakenInterval(request.Interval)
@@ -80,6 +79,10 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusTooManyRequests {
+		c.setCooldown()
+		return nil, fmt.Errorf("kraken status %d", resp.StatusCode)
+	}
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("kraken status %d", resp.StatusCode)
 	}
@@ -92,7 +95,11 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 		return nil, err
 	}
 	if len(payload.Error) > 0 {
-		return nil, fmt.Errorf("kraken error: %s", strings.Join(payload.Error, ", "))
+		message := strings.Join(payload.Error, ", ")
+		if strings.Contains(message, "Too many requests") {
+			c.setCooldown()
+		}
+		return nil, fmt.Errorf("kraken error: %s", message)
 	}
 
 	rawRows, ok := payload.Result[pairCode]
@@ -155,6 +162,114 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 	}
 
 	return items, nil
+}
+
+func (c *Client) resolvePairCode(ctx context.Context, pair string) (string, error) {
+	normalized := normalizeKrakenPair(pair)
+
+	c.mu.RLock()
+	if c.pairMap != nil {
+		if code, ok := c.pairMap[normalized]; ok {
+			c.mu.RUnlock()
+			return code, nil
+		}
+	}
+	c.mu.RUnlock()
+
+	if err := c.loadPairMap(ctx); err != nil {
+		return "", err
+	}
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	code, ok := c.pairMap[normalized]
+	if !ok {
+		return "", fmt.Errorf("pair %s is not mapped for kraken", pair)
+	}
+	return code, nil
+}
+
+func (c *Client) loadPairMap(ctx context.Context) error {
+	c.mu.RLock()
+	if c.pairMap != nil && time.Since(c.cachedAt) < 6*time.Hour {
+		c.mu.RUnlock()
+		return nil
+	}
+	c.mu.RUnlock()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/0/public/AssetPairs", nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("kraken asset pairs status %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		Error  []string `json:"error"`
+		Result map[string]struct {
+			AltName string `json:"altname"`
+			WSName  string `json:"wsname"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return err
+	}
+	if len(payload.Error) > 0 {
+		return fmt.Errorf("kraken asset pairs error: %s", strings.Join(payload.Error, ", "))
+	}
+
+	pairs := make(map[string]string, len(payload.Result)*3)
+	for code, item := range payload.Result {
+		keys := []string{
+			normalizeKrakenPair(code),
+			normalizeKrakenPair(item.AltName),
+			normalizeKrakenPair(item.WSName),
+		}
+		for _, key := range keys {
+			if key == "" {
+				continue
+			}
+			pairs[key] = code
+		}
+	}
+
+	c.mu.Lock()
+	c.pairMap = pairs
+	c.cachedAt = time.Now().UTC()
+	c.mu.Unlock()
+	return nil
+}
+
+func normalizeKrakenPair(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	replacer := strings.NewReplacer("/", "", "-", "", "_", "", " ", "")
+	value = replacer.Replace(value)
+	value = strings.ReplaceAll(value, "XBT", "BTC")
+	value = strings.ReplaceAll(value, "XDG", "DOGE")
+	return value
+}
+
+func (c *Client) cooldownError() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.cooldown.After(time.Now().UTC()) {
+		return fmt.Errorf("kraken cooldown active until %s", c.cooldown.Format(time.RFC3339))
+	}
+	return nil
+}
+
+func (c *Client) setCooldown() {
+	c.mu.Lock()
+	c.cooldown = time.Now().UTC().Add(rateLimitCooldown)
+	c.mu.Unlock()
 }
 
 func krakenInterval(interval string) (int, error) {

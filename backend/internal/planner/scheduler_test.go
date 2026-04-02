@@ -15,7 +15,10 @@ func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
 		{Symbol: "BTCEUR"},
 		{Symbol: "ETHUSDT"},
 	}, map[string]SyncState{
-		"BTCEUR": {LastSynced: now.Add(-48 * time.Hour)},
+		"BTCEUR": {
+			HourlyLastSynced:        now.Add(-48 * time.Hour),
+			HourlyBackfillCompleted: false,
+		},
 	}, now)
 
 	if len(tasks) == 0 {
@@ -29,13 +32,19 @@ func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
 		if !item.WindowEnd.After(item.WindowStart) {
 			t.Fatalf("expected positive task window for %s", item.ID)
 		}
+		if item.Interval == "" {
+			t.Fatalf("expected interval to be encoded for %s", item.ID)
+		}
 	}
 
-	if !seenPairIntervals["BTCEUR:1h"] || !seenPairIntervals["BTCEUR:1d"] {
-		t.Fatal("expected BTCEUR hourly and daily tasks")
+	if !seenPairIntervals["BTCEUR:1h"] {
+		t.Fatal("expected BTCEUR hourly tasks")
 	}
-	if !seenPairIntervals["ETHUSDT:1h"] || !seenPairIntervals["ETHUSDT:1d"] {
-		t.Fatal("expected ETHUSDT hourly and daily tasks")
+	if seenPairIntervals["BTCEUR:1d"] || seenPairIntervals["ETHUSDT:1d"] {
+		t.Fatal("did not expect daily tasks before hourly backfill completion")
+	}
+	if !seenPairIntervals["ETHUSDT:1h"] {
+		t.Fatal("expected ETHUSDT hourly tasks")
 	}
 }
 
@@ -47,8 +56,17 @@ func TestBuildRealtimeTasksIncludesOnlyCaughtUpPairs(t *testing.T) {
 		{Symbol: "BTCEUR"},
 		{Symbol: "ETHUSDT"},
 	}, map[string]SyncState{
-		"BTCEUR":  {LastSynced: now, BackfillCompleted: true},
-		"ETHUSDT": {LastSynced: now, BackfillCompleted: false},
+		"BTCEUR": {
+			HourlyLastSynced:        now,
+			DailyLastSynced:         now.Truncate(24 * time.Hour),
+			HourlyBackfillCompleted: true,
+			DailyBackfillCompleted:  true,
+		},
+		"ETHUSDT": {
+			HourlyLastSynced:        now,
+			HourlyBackfillCompleted: true,
+			DailyBackfillCompleted:  false,
+		},
 	}, now)
 
 	if len(tasks) != 1 {

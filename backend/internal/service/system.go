@@ -89,10 +89,16 @@ func (s *SystemService) SyncStatus(ctx context.Context) (syncstatus.Snapshot, er
 	items := make([]syncstatus.PairSyncStatus, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, syncstatus.PairSyncStatus{
-			Pair:              row.Pair,
-			BackfillCompleted: row.BackfillCompleted,
-			LastSyncedUnix:    row.LastSyncedUnix,
-			NextTargetUnix:    row.NextTargetUnix,
+			Pair:                    row.Pair,
+			BackfillCompleted:       row.BackfillCompleted,
+			LastSyncedUnix:          row.LastSyncedUnix,
+			NextTargetUnix:          row.NextTargetUnix,
+			HourlyBackfillCompleted: row.HourlyBackfillCompleted,
+			DailyBackfillCompleted:  row.DailyBackfillCompleted,
+			HourlySyncedUnix:        row.HourlySyncedUnix,
+			DailySyncedUnix:         row.DailySyncedUnix,
+			NextHourlyTargetUnix:    row.NextHourlyTargetUnix,
+			NextDailyTargetUnix:     row.NextDailyTargetUnix,
 		})
 	}
 

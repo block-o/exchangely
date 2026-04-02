@@ -9,8 +9,10 @@ import (
 )
 
 type SyncState struct {
-	LastSynced        time.Time
-	BackfillCompleted bool
+	HourlyLastSynced        time.Time
+	DailyLastSynced         time.Time
+	HourlyBackfillCompleted bool
+	DailyBackfillCompleted  bool
 }
 
 type Scheduler struct {
@@ -31,13 +33,24 @@ func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[strin
 	tasks := make([]task.Task, 0)
 
 	for _, trackedPair := range pairs {
-		cursor := state[trackedPair.Symbol].LastSynced.UTC()
-		if cursor.IsZero() {
-			cursor = currentHour.AddDate(0, 0, -30)
+		pairState := state[trackedPair.Symbol]
+		hourlyCursor := pairState.HourlyLastSynced.UTC()
+		if hourlyCursor.IsZero() {
+			hourlyCursor = currentHour.AddDate(0, 0, -30)
 		}
 
-		tasks = append(tasks, s.windowedTasks(trackedPair.Symbol, "1h", cursor, currentHour, s.backfillWindow1H)...)
-		tasks = append(tasks, s.windowedTasks(trackedPair.Symbol, "1d", cursor.Truncate(24*time.Hour), currentDay, s.backfillWindow1D)...)
+		if !pairState.HourlyBackfillCompleted {
+			tasks = append(tasks, s.windowedTasks(trackedPair.Symbol, "1h", hourlyCursor, currentHour, s.backfillWindow1H)...)
+			continue
+		}
+
+		dailyCursor := pairState.DailyLastSynced.UTC()
+		if dailyCursor.IsZero() {
+			dailyCursor = hourlyCursor.Truncate(24 * time.Hour)
+		}
+		if !pairState.DailyBackfillCompleted {
+			tasks = append(tasks, s.windowedTasks(trackedPair.Symbol, "1d", dailyCursor, currentDay, s.backfillWindow1D)...)
+		}
 	}
 
 	return tasks
@@ -50,12 +63,12 @@ func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncS
 
 	for _, trackedPair := range pairs {
 		pairState, ok := state[trackedPair.Symbol]
-		if !ok || !pairState.BackfillCompleted {
+		if !ok || !pairState.HourlyBackfillCompleted || !pairState.DailyBackfillCompleted {
 			continue
 		}
 
 		tasks = append(tasks, task.Task{
-			ID:          fmt.Sprintf("%s:%s:%d:%d", task.TypeRealtime, trackedPair.Symbol, currentHour.Unix(), nextHour.Unix()),
+			ID:          taskID(task.TypeRealtime, trackedPair.Symbol, "1h", currentHour, nextHour),
 			Type:        task.TypeRealtime,
 			Pair:        trackedPair.Symbol,
 			Interval:    "1h",
@@ -76,7 +89,7 @@ func (s *Scheduler) windowedTasks(pairSymbol, interval string, start, end time.T
 		}
 
 		tasks = append(tasks, task.Task{
-			ID:          fmt.Sprintf("%s:%s:%d:%d", task.TypeBackfill, pairSymbol, cursor.Unix(), windowEnd.Unix()),
+			ID:          taskID(task.TypeBackfill, pairSymbol, interval, cursor, windowEnd),
 			Type:        task.TypeBackfill,
 			Pair:        pairSymbol,
 			Interval:    interval,
@@ -86,6 +99,10 @@ func (s *Scheduler) windowedTasks(pairSymbol, interval string, start, end time.T
 	}
 
 	return tasks
+}
+
+func taskID(taskType, pairSymbol, interval string, start, end time.Time) string {
+	return fmt.Sprintf("%s:%s:%s:%d:%d", taskType, pairSymbol, interval, start.UTC().Unix(), end.UTC().Unix())
 }
 
 func minTime(a, b time.Time) time.Time {

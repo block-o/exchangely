@@ -122,6 +122,9 @@ func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client())
+	client.now = func() time.Time {
+		return time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC)
+	}
 	_, err := client.FetchCandles(context.Background(), ingest.Request{
 		Pair:      "BTCEUR",
 		Base:      "BTC",
@@ -147,5 +150,41 @@ func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
 	}
 	if requests != 2 {
 		t.Fatalf("expected asset pair lookup and first ohlc call only, got %d requests", requests)
+	}
+}
+
+func TestFetchCandlesEntersCooldownWhenAssetPairsRateLimited(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	client.now = func() time.Time {
+		return time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC)
+	}
+
+	request := ingest.Request{
+		Pair:      "BTCEUR",
+		Base:      "BTC",
+		Quote:     "EUR",
+		Interval:  "1h",
+		StartTime: time.Unix(1711929600, 0).UTC(),
+		EndTime:   time.Unix(1711933200, 0).UTC(),
+	}
+
+	_, err := client.FetchCandles(context.Background(), request)
+	if err == nil {
+		t.Fatal("expected asset pairs rate limit error")
+	}
+
+	_, err = client.FetchCandles(context.Background(), request)
+	if err == nil || !strings.Contains(err.Error(), "cooldown active") {
+		t.Fatalf("expected cooldown error, got %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("expected only the first request to hit kraken, got %d requests", requests)
 	}
 }

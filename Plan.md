@@ -13,11 +13,11 @@ It tracks:
 Current branch: `master`
 
 Last committed work in git:
-- `3276fa0` Stabilize runtime backfill and local infra
-- `3fefbce` Add realtime Kafka dispatch and ingestion loops
-- `c146d43` Persist raw candles and derive consolidated buckets
-- `de8add3` Add exchange adapter-backed backfill ingestion
-- `09c985e` Implement DB-backed planner and worker runtime
+- `b32fed4` Validate historical source coverage
+- `3d2cfbe` Add Binance API cooldown handling
+- `2c82df0` Scope Binance Vision to historical windows
+- `d7d3012` Remove synthetic candle fallback
+- `4b21203` Add Kafka topic bootstrap coverage
 
 Note:
 - The working tree may change between sessions; always check `git status --short`.
@@ -82,6 +82,7 @@ These decisions were already made and implemented enough that new work should bu
 - Kraken improvements
   - dynamic `AssetPairs` resolution
   - cooldown after rate-limit responses
+  - cooldown also applies when `AssetPairs` lookup is rate-limited
 - registry improvements
   - empty source responses now fall through to the next supporting source
   - no-data conditions surface as task failures instead of silent success
@@ -243,20 +244,15 @@ This was transient during startup; retry after a few seconds.
 
 ### Next priority
 
-1. Add integration coverage for local infra.
-   - planner lease
-   - task enqueue/consume
-   - Kafka topic bootstrap
-   - hourly -> daily promotion
-   - status:
-     - hourly -> daily promotion coverage has been added
-     - planner lease and task consume coverage have been added
-     - Kafka bootstrap coverage has been added
-
-2. Continue hardening backfill sources.
+1. Continue hardening backfill sources.
    - reduce task failures caused by public-source gaps
    - prefer archive-backed coverage where possible
    - add better source selection and retry/cooldown behavior
+
+2. Add fuller Compose-level integration coverage.
+   - planner lease under the Compose stack
+   - task enqueue/consume against Kafka + DB together
+   - startup/bootstrap checks around topic init and API readiness
 
 2. Improve backfill source strategy.
    - prefer archive sources first for historical windows

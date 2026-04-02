@@ -20,6 +20,7 @@ const rateLimitCooldown = 30 * time.Second
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	now        func() time.Time
 	mu         sync.RWMutex
 	pairMap    map[string]string
 	cachedAt   time.Time
@@ -37,6 +38,7 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
 	return &Client{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		httpClient: httpClient,
+		now:        time.Now,
 	}
 }
 
@@ -191,7 +193,7 @@ func (c *Client) resolvePairCode(ctx context.Context, pair string) (string, erro
 
 func (c *Client) loadPairMap(ctx context.Context) error {
 	c.mu.RLock()
-	if c.pairMap != nil && time.Since(c.cachedAt) < 6*time.Hour {
+	if c.pairMap != nil && c.now().UTC().Sub(c.cachedAt) < 6*time.Hour {
 		c.mu.RUnlock()
 		return nil
 	}
@@ -208,6 +210,10 @@ func (c *Client) loadPairMap(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusTooManyRequests {
+		c.setCooldown()
+		return fmt.Errorf("kraken asset pairs status %d", resp.StatusCode)
+	}
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("kraken asset pairs status %d", resp.StatusCode)
 	}
@@ -223,7 +229,11 @@ func (c *Client) loadPairMap(ctx context.Context) error {
 		return err
 	}
 	if len(payload.Error) > 0 {
-		return fmt.Errorf("kraken asset pairs error: %s", strings.Join(payload.Error, ", "))
+		message := strings.Join(payload.Error, ", ")
+		if strings.Contains(message, "Too many requests") {
+			c.setCooldown()
+		}
+		return fmt.Errorf("kraken asset pairs error: %s", message)
 	}
 
 	pairs := make(map[string]string, len(payload.Result)*3)
@@ -243,7 +253,7 @@ func (c *Client) loadPairMap(ctx context.Context) error {
 
 	c.mu.Lock()
 	c.pairMap = pairs
-	c.cachedAt = time.Now().UTC()
+	c.cachedAt = c.now().UTC()
 	c.mu.Unlock()
 	return nil
 }
@@ -260,7 +270,7 @@ func normalizeKrakenPair(value string) string {
 func (c *Client) cooldownError() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c.cooldown.After(time.Now().UTC()) {
+	if c.cooldown.After(c.now().UTC()) {
 		return fmt.Errorf("kraken cooldown active until %s", c.cooldown.Format(time.RFC3339))
 	}
 	return nil
@@ -268,7 +278,7 @@ func (c *Client) cooldownError() error {
 
 func (c *Client) setCooldown() {
 	c.mu.Lock()
-	c.cooldown = time.Now().UTC().Add(rateLimitCooldown)
+	c.cooldown = c.now().UTC().Add(rateLimitCooldown)
 	c.mu.Unlock()
 }
 

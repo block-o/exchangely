@@ -186,10 +186,11 @@ Verified locally in this workspace:
 - a running Compose stack can now be smoke-tested with:
   - `make e2e`
   - verified locally via `./scripts/compose-smoke.sh`
-  - smoke assertions cover health, seeded catalog endpoints, planner leadership, active lease persistence, sync-status rows, task claims, and task-state progress in the database
+  - smoke assertions cover health, seeded catalog endpoints, planner leadership, active lease persistence, sync-status rows, task claims, task-state progress in the database, Kafka topics, and Kafka consumer-group presence
 - Kafka validation after backend restart is clean:
   - no fresh `UnsupportedVersionException` entries in broker logs
   - task and market consumer groups rejoin successfully
+  - smoke workflow now verifies topics and consumer groups from the broker CLI
 
 Useful verification commands:
 

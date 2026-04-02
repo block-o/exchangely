@@ -10,3 +10,5 @@ Usage:
 Convenience wrapper from repo root:
 
 `make e2e`
+
+The Compose smoke flow also verifies Kafka topics and consumer groups from the live broker after the Go e2e checks pass.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -26,6 +27,7 @@ func TestRunningComposeStack(t *testing.T) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	db := openDB(t, databaseURL)
 	defer db.Close()
+	seededPair := seedMarketFixture(t, db)
 
 	t.Run("health", func(t *testing.T) {
 		var payload struct {
@@ -124,6 +126,56 @@ func TestRunningComposeStack(t *testing.T) {
 			t.Fatal("expected worker to advance at least one task out of pending/running")
 		}
 	})
+
+	t.Run("market api", func(t *testing.T) {
+		start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+		end := start.Add(24 * time.Hour)
+
+		var historical struct {
+			Data []struct {
+				Pair      string  `json:"pair"`
+				Interval  string  `json:"interval"`
+				Timestamp int64   `json:"timestamp"`
+				Close     float64 `json:"close"`
+				Source    string  `json:"source"`
+			} `json:"data"`
+		}
+		historicalURL := fmt.Sprintf(
+			"%s/api/v1/historical/%s?interval=1h&start_time=%d&end_time=%d",
+			baseURL,
+			seededPair,
+			start.Unix(),
+			end.Unix(),
+		)
+		getJSON(t, client, historicalURL, &historical)
+		if len(historical.Data) != 2 {
+			t.Fatalf("expected 2 historical candles, got %d", len(historical.Data))
+		}
+		if historical.Data[0].Pair != seededPair || historical.Data[0].Source != "e2e-fixture" {
+			t.Fatalf("unexpected historical payload: %+v", historical.Data[0])
+		}
+
+		var latest struct {
+			Pair           string  `json:"pair"`
+			Price          float64 `json:"price"`
+			Variation24H   float64 `json:"variation_24h"`
+			LastUpdateUnix int64   `json:"last_update_unix"`
+			Source         string  `json:"source"`
+		}
+		getJSON(t, client, baseURL+"/api/v1/ticker/"+seededPair, &latest)
+		if latest.Pair != seededPair || latest.Source != "e2e-fixture" {
+			t.Fatalf("unexpected ticker payload: %+v", latest)
+		}
+		if latest.Price != 110 {
+			t.Fatalf("expected ticker price 110, got %v", latest.Price)
+		}
+		if latest.Variation24H != 10 {
+			t.Fatalf("expected 24h variation 10, got %v", latest.Variation24H)
+		}
+		if latest.LastUpdateUnix != end.Unix() {
+			t.Fatalf("expected ticker timestamp %d, got %d", end.Unix(), latest.LastUpdateUnix)
+		}
+	})
 }
 
 func getJSON(t *testing.T, client *http.Client, url string, target any) {
@@ -182,6 +234,55 @@ func openDB(t *testing.T, dsn string) *sql.DB {
 	}
 
 	return db
+}
+
+func seedMarketFixture(t *testing.T, db *sql.DB) string {
+	t.Helper()
+
+	pairSymbol := "E2ETESTUSDT"
+	first := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	second := first.Add(24 * time.Hour)
+
+	for _, item := range []struct {
+		timestamp time.Time
+		open      float64
+		high      float64
+		low       float64
+		close     float64
+	}{
+		{timestamp: first, open: 100, high: 102, low: 99, close: 100},
+		{timestamp: second, open: 105, high: 111, low: 104, close: 110},
+	} {
+		if _, err := db.Exec(`
+			INSERT INTO candles_1h (pair_symbol, bucket_start, open, high, low, close, volume, source, finalized)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
+			ON CONFLICT (pair_symbol, bucket_start) DO UPDATE
+			SET open = EXCLUDED.open,
+			    high = EXCLUDED.high,
+			    low = EXCLUDED.low,
+			    close = EXCLUDED.close,
+			    volume = EXCLUDED.volume,
+			    source = EXCLUDED.source,
+			    finalized = EXCLUDED.finalized
+		`,
+			pairSymbol,
+			item.timestamp,
+			item.open,
+			item.high,
+			item.low,
+			item.close,
+			100.0,
+			"e2e-fixture",
+		); err != nil {
+			t.Fatalf("seed market fixture failed: %v", err)
+		}
+	}
+
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM candles_1h WHERE pair_symbol = $1`, pairSymbol)
+	})
+
+	return pairSymbol
 }
 
 func taskCounts(db *sql.DB) (total int, claimed int, completedOrFailed int, err error) {

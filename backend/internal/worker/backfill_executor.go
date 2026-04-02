@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/consolidate"
@@ -174,7 +174,7 @@ func (e *BackfillExecutor) fetchSourceCandles(ctx context.Context, item task.Tas
 		return items, nil
 	}
 
-	log.Printf("market source fetch failed for %s %s: %v", item.Pair, item.Interval, err)
+	slog.Warn("market source fetch failed", "pair", item.Pair, "interval", item.Interval, "error", err)
 	return nil, fmt.Errorf("%w: %v", ErrMarketSourceUnavailable, err)
 }
 

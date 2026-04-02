@@ -68,6 +68,7 @@ These decisions were already made and implemented enough that new work should bu
 - daily consolidation from hourly only
 - realtime Kafka task and market event plumbing
 - DB-backed REST API
+- shared structured logger bootstrap via Go `log/slog`
 
 ### Ingestion Sources
 
@@ -166,6 +167,12 @@ Verified locally in this workspace:
 - backfill executor tests now cover:
   - missing source registry
   - source coverage gaps
+- runtime now emits structured logs on main execution paths
+  - server and migrate entrypoints
+  - app bootstrap/shutdown
+  - planner publish degradation
+  - worker task failures
+  - Kafka task-consumer failures
 - Docker Compose stack starts
 - backend health endpoint returns healthy status
 - Kafka topics exist:
@@ -206,9 +213,9 @@ Last observed backend state:
 4. Data-source strategy is still mixed between archive and live API.
    - source selection and rate-limit handling still need to improve over time
 
-5. Logging is still ad hoc.
-   - replace scattered `log.Printf` / `log.Fatal` usage with Go’s structured `log/slog`
-   - standardize level usage across runtime paths: `INFO`, `WARN`, `ERROR`
+5. Logging is only partially standardized.
+   - main runtime paths now use Go’s structured `log/slog`
+   - remaining packages should be migrated to the same levelled logging style
 
 ## Current Uncommitted Files
 
@@ -260,8 +267,8 @@ This was transient during startup; retry after a few seconds.
    - startup/bootstrap checks around topic init and API readiness
 
 3. Standardize logging.
-   - introduce shared `log/slog` setup
-   - replace raw package-level logging across app, planner, worker, and Kafka runtime paths
+   - finish replacing any remaining ad hoc logging with shared `log/slog`
+   - standardize field names and level usage across the whole backend
 
 2. Improve backfill source strategy.
    - prefer archive sources first for historical windows

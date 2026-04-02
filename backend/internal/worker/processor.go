@@ -2,7 +2,7 @@ package worker
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/task"
@@ -103,7 +103,7 @@ func (r *Runner) runBatch(ctx context.Context) error {
 
 	for _, item := range items {
 		if err := r.processor.Process(ctx, item); err != nil {
-			log.Printf("worker task %s failed: %v", item.ID, err)
+			slog.Warn("worker task failed", "task_id", item.ID, "pair", item.Pair, "interval", item.Interval, "error", err)
 		}
 	}
 

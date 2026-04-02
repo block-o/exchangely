@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -65,7 +65,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		{Name: cfg.KafkaMarketTopic, NumPartitions: 12, ReplicationFactor: 1},
 	}); err != nil {
 		if !strings.Contains(err.Error(), "EOF") {
-			log.Printf("kafka topic bootstrap degraded: %v", err)
+			slog.Warn("kafka topic bootstrap degraded", "error", err)
 		}
 	}
 
@@ -226,7 +226,7 @@ func (a *App) shutdown() error {
 	}
 
 	if len(errs) > 0 {
-		log.Printf("shutdown errors: %v", errs)
+		slog.Error("shutdown completed with errors", "count", len(errs), "error", errs[0])
 		return errs[0]
 	}
 

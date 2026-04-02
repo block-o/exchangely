@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/task"
@@ -62,12 +62,12 @@ func (c *TaskConsumer) Run(ctx context.Context) error {
 func (c *TaskConsumer) handleMessage(ctx context.Context, message kafkago.Message) error {
 	var item task.Task
 	if err := json.Unmarshal(message.Value, &item); err != nil {
-		log.Printf("task consumer invalid payload: %v", err)
+		slog.Warn("task consumer invalid payload", "error", err)
 		return nil
 	}
 
 	if err := c.handler.Process(ctx, item); err != nil {
-		log.Printf("task consumer processing failed for %s: %v", item.ID, err)
+		slog.Warn("task consumer processing failed", "task_id", item.ID, "pair", item.Pair, "interval", item.Interval, "error", err)
 	}
 
 	return nil

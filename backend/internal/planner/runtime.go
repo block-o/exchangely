@@ -2,7 +2,7 @@ package planner
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/lease"
@@ -136,7 +136,7 @@ func (r *Runner) runTick(ctx context.Context) error {
 
 	if r.publisher != nil {
 		if err := r.publisher.Publish(ctx, tasks); err != nil {
-			log.Printf("planner task publish degraded: %v", err)
+			slog.Warn("planner task publish degraded", "error", err, "task_count", len(tasks))
 		}
 	}
 

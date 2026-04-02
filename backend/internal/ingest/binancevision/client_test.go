@@ -80,6 +80,35 @@ func TestFetchCandlesFallsBackToDailyArchives(t *testing.T) {
 	}
 }
 
+func TestSupportsOnlyHistoricalWindows(t *testing.T) {
+	client := NewClient("https://data.binance.vision", http.DefaultClient)
+	client.now = func() time.Time {
+		return time.Date(2026, 4, 2, 15, 0, 0, 0, time.UTC)
+	}
+
+	if !client.Supports(ingest.Request{
+		Pair:      "BTCUSDT",
+		Base:      "BTC",
+		Quote:     "USDT",
+		Interval:  "1h",
+		StartTime: time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+	}) {
+		t.Fatal("expected historical window to be supported")
+	}
+
+	if client.Supports(ingest.Request{
+		Pair:      "BTCUSDT",
+		Base:      "BTC",
+		Quote:     "USDT",
+		Interval:  "1h",
+		StartTime: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 4, 2, 1, 0, 0, 0, time.UTC),
+	}) {
+		t.Fatal("expected current-day window to bypass binance vision")
+	}
+}
+
 func writeZipCSV(t *testing.T, w http.ResponseWriter, name, content string) {
 	t.Helper()
 

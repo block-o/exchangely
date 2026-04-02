@@ -21,6 +21,7 @@ var errArchiveNotFound = errors.New("binance vision archive not found")
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	now        func() time.Time
 }
 
 func NewClient(baseURL string, httpClient *http.Client) *Client {
@@ -34,6 +35,7 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
 	return &Client{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		httpClient: httpClient,
+		now:        time.Now,
 	}
 }
 
@@ -50,7 +52,8 @@ func (c *Client) Supports(request ingest.Request) bool {
 
 	switch request.Quote {
 	case "USDT", "EUR":
-		return true
+		archiveCutoff := dayStart(c.now().UTC())
+		return !request.EndTime.UTC().After(archiveCutoff)
 	default:
 		return false
 	}

@@ -77,6 +77,7 @@ These decisions were already made and implemented enough that new work should bu
   - monthly kline zip archives
   - daily archive fallback if monthly archive missing
   - timestamp normalization for Binance’s newer microsecond archives
+  - only used for windows closed before the current UTC day
 - Kraken improvements
   - dynamic `AssetPairs` resolution
   - cooldown after rate-limit responses

@@ -72,6 +72,7 @@ These decisions were already made and implemented enough that new work should bu
 ### Ingestion Sources
 
 - Binance API adapter
+  - cooldown after rate-limit responses
 - Kraken API adapter
 - Binance Vision archive adapter
   - monthly kline zip archives
@@ -155,6 +156,9 @@ Verified locally in this workspace:
   - topic config normalization
   - broker fallback
   - already-exists tolerance
+- live source tests now cover:
+  - Binance cooldown after rate-limit responses
+  - Kraken cooldown after rate-limit responses
 - Docker Compose stack starts
 - backend health endpoint returns healthy status
 - Kafka topics exist:
@@ -192,8 +196,8 @@ Last observed backend state:
 
 3. There is not yet full Compose-level automated integration coverage.
 
-4. Data-source strategy is still mixed between archive, live API, and synthetic fallback.
-   - fallback candles should be reduced over time
+4. Data-source strategy is still mixed between archive and live API.
+   - source selection and rate-limit handling still need to improve over time
 
 ## Current Uncommitted Files
 

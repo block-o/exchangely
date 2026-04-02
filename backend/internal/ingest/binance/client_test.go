@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,5 +38,41 @@ func TestFetchCandlesParsesBinanceKlines(t *testing.T) {
 	}
 	if items[0].Source != "binance" || items[0].Close != 64400 {
 		t.Fatalf("unexpected candle: %+v", items[0])
+	}
+}
+
+func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	client.now = func() time.Time {
+		return time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC)
+	}
+
+	request := ingest.Request{
+		Pair:      "BTCUSDT",
+		Base:      "BTC",
+		Quote:     "USDT",
+		Interval:  "1h",
+		StartTime: time.Unix(1711929600, 0).UTC(),
+		EndTime:   time.Unix(1711936800, 0).UTC(),
+	}
+
+	_, err := client.FetchCandles(context.Background(), request)
+	if err == nil {
+		t.Fatal("expected rate limit error")
+	}
+
+	_, err = client.FetchCandles(context.Background(), request)
+	if err == nil || !strings.Contains(err.Error(), "cooldown active") {
+		t.Fatalf("expected cooldown error, got %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("expected only the first request to hit binance, got %d", requests)
 	}
 }

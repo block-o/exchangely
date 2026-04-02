@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
@@ -17,6 +18,9 @@ import (
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	now        func() time.Time
+	mu         sync.RWMutex
+	cooldown   time.Time
 }
 
 func NewClient(baseURL string, httpClient *http.Client) *Client {
@@ -30,6 +34,7 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
 	return &Client{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		httpClient: httpClient,
+		now:        time.Now,
 	}
 }
 
@@ -42,6 +47,10 @@ func (c *Client) Supports(request ingest.Request) bool {
 }
 
 func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error) {
+	if err := c.cooldownError(); err != nil {
+		return nil, err
+	}
+
 	params := url.Values{}
 	params.Set("symbol", request.Base+request.Quote)
 	params.Set("interval", request.Interval)
@@ -60,6 +69,10 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusTeapot {
+		c.setCooldown()
+		return nil, fmt.Errorf("binance status %d", resp.StatusCode)
+	}
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("binance status %d", resp.StatusCode)
 	}
@@ -115,6 +128,23 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 	}
 
 	return items, nil
+}
+
+func (c *Client) cooldownError() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.cooldown.IsZero() || !c.now().UTC().Before(c.cooldown) {
+		return nil
+	}
+
+	return fmt.Errorf("binance cooldown active until %s", c.cooldown.Format(time.RFC3339))
+}
+
+func (c *Client) setCooldown() {
+	c.mu.Lock()
+	c.cooldown = c.now().UTC().Add(30 * time.Second)
+	c.mu.Unlock()
 }
 
 func toFloat64(value any) (float64, error) {

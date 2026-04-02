@@ -80,21 +80,45 @@ func TestRunningComposeStack(t *testing.T) {
 		}
 	})
 
+	t.Run("planner lease", func(t *testing.T) {
+		waitFor(t, 20*time.Second, func() bool {
+			holder, expiresAt, err := plannerLease(db, "planner_leader")
+			if err != nil {
+				t.Fatalf("planner lease query failed: %v", err)
+			}
+			return holder != "" && expiresAt.After(time.Now().UTC())
+		})
+
+		holder, expiresAt, err := plannerLease(db, "planner_leader")
+		if err != nil {
+			t.Fatalf("planner lease query failed: %v", err)
+		}
+		if holder == "" {
+			t.Fatal("expected planner lease holder")
+		}
+		if !expiresAt.After(time.Now().UTC()) {
+			t.Fatalf("expected active planner lease, expires_at=%s", expiresAt.Format(time.RFC3339))
+		}
+	})
+
 	t.Run("task flow", func(t *testing.T) {
 		waitFor(t, 20*time.Second, func() bool {
-			total, completedOrFailed, err := taskCounts(db)
+			total, claimed, completedOrFailed, err := taskCounts(db)
 			if err != nil {
 				t.Fatalf("task counts query failed: %v", err)
 			}
-			return total > 0 && completedOrFailed > 0
+			return total > 0 && claimed > 0 && completedOrFailed > 0
 		})
 
-		total, completedOrFailed, err := taskCounts(db)
+		total, claimed, completedOrFailed, err := taskCounts(db)
 		if err != nil {
 			t.Fatalf("task counts query failed: %v", err)
 		}
 		if total == 0 {
 			t.Fatal("expected planner to enqueue tasks")
+		}
+		if claimed == 0 {
+			t.Fatal("expected worker to claim at least one task")
 		}
 		if completedOrFailed == 0 {
 			t.Fatal("expected worker to advance at least one task out of pending/running")
@@ -160,12 +184,23 @@ func openDB(t *testing.T, dsn string) *sql.DB {
 	return db
 }
 
-func taskCounts(db *sql.DB) (total int, completedOrFailed int, err error) {
+func taskCounts(db *sql.DB) (total int, claimed int, completedOrFailed int, err error) {
 	row := db.QueryRow(`
 		SELECT COUNT(*),
+		       COUNT(*) FILTER (WHERE claimed_by IS NOT NULL),
 		       COUNT(*) FILTER (WHERE status IN ('completed', 'failed'))
 		FROM tasks
 	`)
-	err = row.Scan(&total, &completedOrFailed)
+	err = row.Scan(&total, &claimed, &completedOrFailed)
+	return
+}
+
+func plannerLease(db *sql.DB, leaseName string) (holder string, expiresAt time.Time, err error) {
+	row := db.QueryRow(`
+		SELECT holder_id, expires_at
+		FROM service_leases
+		WHERE lease_name = $1
+	`, leaseName)
+	err = row.Scan(&holder, &expiresAt)
 	return
 }

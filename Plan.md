@@ -186,7 +186,7 @@ Verified locally in this workspace:
 - a running Compose stack can now be smoke-tested with:
   - `make e2e`
   - verified locally via `./scripts/compose-smoke.sh`
-  - smoke assertions cover health, seeded catalog endpoints, planner leadership, sync-status rows, and task-state progress in the database
+  - smoke assertions cover health, seeded catalog endpoints, planner leadership, active lease persistence, sync-status rows, task claims, and task-state progress in the database
 - Kafka validation after backend restart is clean:
   - no fresh `UnsupportedVersionException` entries in broker logs
   - task and market consumer groups rejoin successfully
@@ -290,6 +290,7 @@ This was transient during startup; retry after a few seconds.
 5. Evaluate Go Testcontainers for richer isolated integration tests.
   - keep Docker Compose as the primary local stack and smoke/deployment-shape verification path
   - use Testcontainers later if needed for per-test Kafka/Timescale lifecycles in `go test`
+  - defer this until after the current Compose-backed verification plan is stronger
 
 
 ### Good candidate tasks for parallel agents

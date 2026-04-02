@@ -38,3 +38,23 @@ func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
 		t.Fatal("expected ETHUSDT hourly and daily tasks")
 	}
 }
+
+func TestBuildRealtimeTasksIncludesOnlyCaughtUpPairs(t *testing.T) {
+	scheduler := NewScheduler()
+	now := time.Date(2026, 4, 2, 12, 34, 0, 0, time.UTC)
+
+	tasks := scheduler.BuildRealtimeTasks([]pair.Pair{
+		{Symbol: "BTCEUR"},
+		{Symbol: "ETHUSDT"},
+	}, map[string]SyncState{
+		"BTCEUR":  {LastSynced: now, BackfillCompleted: true},
+		"ETHUSDT": {LastSynced: now, BackfillCompleted: false},
+	}, now)
+
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 realtime task, got %d", len(tasks))
+	}
+	if tasks[0].Type != "realtime_poll" || tasks[0].Pair != "BTCEUR" || tasks[0].Interval != "1h" {
+		t.Fatalf("unexpected realtime task: %+v", tasks[0])
+	}
+}

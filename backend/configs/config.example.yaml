@@ -7,6 +7,7 @@ kafka:
     - localhost:9092
   tasks_topic: exchangely.tasks
   market_ticks_topic: exchangely.market.ticks
+  consumer_group: exchangely-workers
 planner:
   lease_name: planner_leader
   lease_ttl: 15s

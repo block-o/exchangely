@@ -25,12 +25,15 @@ import (
 )
 
 type App struct {
-	server        *http.Server
-	db            *sql.DB
-	taskPublisher *kafka.TaskPublisher
-	planRunner    *planner.Runner
-	workerRunner  *worker.Runner
-	role          string
+	server          *http.Server
+	db              *sql.DB
+	taskPublisher   *kafka.TaskPublisher
+	taskConsumer    *kafka.TaskConsumer
+	marketPublisher *kafka.MarketEventPublisher
+	marketConsumer  *kafka.MarketEventConsumer
+	planRunner      *planner.Runner
+	workerRunner    *worker.Runner
+	role            string
 }
 
 func New(ctx context.Context, cfg config.Config) (*App, error) {
@@ -78,10 +81,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	})
 
 	taskPublisher := kafka.NewTaskPublisher(cfg.KafkaBrokers, cfg.KafkaTasksTopic)
+	marketPublisher := kafka.NewMarketEventPublisher(cfg.KafkaBrokers, cfg.KafkaMarketTopic)
 	sourceRegistry := ingestregistry.New(
 		kraken.NewClient("", nil),
 		binance.NewClient("", nil),
 	)
+	realtimeIngest := service.NewRealtimeIngestService(marketRepo)
 	plannerRunner := planner.NewRunner(
 		instanceID,
 		cfg.PlannerLeaseName,
@@ -98,9 +103,21 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	workerProcessor := worker.NewProcessor(
 		taskRepo,
 		pairLocker,
-		worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry),
+		worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry, marketPublisher),
+	)
+	taskConsumer := kafka.NewTaskConsumer(
+		cfg.KafkaBrokers,
+		cfg.KafkaTasksTopic,
+		consumerGroup(cfg.KafkaConsumerGroup, "tasks"),
+		workerProcessor,
 	)
 	workerRunner := worker.NewRunner(taskRepo, workerProcessor, cfg.WorkerPollInterval, cfg.WorkerBatchSize)
+	marketConsumer := kafka.NewMarketEventConsumer(
+		cfg.KafkaBrokers,
+		cfg.KafkaMarketTopic,
+		consumerGroup(cfg.KafkaConsumerGroup, "market"),
+		realtimeIngest,
+	)
 
 	return &App{
 		server: &http.Server{
@@ -108,16 +125,19 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			Handler:           handler,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
-		db:            db,
-		taskPublisher: taskPublisher,
-		planRunner:    plannerRunner,
-		workerRunner:  workerRunner,
-		role:          cfg.Role,
+		db:              db,
+		taskPublisher:   taskPublisher,
+		taskConsumer:    taskConsumer,
+		marketPublisher: marketPublisher,
+		marketConsumer:  marketConsumer,
+		planRunner:      plannerRunner,
+		workerRunner:    workerRunner,
+		role:            cfg.Role,
 	}, nil
 }
 
 func (a *App) Run(ctx context.Context) error {
-	errCh := make(chan error, 3)
+	errCh := make(chan error, 5)
 
 	go func() {
 		if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -135,8 +155,18 @@ func (a *App) Run(ctx context.Context) error {
 
 	if hasRole(a.role, "worker") {
 		go func() {
+			if err := a.taskConsumer.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				errCh <- fmt.Errorf("task consumer loop: %w", err)
+			}
+		}()
+		go func() {
 			if err := a.workerRunner.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				errCh <- fmt.Errorf("worker loop: %w", err)
+			}
+		}()
+		go func() {
+			if err := a.marketConsumer.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				errCh <- fmt.Errorf("market consumer loop: %w", err)
 			}
 		}()
 	}
@@ -160,6 +190,21 @@ func (a *App) shutdown() error {
 	}
 	if a.taskPublisher != nil {
 		if err := a.taskPublisher.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if a.taskConsumer != nil {
+		if err := a.taskConsumer.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if a.marketPublisher != nil {
+		if err := a.marketPublisher.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if a.marketConsumer != nil {
+		if err := a.marketConsumer.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -196,4 +241,11 @@ func migrationsDir() string {
 		return "migrations"
 	}
 	return "backend/migrations"
+}
+
+func consumerGroup(base, suffix string) string {
+	if strings.TrimSpace(base) == "" {
+		base = "exchangely-workers"
+	}
+	return base + "-" + suffix
 }

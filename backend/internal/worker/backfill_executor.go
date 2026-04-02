@@ -32,17 +32,23 @@ type BackfillExecutor struct {
 	candles CandleStore
 	sync    SyncProgressWriter
 	sources MarketSource
+	events  MarketEventPublisher
 }
 
 type MarketSource interface {
 	FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error)
 }
 
-func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources MarketSource) *BackfillExecutor {
+type MarketEventPublisher interface {
+	PublishCandles(ctx context.Context, candles []candle.Candle) error
+}
+
+func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources MarketSource, events MarketEventPublisher) *BackfillExecutor {
 	return &BackfillExecutor{
 		candles: candles,
 		sync:    sync,
 		sources: sources,
+		events:  events,
 	}
 }
 
@@ -69,12 +75,42 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 }
 
 func (e *BackfillExecutor) materializeCandles(ctx context.Context, item task.Task) ([]candle.Candle, error) {
+	if item.Type == task.TypeRealtime {
+		return e.publishRealtime(ctx, item)
+	}
+
 	switch item.Interval {
 	case "1d":
 		return e.materializeDaily(ctx, item)
 	default:
 		return e.materializeHourly(ctx, item)
 	}
+}
+
+func (e *BackfillExecutor) publishRealtime(ctx context.Context, item task.Task) ([]candle.Candle, error) {
+	sourceCandles, err := e.fetchSourceCandles(ctx, item)
+	if err != nil {
+		return nil, err
+	}
+	for index := range sourceCandles {
+		sourceCandles[index].Finalized = false
+	}
+
+	if e.events != nil {
+		if err := e.events.PublishCandles(ctx, sourceCandles); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+
+	if err := e.candles.UpsertRawCandles(ctx, item.Interval, sourceCandles); err != nil {
+		return nil, err
+	}
+	rawCandles, err := e.candles.RawCandles(ctx, item.Pair, item.Interval, item.WindowStart, item.WindowEnd)
+	if err != nil {
+		return nil, err
+	}
+	return consolidate.FromRaw(item.Interval, rawCandles)
 }
 
 func (e *BackfillExecutor) materializeHourly(ctx context.Context, item task.Task) ([]candle.Candle, error) {

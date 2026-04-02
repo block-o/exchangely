@@ -16,6 +16,7 @@ type Config struct {
 	KafkaBrokers       []string
 	KafkaTasksTopic    string
 	KafkaMarketTopic   string
+	KafkaConsumerGroup string
 	PlannerLeaseName   string
 	PlannerLeaseTTL    time.Duration
 	PlannerTick        time.Duration
@@ -34,6 +35,7 @@ func Load() Config {
 		KafkaBrokers:       splitCSV(getenv("BACKEND_KAFKA_BROKERS", "")),
 		KafkaTasksTopic:    getenv("BACKEND_KAFKA_TOPIC_TASKS", "exchangely.tasks"),
 		KafkaMarketTopic:   getenv("BACKEND_KAFKA_TOPIC_MARKET_TICKS", "exchangely.market.ticks"),
+		KafkaConsumerGroup: getenv("BACKEND_KAFKA_CONSUMER_GROUP", "exchangely-workers"),
 		PlannerLeaseName:   getenv("BACKEND_PLANNER_LEASE_NAME", "planner_leader"),
 		PlannerLeaseTTL:    parseDuration(getenv("BACKEND_PLANNER_LEASE_TTL", "15s")),
 		PlannerTick:        parseDuration(getenv("BACKEND_PLANNER_TICK", "10s")),

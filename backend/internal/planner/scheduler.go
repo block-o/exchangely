@@ -9,7 +9,8 @@ import (
 )
 
 type SyncState struct {
-	LastSynced time.Time
+	LastSynced        time.Time
+	BackfillCompleted bool
 }
 
 type Scheduler struct {
@@ -37,6 +38,30 @@ func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[strin
 
 		tasks = append(tasks, s.windowedTasks(trackedPair.Symbol, "1h", cursor, currentHour, s.backfillWindow1H)...)
 		tasks = append(tasks, s.windowedTasks(trackedPair.Symbol, "1d", cursor.Truncate(24*time.Hour), currentDay, s.backfillWindow1D)...)
+	}
+
+	return tasks
+}
+
+func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncState, now time.Time) []task.Task {
+	currentHour := now.UTC().Truncate(time.Hour)
+	nextHour := currentHour.Add(time.Hour)
+	tasks := make([]task.Task, 0)
+
+	for _, trackedPair := range pairs {
+		pairState, ok := state[trackedPair.Symbol]
+		if !ok || !pairState.BackfillCompleted {
+			continue
+		}
+
+		tasks = append(tasks, task.Task{
+			ID:          fmt.Sprintf("%s:%s:%d:%d", task.TypeRealtime, trackedPair.Symbol, currentHour.Unix(), nextHour.Unix()),
+			Type:        task.TypeRealtime,
+			Pair:        trackedPair.Symbol,
+			Interval:    "1h",
+			WindowStart: currentHour,
+			WindowEnd:   nextHour,
+		})
 	}
 
 	return tasks

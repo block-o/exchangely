@@ -107,7 +107,10 @@ func (r *Runner) runTick(ctx context.Context) error {
 
 	adapted := make(map[string]SyncState, len(states))
 	for symbol, state := range states {
-		adapted[symbol] = SyncState{LastSynced: state.LastSynced}
+		adapted[symbol] = SyncState{
+			LastSynced:        state.LastSynced,
+			BackfillCompleted: state.BackfillCompleted,
+		}
 	}
 
 	for _, trackedPair := range pairs {
@@ -118,7 +121,9 @@ func (r *Runner) runTick(ctx context.Context) error {
 		}
 	}
 
-	tasks := r.scheduler.BuildInitialBackfillTasks(pairs, adapted, time.Now().UTC())
+	now := time.Now().UTC()
+	tasks := r.scheduler.BuildInitialBackfillTasks(pairs, adapted, now)
+	tasks = append(tasks, r.scheduler.BuildRealtimeTasks(pairs, adapted, now)...)
 	if len(tasks) == 0 {
 		return nil
 	}

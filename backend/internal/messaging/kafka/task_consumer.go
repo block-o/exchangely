@@ -50,23 +50,27 @@ func (c *TaskConsumer) Run(ctx context.Context) error {
 			return err
 		}
 
-		var item task.Task
-		if err := json.Unmarshal(message.Value, &item); err != nil {
-			log.Printf("task consumer invalid payload: %v", err)
-			if commitErr := c.reader.CommitMessages(ctx, message); commitErr != nil {
-				return commitErr
-			}
-			continue
+		if err := c.handleMessage(ctx, message); err != nil {
+			return err
 		}
-
-		if err := c.handler.Process(ctx, item); err != nil {
-			log.Printf("task consumer processing failed for %s: %v", item.ID, err)
-		}
-
 		if err := c.reader.CommitMessages(ctx, message); err != nil {
 			return err
 		}
 	}
+}
+
+func (c *TaskConsumer) handleMessage(ctx context.Context, message kafkago.Message) error {
+	var item task.Task
+	if err := json.Unmarshal(message.Value, &item); err != nil {
+		log.Printf("task consumer invalid payload: %v", err)
+		return nil
+	}
+
+	if err := c.handler.Process(ctx, item); err != nil {
+		log.Printf("task consumer processing failed for %s: %v", item.ID, err)
+	}
+
+	return nil
 }
 
 func (c *TaskConsumer) Close() error {

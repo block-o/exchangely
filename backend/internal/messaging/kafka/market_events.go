@@ -95,17 +95,21 @@ func (c *MarketEventConsumer) Run(ctx context.Context) error {
 			return err
 		}
 
-		var item candle.Candle
-		if err := json.Unmarshal(message.Value, &item); err != nil {
-			return err
-		}
-		if err := c.sink.IngestRealtimeCandles(ctx, []candle.Candle{item}); err != nil {
+		if err := c.handleMessage(ctx, message); err != nil {
 			return err
 		}
 		if err := c.reader.CommitMessages(ctx, message); err != nil {
 			return err
 		}
 	}
+}
+
+func (c *MarketEventConsumer) handleMessage(ctx context.Context, message kafkago.Message) error {
+	var item candle.Candle
+	if err := json.Unmarshal(message.Value, &item); err != nil {
+		return err
+	}
+	return c.sink.IngestRealtimeCandles(ctx, []candle.Candle{item})
 }
 
 func (c *MarketEventConsumer) Close() error {

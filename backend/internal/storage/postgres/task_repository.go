@@ -90,7 +90,9 @@ func (r *TaskRepository) Pending(ctx context.Context, limit int) ([]task.Task, e
 		SELECT id, task_type, pair_symbol, interval, window_start, window_end
 		FROM tasks
 		WHERE status IN ('pending', 'failed')
-		ORDER BY window_start, created_at
+		ORDER BY window_start,
+		         CASE interval WHEN '1h' THEN 0 ELSE 1 END,
+		         created_at
 		LIMIT $1
 	`, limit)
 	if err != nil {

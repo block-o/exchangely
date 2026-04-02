@@ -2,19 +2,26 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
 	"time"
 
+	"github.com/block-o/exchangely/backend/internal/consolidate"
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
 	"github.com/block-o/exchangely/backend/internal/ingest"
 	"github.com/block-o/exchangely/backend/internal/ingest/registry"
 )
 
-type CandleWriter interface {
+var ErrHourlyDataUnavailable = errors.New("hourly data unavailable for daily consolidation")
+
+type CandleStore interface {
 	UpsertCandles(ctx context.Context, interval string, candles []candle.Candle) error
+	UpsertRawCandles(ctx context.Context, interval string, candles []candle.Candle) error
+	RawCandles(ctx context.Context, pairSymbol, interval string, start, end time.Time) ([]candle.Candle, error)
+	HourlyCandles(ctx context.Context, pairSymbol string, start, end time.Time) ([]candle.Candle, error)
 }
 
 type SyncProgressWriter interface {
@@ -22,7 +29,7 @@ type SyncProgressWriter interface {
 }
 
 type BackfillExecutor struct {
-	candles CandleWriter
+	candles CandleStore
 	sync    SyncProgressWriter
 	sources MarketSource
 }
@@ -31,7 +38,7 @@ type MarketSource interface {
 	FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error)
 }
 
-func NewBackfillExecutor(candles CandleWriter, sync SyncProgressWriter, sources MarketSource) *BackfillExecutor {
+func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources MarketSource) *BackfillExecutor {
 	return &BackfillExecutor{
 		candles: candles,
 		sync:    sync,
@@ -46,7 +53,7 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 		return fmt.Errorf("unsupported task type %q", item.Type)
 	}
 
-	candles, err := e.fetchCandles(ctx, item)
+	candles, err := e.materializeCandles(ctx, item)
 	if err != nil {
 		return err
 	}
@@ -61,7 +68,49 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 	return e.sync.UpsertProgress(ctx, item.Pair, item.WindowEnd.UTC(), backfillComplete(item))
 }
 
-func (e *BackfillExecutor) fetchCandles(ctx context.Context, item task.Task) ([]candle.Candle, error) {
+func (e *BackfillExecutor) materializeCandles(ctx context.Context, item task.Task) ([]candle.Candle, error) {
+	switch item.Interval {
+	case "1d":
+		return e.materializeDaily(ctx, item)
+	default:
+		return e.materializeHourly(ctx, item)
+	}
+}
+
+func (e *BackfillExecutor) materializeHourly(ctx context.Context, item task.Task) ([]candle.Candle, error) {
+	sourceCandles, err := e.fetchSourceCandles(ctx, item)
+	if err != nil {
+		return nil, err
+	}
+	if len(sourceCandles) == 0 {
+		return nil, nil
+	}
+
+	if err := e.candles.UpsertRawCandles(ctx, item.Interval, sourceCandles); err != nil {
+		return nil, err
+	}
+
+	rawCandles, err := e.candles.RawCandles(ctx, item.Pair, item.Interval, item.WindowStart, item.WindowEnd)
+	if err != nil {
+		return nil, err
+	}
+
+	return consolidate.FromRaw(item.Interval, rawCandles)
+}
+
+func (e *BackfillExecutor) materializeDaily(ctx context.Context, item task.Task) ([]candle.Candle, error) {
+	hourlyCandles, err := e.candles.HourlyCandles(ctx, item.Pair, item.WindowStart, item.WindowEnd)
+	if err != nil {
+		return nil, err
+	}
+	if len(hourlyCandles) == 0 {
+		return nil, ErrHourlyDataUnavailable
+	}
+
+	return consolidate.DailyFromHourly(hourlyCandles)
+}
+
+func (e *BackfillExecutor) fetchSourceCandles(ctx context.Context, item task.Task) ([]candle.Candle, error) {
 	base, quote, err := registry.ParsePairSymbol(item.Pair)
 	if err != nil {
 		return generateCandles(item, "bootstrap-fallback"), nil

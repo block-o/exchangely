@@ -11,13 +11,13 @@ import (
 )
 
 func TestBackfillExecutorWritesCandlesAndProgress(t *testing.T) {
-	candleRepo := &fakeCandleWriter{}
+	candleRepo := &fakeCandleStore{}
 	syncRepo := &fakeSyncWriter{}
 	source := &fakeMarketSource{
 		items: []candle.Candle{
-			{Pair: "BTCEUR", Interval: "1h", Timestamp: 1711929600, Source: "kraken"},
-			{Pair: "BTCEUR", Interval: "1h", Timestamp: 1711933200, Source: "kraken"},
-			{Pair: "BTCEUR", Interval: "1h", Timestamp: 1711936800, Source: "kraken"},
+			{Pair: "BTCEUR", Interval: "1h", Timestamp: 1711929600, Open: 10, High: 11, Low: 9, Close: 10.5, Volume: 1, Source: "kraken"},
+			{Pair: "BTCEUR", Interval: "1h", Timestamp: 1711933200, Open: 10.5, High: 11.5, Low: 10, Close: 11, Volume: 2, Source: "kraken"},
+			{Pair: "BTCEUR", Interval: "1h", Timestamp: 1711936800, Open: 11, High: 12, Low: 10.5, Close: 11.6, Volume: 3, Source: "kraken"},
 		},
 	}
 	executor := NewBackfillExecutor(candleRepo, syncRepo, source)
@@ -38,8 +38,11 @@ func TestBackfillExecutorWritesCandlesAndProgress(t *testing.T) {
 	if len(candleRepo.items) != 3 {
 		t.Fatalf("expected 3 candles, got %d", len(candleRepo.items))
 	}
-	if candleRepo.items[0].Source != "kraken" {
-		t.Fatalf("expected source candles to be used, got %+v", candleRepo.items[0])
+	if len(candleRepo.rawItems) != 3 {
+		t.Fatalf("expected raw candles to be stored, got %d", len(candleRepo.rawItems))
+	}
+	if candleRepo.items[0].Source != "consolidated" || candleRepo.items[0].Open != 10 || candleRepo.items[0].Close != 10.5 {
+		t.Fatalf("expected consolidated hourly candles, got %+v", candleRepo.items[0])
 	}
 	if syncRepo.lastPair != "BTCEUR" {
 		t.Fatalf("expected sync progress for BTCEUR, got %s", syncRepo.lastPair)
@@ -47,7 +50,7 @@ func TestBackfillExecutorWritesCandlesAndProgress(t *testing.T) {
 }
 
 func TestBackfillExecutorFallsBackWhenSourceUnavailable(t *testing.T) {
-	candleRepo := &fakeCandleWriter{}
+	candleRepo := &fakeCandleStore{}
 	syncRepo := &fakeSyncWriter{}
 	executor := NewBackfillExecutor(candleRepo, syncRepo, &fakeMarketSource{err: context.DeadlineExceeded})
 
@@ -66,18 +69,85 @@ func TestBackfillExecutorFallsBackWhenSourceUnavailable(t *testing.T) {
 	if len(candleRepo.items) != 2 {
 		t.Fatalf("expected fallback candles, got %d", len(candleRepo.items))
 	}
-	if candleRepo.items[0].Source != "bootstrap-fallback" {
-		t.Fatalf("expected fallback source, got %+v", candleRepo.items[0])
+	if candleRepo.items[0].Source != "consolidated" {
+		t.Fatalf("expected consolidated fallback candle, got %+v", candleRepo.items[0])
 	}
 }
 
-type fakeCandleWriter struct {
-	items []candle.Candle
+func TestBackfillExecutorBuildsDailyFromHourly(t *testing.T) {
+	candleRepo := &fakeCandleStore{
+		hourlyItems: []candle.Candle{
+			{Pair: "BTCEUR", Interval: "1h", Timestamp: 1711929600, Open: 10, High: 12, Low: 9, Close: 11, Volume: 1, Source: "consolidated", Finalized: true},
+			{Pair: "BTCEUR", Interval: "1h", Timestamp: 1711933200, Open: 11, High: 13, Low: 10, Close: 12, Volume: 2, Source: "consolidated", Finalized: true},
+		},
+	}
+	syncRepo := &fakeSyncWriter{}
+	executor := NewBackfillExecutor(candleRepo, syncRepo, nil)
+
+	item := task.Task{
+		ID:          "backfill:BTCEUR:daily",
+		Type:        task.TypeBackfill,
+		Pair:        "BTCEUR",
+		Interval:    "1d",
+		WindowStart: time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2024, 4, 2, 0, 0, 0, 0, time.UTC),
+	}
+
+	if err := executor.Execute(context.Background(), item); err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	if len(candleRepo.items) != 1 {
+		t.Fatalf("expected 1 daily candle, got %d", len(candleRepo.items))
+	}
+	if candleRepo.items[0].Interval != "1d" || candleRepo.items[0].Open != 10 || candleRepo.items[0].Close != 12 {
+		t.Fatalf("unexpected daily candle: %+v", candleRepo.items[0])
+	}
 }
 
-func (f *fakeCandleWriter) UpsertCandles(_ context.Context, _ string, candles []candle.Candle) error {
+func TestBackfillExecutorFailsDailyWithoutHourlyCoverage(t *testing.T) {
+	executor := NewBackfillExecutor(&fakeCandleStore{}, &fakeSyncWriter{}, nil)
+
+	err := executor.Execute(context.Background(), task.Task{
+		ID:          "backfill:BTCEUR:daily-missing",
+		Type:        task.TypeBackfill,
+		Pair:        "BTCEUR",
+		Interval:    "1d",
+		WindowStart: time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2024, 4, 2, 0, 0, 0, 0, time.UTC),
+	})
+	if err == nil {
+		t.Fatal("expected daily execution to fail when hourly data is missing")
+	}
+	if err != ErrHourlyDataUnavailable {
+		t.Fatalf("expected ErrHourlyDataUnavailable, got %v", err)
+	}
+}
+
+type fakeCandleStore struct {
+	items       []candle.Candle
+	rawItems    []candle.Candle
+	hourlyItems []candle.Candle
+}
+
+func (f *fakeCandleStore) UpsertCandles(_ context.Context, _ string, candles []candle.Candle) error {
 	f.items = append(f.items, candles...)
 	return nil
+}
+
+func (f *fakeCandleStore) UpsertRawCandles(_ context.Context, _ string, candles []candle.Candle) error {
+	f.rawItems = append(f.rawItems, candles...)
+	return nil
+}
+
+func (f *fakeCandleStore) RawCandles(_ context.Context, _ string, _ string, _ time.Time, _ time.Time) ([]candle.Candle, error) {
+	if len(f.rawItems) > 0 {
+		return append([]candle.Candle{}, f.rawItems...), nil
+	}
+	return append([]candle.Candle{}, f.items...), nil
+}
+
+func (f *fakeCandleStore) HourlyCandles(_ context.Context, _ string, _ time.Time, _ time.Time) ([]candle.Candle, error) {
+	return append([]candle.Candle{}, f.hourlyItems...), nil
 }
 
 type fakeSyncWriter struct {

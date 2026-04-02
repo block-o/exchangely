@@ -62,6 +62,135 @@ func (r *MarketRepository) UpsertCandles(ctx context.Context, interval string, c
 	return tx.Commit()
 }
 
+func (r *MarketRepository) UpsertRawCandles(ctx context.Context, interval string, candles []candle.Candle) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, item := range candles {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO raw_candles (pair_symbol, interval, bucket_start, source, open, high, low, close, volume, finalized, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+			ON CONFLICT (pair_symbol, interval, bucket_start, source) DO UPDATE
+			SET open = EXCLUDED.open,
+			    high = EXCLUDED.high,
+			    low = EXCLUDED.low,
+			    close = EXCLUDED.close,
+			    volume = EXCLUDED.volume,
+			    finalized = EXCLUDED.finalized,
+			    updated_at = NOW()
+		`,
+			item.Pair,
+			interval,
+			time.Unix(item.Timestamp, 0).UTC(),
+			item.Source,
+			item.Open,
+			item.High,
+			item.Low,
+			item.Close,
+			item.Volume,
+			item.Finalized,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *MarketRepository) RawCandles(ctx context.Context, pairSymbol, interval string, start, end time.Time) ([]candle.Candle, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT pair_symbol,
+		       EXTRACT(EPOCH FROM bucket_start)::BIGINT,
+		       open::DOUBLE PRECISION,
+		       high::DOUBLE PRECISION,
+		       low::DOUBLE PRECISION,
+		       close::DOUBLE PRECISION,
+		       volume::DOUBLE PRECISION,
+		       source,
+		       finalized
+		FROM raw_candles
+		WHERE pair_symbol = $1
+		  AND interval = $2
+		  AND bucket_start >= $3
+		  AND bucket_start < $4
+		ORDER BY bucket_start, source
+	`, pairSymbol, interval, start.UTC(), end.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []candle.Candle
+	for rows.Next() {
+		var item candle.Candle
+		item.Interval = interval
+		if err := rows.Scan(
+			&item.Pair,
+			&item.Timestamp,
+			&item.Open,
+			&item.High,
+			&item.Low,
+			&item.Close,
+			&item.Volume,
+			&item.Source,
+			&item.Finalized,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	return items, rows.Err()
+}
+
+func (r *MarketRepository) HourlyCandles(ctx context.Context, pairSymbol string, start, end time.Time) ([]candle.Candle, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT pair_symbol,
+		       EXTRACT(EPOCH FROM bucket_start)::BIGINT,
+		       open::DOUBLE PRECISION,
+		       high::DOUBLE PRECISION,
+		       low::DOUBLE PRECISION,
+		       close::DOUBLE PRECISION,
+		       volume::DOUBLE PRECISION,
+		       source,
+		       finalized
+		FROM candles_1h
+		WHERE pair_symbol = $1
+		  AND bucket_start >= $2
+		  AND bucket_start < $3
+		ORDER BY bucket_start
+	`, pairSymbol, start.UTC(), end.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []candle.Candle
+	for rows.Next() {
+		var item candle.Candle
+		item.Interval = "1h"
+		if err := rows.Scan(
+			&item.Pair,
+			&item.Timestamp,
+			&item.Open,
+			&item.High,
+			&item.Low,
+			&item.Close,
+			&item.Volume,
+			&item.Source,
+			&item.Finalized,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	return items, rows.Err()
+}
+
 func (r *MarketRepository) Historical(ctx context.Context, pairSymbol, interval string, start, end time.Time) ([]candle.Candle, error) {
 	table, err := candleTable(interval)
 	if err != nil {

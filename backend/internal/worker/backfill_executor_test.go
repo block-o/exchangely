@@ -16,9 +16,9 @@ func TestBackfillExecutorWritesCandlesAndProgress(t *testing.T) {
 	syncRepo := &fakeSyncWriter{}
 	source := &fakeMarketSource{
 		items: []candle.Candle{
-			{Pair: "BTCEUR", Interval: "1h", Timestamp: 1711929600, Open: 10, High: 11, Low: 9, Close: 10.5, Volume: 1, Source: "kraken"},
-			{Pair: "BTCEUR", Interval: "1h", Timestamp: 1711933200, Open: 10.5, High: 11.5, Low: 10, Close: 11, Volume: 2, Source: "kraken"},
-			{Pair: "BTCEUR", Interval: "1h", Timestamp: 1711936800, Open: 11, High: 12, Low: 10.5, Close: 11.6, Volume: 3, Source: "kraken"},
+			{Pair: "BTCEUR", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC).Unix(), Open: 10, High: 11, Low: 9, Close: 10.5, Volume: 1, Source: "kraken"},
+			{Pair: "BTCEUR", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 1, 0, 0, 0, time.UTC).Unix(), Open: 10.5, High: 11.5, Low: 10, Close: 11, Volume: 2, Source: "kraken"},
+			{Pair: "BTCEUR", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 2, 0, 0, 0, time.UTC).Unix(), Open: 11, High: 12, Low: 10.5, Close: 11.6, Volume: 3, Source: "kraken"},
 		},
 	}
 	executor := NewBackfillExecutor(candleRepo, syncRepo, source, nil)
@@ -94,6 +94,35 @@ func TestBackfillExecutorFailsWhenSourceRegistryMissing(t *testing.T) {
 	}
 	if !errors.Is(err, ErrMarketSourceUnavailable) {
 		t.Fatalf("expected ErrMarketSourceUnavailable, got %v", err)
+	}
+}
+
+func TestBackfillExecutorFailsWhenSourceCoverageIsIncomplete(t *testing.T) {
+	candleRepo := &fakeCandleStore{}
+	syncRepo := &fakeSyncWriter{}
+	executor := NewBackfillExecutor(candleRepo, syncRepo, &fakeMarketSource{
+		items: []candle.Candle{
+			{Pair: "BTCUSDT", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC).Unix(), Open: 10, High: 11, Low: 9, Close: 10.5, Volume: 1, Source: "binance"},
+			{Pair: "BTCUSDT", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 2, 0, 0, 0, time.UTC).Unix(), Open: 11, High: 12, Low: 10, Close: 11.5, Volume: 1, Source: "binance"},
+		},
+	}, nil)
+
+	err := executor.Execute(context.Background(), task.Task{
+		ID:          "backfill:BTCUSDT:coverage-gap",
+		Type:        task.TypeBackfill,
+		Pair:        "BTCUSDT",
+		Interval:    "1h",
+		WindowStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2026, 4, 1, 3, 0, 0, 0, time.UTC),
+	})
+	if err == nil {
+		t.Fatal("expected execute to fail when source coverage is incomplete")
+	}
+	if !errors.Is(err, ErrIncompleteSourceCoverage) {
+		t.Fatalf("expected ErrIncompleteSourceCoverage, got %v", err)
+	}
+	if len(candleRepo.rawItems) != 0 {
+		t.Fatalf("expected no raw candles to be persisted, got %d", len(candleRepo.rawItems))
 	}
 }
 

@@ -85,6 +85,8 @@ These decisions were already made and implemented enough that new work should bu
 - registry improvements
   - empty source responses now fall through to the next supporting source
   - no-data conditions surface as task failures instead of silent success
+- backfill coverage validation
+  - historical hourly backfill now fails when a source response leaves gaps inside the requested window
 
 ### Frontend
 
@@ -159,6 +161,9 @@ Verified locally in this workspace:
 - live source tests now cover:
   - Binance cooldown after rate-limit responses
   - Kraken cooldown after rate-limit responses
+- backfill executor tests now cover:
+  - missing source registry
+  - source coverage gaps
 - Docker Compose stack starts
 - backend health endpoint returns healthy status
 - Kafka topics exist:
@@ -257,6 +262,7 @@ This was transient during startup; retry after a few seconds.
    - prefer archive sources first for historical windows
    - reduce live API usage during heavy backfill
    - add source-level throttling / cooldown beyond Kraken
+   - detect and classify partial historical coverage earlier when provider APIs underfill a request
 
 3. Improve realtime mode.
    - better source selection

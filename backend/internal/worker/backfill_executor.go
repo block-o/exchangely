@@ -16,6 +16,7 @@ import (
 
 var ErrHourlyDataUnavailable = errors.New("hourly data unavailable for daily consolidation")
 var ErrMarketSourceUnavailable = errors.New("market source unavailable")
+var ErrIncompleteSourceCoverage = errors.New("incomplete source coverage")
 
 type CandleStore interface {
 	UpsertCandles(ctx context.Context, interval string, candles []candle.Candle) error
@@ -121,6 +122,11 @@ func (e *BackfillExecutor) materializeHourly(ctx context.Context, item task.Task
 	if len(sourceCandles) == 0 {
 		return nil, nil
 	}
+	if item.Type != task.TypeRealtime {
+		if err := validateCoverage(item.Interval, item.WindowStart, item.WindowEnd, sourceCandles); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := e.candles.UpsertRawCandles(ctx, item.Interval, sourceCandles); err != nil {
 		return nil, err
@@ -170,6 +176,43 @@ func (e *BackfillExecutor) fetchSourceCandles(ctx context.Context, item task.Tas
 
 	log.Printf("market source fetch failed for %s %s: %v", item.Pair, item.Interval, err)
 	return nil, fmt.Errorf("%w: %v", ErrMarketSourceUnavailable, err)
+}
+
+func validateCoverage(interval string, start, end time.Time, items []candle.Candle) error {
+	step, err := intervalDuration(interval)
+	if err != nil {
+		return err
+	}
+
+	expected := make(map[int64]struct{})
+	for cursor := start.UTC(); cursor.Before(end.UTC()); cursor = cursor.Add(step) {
+		expected[cursor.Unix()] = struct{}{}
+	}
+
+	for _, item := range items {
+		delete(expected, item.Timestamp)
+	}
+
+	if len(expected) == 0 {
+		return nil
+	}
+
+	missing := make([]int64, 0, len(expected))
+	for ts := range expected {
+		missing = append(missing, ts)
+	}
+	return fmt.Errorf("%w: missing %d candles between %s and %s", ErrIncompleteSourceCoverage, len(missing), start.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339))
+}
+
+func intervalDuration(interval string) (time.Duration, error) {
+	switch interval {
+	case "1h":
+		return time.Hour, nil
+	case "1d":
+		return 24 * time.Hour, nil
+	default:
+		return 0, fmt.Errorf("unsupported interval %q", interval)
+	}
 }
 
 func backfillComplete(item task.Task) bool {

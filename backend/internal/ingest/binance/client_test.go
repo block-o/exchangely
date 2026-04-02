@@ -21,6 +21,9 @@ func TestFetchCandlesParsesBinanceKlines(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client())
+	client.now = func() time.Time {
+		return time.Date(2024, 4, 1, 3, 0, 0, 0, time.UTC)
+	}
 	items, err := client.FetchCandles(context.Background(), ingest.Request{
 		Pair:      "BTCUSDT",
 		Base:      "BTC",
@@ -51,7 +54,7 @@ func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
 
 	client := NewClient(server.URL, server.Client())
 	client.now = func() time.Time {
-		return time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC)
+		return time.Date(2024, 4, 1, 3, 0, 0, 0, time.UTC)
 	}
 
 	request := ingest.Request{
@@ -59,8 +62,8 @@ func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
 		Base:      "BTC",
 		Quote:     "USDT",
 		Interval:  "1h",
-		StartTime: time.Unix(1711929600, 0).UTC(),
-		EndTime:   time.Unix(1711936800, 0).UTC(),
+		StartTime: time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2024, 4, 1, 2, 0, 0, 0, time.UTC),
 	}
 
 	_, err := client.FetchCandles(context.Background(), request)
@@ -74,5 +77,34 @@ func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
 	}
 	if requests != 1 {
 		t.Fatalf("expected only the first request to hit binance, got %d", requests)
+	}
+}
+
+func TestSupportsOnlyRecentWindows(t *testing.T) {
+	client := NewClient("https://api.binance.com", http.DefaultClient)
+	client.now = func() time.Time {
+		return time.Date(2026, 4, 2, 15, 0, 0, 0, time.UTC)
+	}
+
+	if client.Supports(ingest.Request{
+		Pair:      "BTCUSDT",
+		Base:      "BTC",
+		Quote:     "USDT",
+		Interval:  "1h",
+		StartTime: time.Date(2026, 4, 1, 23, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 4, 2, 1, 0, 0, 0, time.UTC),
+	}) == false {
+		t.Fatal("expected current-day window to be supported")
+	}
+
+	if client.Supports(ingest.Request{
+		Pair:      "BTCUSDT",
+		Base:      "BTC",
+		Quote:     "USDT",
+		Interval:  "1h",
+		StartTime: time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+	}) {
+		t.Fatal("expected fully historical window to bypass live binance")
 	}
 }

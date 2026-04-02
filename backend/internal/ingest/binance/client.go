@@ -43,10 +43,18 @@ func (c *Client) Name() string {
 }
 
 func (c *Client) Supports(request ingest.Request) bool {
-	return request.Quote == "USDT" && (request.Interval == "1h" || request.Interval == "1d")
+	if request.Quote != "USDT" || (request.Interval != "1h" && request.Interval != "1d") {
+		return false
+	}
+
+	currentDayStart := c.now().UTC().Truncate(24 * time.Hour)
+	return request.EndTime.UTC().After(currentDayStart)
 }
 
 func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error) {
+	if !c.Supports(request) {
+		return nil, fmt.Errorf("unsupported request %s %s", request.Pair, request.Interval)
+	}
 	if err := c.cooldownError(); err != nil {
 		return nil, err
 	}

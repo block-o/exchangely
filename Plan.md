@@ -73,6 +73,7 @@ These decisions were already made and implemented enough that new work should bu
 
 - Binance API adapter
   - cooldown after rate-limit responses
+  - only used for windows that extend into the current UTC day
 - Kraken API adapter
 - Binance Vision archive adapter
   - monthly kline zip archives
@@ -205,6 +206,10 @@ Last observed backend state:
 4. Data-source strategy is still mixed between archive and live API.
    - source selection and rate-limit handling still need to improve over time
 
+5. Logging is still ad hoc.
+   - replace scattered `log.Printf` / `log.Fatal` usage with Go’s structured `log/slog`
+   - standardize level usage across runtime paths: `INFO`, `WARN`, `ERROR`
+
 ## Current Uncommitted Files
 
 Refresh this section before handoff with `git status --short`.
@@ -253,6 +258,10 @@ This was transient during startup; retry after a few seconds.
    - planner lease under the Compose stack
    - task enqueue/consume against Kafka + DB together
    - startup/bootstrap checks around topic init and API readiness
+
+3. Standardize logging.
+   - introduce shared `log/slog` setup
+   - replace raw package-level logging across app, planner, worker, and Kafka runtime paths
 
 2. Improve backfill source strategy.
    - prefer archive sources first for historical windows

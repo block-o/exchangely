@@ -18,33 +18,74 @@ type TopicConfig struct {
 }
 
 func EnsureTopics(ctx context.Context, brokers []string, topics []TopicConfig) error {
+	return ensureTopicsWithRetry(ctx, brokers, topics, 10, time.Second, ensureTopicsOnce)
+}
+
+func ensureTopicsWithRetry(
+	ctx context.Context,
+	brokers []string,
+	topics []TopicConfig,
+	attempts int,
+	retryDelay time.Duration,
+	ensureOnce func(context.Context, []string, []TopicConfig) error,
+) error {
 	if len(brokers) == 0 || len(topics) == 0 {
 		return nil
 	}
+	if attempts <= 0 {
+		attempts = 1
+	}
 
 	var lastErr error
-	for attempt := 0; attempt < 10; attempt++ {
-		if err := ensureTopicsOnce(ctx, brokers, topics); err == nil {
+	for attempt := 0; attempt < attempts; attempt++ {
+		if err := ensureOnce(ctx, brokers, topics); err == nil {
 			return nil
 		} else {
 			lastErr = err
+		}
+		if attempt == attempts-1 {
+			break
 		}
 
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(1 * time.Second):
+		case <-time.After(retryDelay):
 		}
 	}
 
 	return fmt.Errorf("ensure kafka topics: %w", lastErr)
 }
 
+type adminConn interface {
+	Controller() (kafkago.Broker, error)
+	CreateTopics(...kafkago.TopicConfig) error
+	Close() error
+}
+
+type dialAdminConn func(context.Context, string, string) (adminConn, error)
+
+type kafkaAdminConn struct {
+	*kafkago.Conn
+}
+
+func defaultDialAdminConn(ctx context.Context, network, address string) (adminConn, error) {
+	conn, err := kafkago.DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return kafkaAdminConn{Conn: conn}, nil
+}
+
 func ensureTopicsOnce(ctx context.Context, brokers []string, topics []TopicConfig) error {
-	var conn *kafkago.Conn
+	return ensureTopicsOnceWithDialer(ctx, brokers, topics, defaultDialAdminConn)
+}
+
+func ensureTopicsOnceWithDialer(ctx context.Context, brokers []string, topics []TopicConfig, dial dialAdminConn) error {
+	var conn adminConn
 	var err error
 	for _, broker := range brokers {
-		conn, err = kafkago.DialContext(ctx, "tcp", broker)
+		conn, err = dial(ctx, "tcp", broker)
 		if err == nil {
 			break
 		}
@@ -60,7 +101,7 @@ func ensureTopicsOnce(ctx context.Context, brokers []string, topics []TopicConfi
 	}
 
 	controllerAddr := net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port))
-	controllerConn, err := kafkago.DialContext(ctx, "tcp", controllerAddr)
+	controllerConn, err := dial(ctx, "tcp", controllerAddr)
 	if err != nil {
 		return err
 	}

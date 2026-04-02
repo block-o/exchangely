@@ -13,14 +13,14 @@ It tracks:
 Current branch: `master`
 
 Last committed work in git:
+- `3276fa0` Stabilize runtime backfill and local infra
 - `3fefbce` Add realtime Kafka dispatch and ingestion loops
 - `c146d43` Persist raw candles and derive consolidated buckets
 - `de8add3` Add exchange adapter-backed backfill ingestion
 - `09c985e` Implement DB-backed planner and worker runtime
-- `289a5b5` Intial scaffold
 
 Note:
-- There are important local, uncommitted changes in the workspace after `3fefbce`.
+- The working tree may change between sessions; always check `git status --short`.
 - Before switching agents, read `git status --short`.
 
 ## Product Goal
@@ -50,7 +50,6 @@ These decisions were already made and implemented enough that new work should bu
 
 5. Static archive sources are valid for backfill.
    - Binance Vision is now treated as a real backfill source
-   - Coin Metrics public repo is not a pair OHLCV source; it is asset-level metrics only
 
 ## What Is Implemented
 
@@ -100,7 +99,7 @@ These decisions were already made and implemented enough that new work should bu
 
 ## Important Migrations Added Locally
 
-These are present locally but not yet committed:
+These were added in the runtime stabilization work:
 - `backend/migrations/000004_interval_sync_state.up.sql`
 - `backend/migrations/000004_interval_sync_state.down.sql`
 - `backend/migrations/000005_reconcile_sync_state.up.sql`
@@ -136,6 +135,22 @@ Purpose:
 Verified locally in this workspace:
 
 - `go test ./...` passes
+- lifecycle integration tests now cover:
+  - hourly backfill scheduling + execution + sync advancement
+  - daily promotion + realtime eligibility
+- planner runner tests now cover:
+  - lease gating
+  - missing sync-state seeding
+  - enqueue + publish behavior
+- Kafka consumer tests now cover:
+  - invalid task payload handling
+  - task handler invocation/error swallowing
+  - market event decoding and forwarding
+- Kafka admin tests now cover:
+  - retry behavior
+  - topic config normalization
+  - broker fallback
+  - already-exists tolerance
 - Docker Compose stack starts
 - backend health endpoint returns healthy status
 - Kafka topics exist:
@@ -167,33 +182,20 @@ Last observed backend state:
 1. Current backfill path still uses fallback candles when free remote sources do not provide reliable coverage.
    - This is acceptable for scaffolding/progress, but not final data quality.
 
-2. Coin Metrics is not integrated yet.
-   - It should be treated as a separate asset/reference metrics source, not pair OHLCV.
-
-3. Realtime ingestion is still basic.
+2. Realtime ingestion is still basic.
    - more robust polling/streaming and fallback logic is still needed
 
-4. There is not yet full Compose-level automated integration coverage.
+3. There is not yet full Compose-level automated integration coverage.
 
-5. There are still uncommitted local changes.
-   - see `git status --short`
+4. Data-source strategy is still mixed between archive, live API, and synthetic fallback.
+   - fallback candles should be reduced over time
 
 ## Current Uncommitted Files
 
-At the time this file was written, `git status --short` included:
-- backend Docker and app/runtime changes
-- scheduler/sync/worker changes
-- Kraken ingest changes
-- Binance Vision ingest package
-- new Kafka admin helper
-- new migrations
-- Compose changes
-- frontend Dockerfile changes
-- `deploy/kafka/` topic init script
-- untracked local binary `backend/server`
+Refresh this section before handoff with `git status --short`.
 
 Important:
-- `backend/server` is a local artifact and should probably not be committed.
+- `backend/server` is a local artifact and should not be committed.
 
 ## Operational Gotchas
 
@@ -227,27 +229,22 @@ This was transient during startup; retry after a few seconds.
 
 ### Next priority
 
-1. Commit the current local work in a clean checkpoint commit.
-
-2. Add a dedicated asset/reference metrics pipeline for Coin Metrics.
-   - do not force it into OHLCV candle storage
-   - candidate uses:
-     - reference prices
-     - asset metadata/metrics endpoint
-     - validation/comparison layer
-
-3. Improve backfill source strategy.
-   - prefer archive sources first for historical windows
-   - reduce live API usage during heavy backfill
-   - add source-level throttling / cooldown beyond Kraken
-
-4. Add integration coverage for local infra.
+1. Add integration coverage for local infra.
    - planner lease
    - task enqueue/consume
    - Kafka topic bootstrap
    - hourly -> daily promotion
+   - status:
+     - hourly -> daily promotion coverage has been added
+     - planner lease and task consume coverage have been added
+     - Kafka bootstrap coverage has been added
 
-5. Improve realtime mode.
+2. Improve backfill source strategy.
+   - prefer archive sources first for historical windows
+   - reduce live API usage during heavy backfill
+   - add source-level throttling / cooldown beyond Kraken
+
+3. Improve realtime mode.
    - better source selection
    - more deterministic 24h ticker variation
    - clearer boundary between live ingestion and consolidation
@@ -259,13 +256,13 @@ This was transient during startup; retry after a few seconds.
   - remove/ignore local artifacts like `backend/server`
   - produce a clean checkpoint commit
 
-- Agent 2: Coin Metrics integration design
-  - define separate schema and API surface for asset/reference metrics
-  - avoid mixing with pair OHLCV
+- Agent 2: integration tests
+  - Docker Compose startup checks
+  - planner/worker/Kafka flow validation
 
 - Agent 3: integration tests
-  - Compose-level health/startup tests
-  - planner/worker/kafka flow checks
+  - hourly to daily materialization checks
+  - idempotency and retry coverage
 
 - Agent 4: source strategy hardening
   - backfill source priority rules
@@ -290,4 +287,4 @@ The system is past the pure scaffold stage.
 The main local stack works.
 The planner/worker flow is DB-backed and running.
 Static Binance Vision backfill is integrated.
-The biggest remaining work is data-quality hardening and cleanly separating Coin Metrics asset-level metrics from the pair candle pipeline.
+The biggest remaining work is deeper integration coverage, data-quality hardening, and reducing fallback/generated candles.

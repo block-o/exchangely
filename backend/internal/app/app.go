@@ -13,6 +13,9 @@ import (
 
 	"github.com/block-o/exchangely/backend/internal/config"
 	"github.com/block-o/exchangely/backend/internal/httpapi/router"
+	"github.com/block-o/exchangely/backend/internal/ingest/binance"
+	"github.com/block-o/exchangely/backend/internal/ingest/kraken"
+	ingestregistry "github.com/block-o/exchangely/backend/internal/ingest/registry"
 	kafka "github.com/block-o/exchangely/backend/internal/messaging/kafka"
 	"github.com/block-o/exchangely/backend/internal/planner"
 	"github.com/block-o/exchangely/backend/internal/service"
@@ -75,6 +78,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	})
 
 	taskPublisher := kafka.NewTaskPublisher(cfg.KafkaBrokers, cfg.KafkaTasksTopic)
+	sourceRegistry := ingestregistry.New(
+		kraken.NewClient("", nil),
+		binance.NewClient("", nil),
+	)
 	plannerRunner := planner.NewRunner(
 		instanceID,
 		cfg.PlannerLeaseName,
@@ -91,7 +98,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	workerProcessor := worker.NewProcessor(
 		taskRepo,
 		pairLocker,
-		worker.NewBackfillExecutor(marketRepo, syncRepo),
+		worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry),
 	)
 	workerRunner := worker.NewRunner(taskRepo, workerProcessor, cfg.WorkerPollInterval, cfg.WorkerBatchSize)
 

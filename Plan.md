@@ -185,6 +185,7 @@ Verified locally in this workspace:
 - a running Compose stack can now be smoke-tested with:
   - `make e2e`
   - verified locally via `./scripts/compose-smoke.sh`
+  - smoke assertions cover health, seeded catalog endpoints, planner leadership, and sync-status rows
 
 Useful verification commands:
 

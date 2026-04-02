@@ -51,10 +51,23 @@ func TestRunningComposeStack(t *testing.T) {
 	})
 
 	t.Run("system sync status", func(t *testing.T) {
-		var payload map[string]any
-		getJSON(t, client, baseURL+"/api/v1/system/sync-status", &payload)
-		if len(payload) == 0 {
-			t.Fatal("expected sync status payload")
+		var payload struct {
+			PlannerLeader string `json:"planner_leader"`
+			Pairs         []struct {
+				Pair string `json:"pair"`
+			} `json:"pairs"`
+		}
+
+		waitFor(t, 20*time.Second, func() bool {
+			getJSON(t, client, baseURL+"/api/v1/system/sync-status", &payload)
+			return payload.PlannerLeader != "" && payload.PlannerLeader != "unknown" && len(payload.Pairs) > 0
+		})
+
+		if payload.PlannerLeader == "" || payload.PlannerLeader == "unknown" {
+			t.Fatalf("expected planner leader to be assigned, got %q", payload.PlannerLeader)
+		}
+		if len(payload.Pairs) == 0 {
+			t.Fatal("expected sync status to include tracked pairs")
 		}
 	})
 }
@@ -83,4 +96,18 @@ func getJSON(t *testing.T, client *http.Client, url string, target any) {
 	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
 		t.Fatalf("decode %s failed: %v", url, err)
 	}
+}
+
+func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	t.Fatalf("condition not met within %s", timeout)
 }

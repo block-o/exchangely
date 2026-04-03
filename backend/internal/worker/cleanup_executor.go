@@ -17,8 +17,8 @@ type TaskPruner interface {
 // CleanupExecutor removes old completed/failed task rows to prevent unbounded table growth.
 // It is driven by the scheduler like any other task type — no separate goroutine needed.
 type CleanupExecutor struct {
-	pruner     TaskPruner
-	retainFor  time.Duration // how far back to keep completed tasks (default: 7 days)
+	pruner    TaskPruner
+	retainFor time.Duration // how far back to keep completed tasks (default: 7 days)
 }
 
 func NewCleanupExecutor(pruner TaskPruner, retainFor time.Duration) *CleanupExecutor {

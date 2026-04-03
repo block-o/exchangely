@@ -49,6 +49,7 @@ Verified locally:
 - Compose smoke workflow via `./scripts/compose-smoke.sh`
 - live Compose runtime logs now show planner leadership, worker task start/end, and source fetch activity
 - stale `running` tasks were reclaimed and completed successfully in the live stack
+- Compose smoke now covers Kafka-driven realtime market-event ingestion through to API-visible hourly candles
 
 Compose smoke assertions currently cover:
 - backend health
@@ -106,13 +107,12 @@ Active workstream:
 - keep extending verification only when it materially improves confidence
 
 Next likely steps:
-1. validate realtime task execution and market-event ingestion under Compose
-2. keep hardening source behavior around rate limits, fallbacks, and status reporting
-3. extend Compose coverage where it checks failure recovery, especially stale/retried task paths
-4. design and scaffold the first real frontend dashboard:
+1. keep hardening source behavior around rate limits, fallbacks, and status reporting
+2. extend Compose coverage where it checks failure recovery, especially stale/retried task paths
+3. design and scaffold the first real frontend dashboard:
    - market overview tab with pair cards/table, latest values, and mini charts
    - system tab with health, sync progress, and recent task status
-5. add documentation to critical backend flows:
+4. continue adding documentation to critical backend flows:
    - scheduler and task generation
    - registry source selection and fallback rules
    - worker execution lifecycle and realtime ingest path

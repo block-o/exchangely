@@ -29,6 +29,7 @@ type SyncProgressWriter interface {
 	UpsertProgress(ctx context.Context, pairSymbol, interval string, lastSynced time.Time, backfillCompleted bool) error
 }
 
+// BackfillExecutor materializes task windows into persisted candles and sync progress updates.
 type BackfillExecutor struct {
 	candles CandleStore
 	sync    SyncProgressWriter
@@ -44,6 +45,7 @@ type MarketEventPublisher interface {
 	PublishCandles(ctx context.Context, candles []candle.Candle) error
 }
 
+// NewBackfillExecutor returns the worker-side executor for backfill, daily consolidation, and realtime tasks.
 func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources MarketSource, events MarketEventPublisher) *BackfillExecutor {
 	return &BackfillExecutor{
 		candles: candles,
@@ -53,6 +55,7 @@ func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources M
 	}
 }
 
+// Execute routes the task into hourly, daily, or realtime materialization and advances sync state on success.
 func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 	startedAt := time.Now()
 	switch item.Type {

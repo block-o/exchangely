@@ -15,11 +15,13 @@ type SyncState struct {
 	DailyBackfillCompleted  bool
 }
 
+// Scheduler converts per-pair sync state into independent backfill and realtime tasks.
 type Scheduler struct {
 	backfillWindow1H time.Duration
 	backfillWindow1D time.Duration
 }
 
+// NewScheduler returns the default planner scheduler tuned for coarse-grained backfill windows.
 func NewScheduler() *Scheduler {
 	return &Scheduler{
 		backfillWindow1H: 24 * time.Hour,
@@ -27,6 +29,7 @@ func NewScheduler() *Scheduler {
 	}
 }
 
+// BuildInitialBackfillTasks emits hourly work first and only advances to daily backfill after hourly catch-up.
 func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[string]SyncState, now time.Time) []task.Task {
 	currentHour := now.UTC().Truncate(time.Hour)
 	currentDay := currentHour.Truncate(24 * time.Hour)
@@ -56,6 +59,7 @@ func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[strin
 	return tasks
 }
 
+// BuildRealtimeTasks emits one open-hour polling task per fully caught-up pair.
 func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncState, now time.Time) []task.Task {
 	currentHour := now.UTC().Truncate(time.Hour)
 	nextHour := currentHour.Add(time.Hour)
@@ -80,6 +84,7 @@ func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncS
 	return tasks
 }
 
+// windowedTasks splits a sync gap into fixed-size task windows so workers can claim them independently.
 func (s *Scheduler) windowedTasks(pairSymbol, interval string, start, end time.Time, size time.Duration) []task.Task {
 	tasks := make([]task.Task, 0)
 	for cursor := start; cursor.Before(end); cursor = minTime(cursor.Add(size), end) {

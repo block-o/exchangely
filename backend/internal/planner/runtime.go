@@ -32,6 +32,7 @@ type TaskPublisher interface {
 	Publish(ctx context.Context, tasks []task.Task) error
 }
 
+// Runner owns planner leadership and periodically turns catalog + sync state into executable tasks.
 type Runner struct {
 	instanceID string
 	leaseName  string
@@ -46,6 +47,7 @@ type Runner struct {
 	isLeader   bool
 }
 
+// NewRunner wires the planner runtime with the scheduler, state stores, and optional Kafka publisher.
 func NewRunner(
 	instanceID, leaseName string,
 	leaseTTL, interval time.Duration,
@@ -70,6 +72,7 @@ func NewRunner(
 	}
 }
 
+// Run keeps renewing the planner lease and scheduling work until the context is canceled.
 func (r *Runner) Run(ctx context.Context) error {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()

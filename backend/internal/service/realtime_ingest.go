@@ -15,14 +15,17 @@ type RealtimeMarketStore interface {
 	UpsertCandles(ctx context.Context, interval string, candles []candle.Candle) error
 }
 
+// RealtimeIngestService consumes market events and rolls them into the latest hourly candle state.
 type RealtimeIngestService struct {
 	store RealtimeMarketStore
 }
 
+// NewRealtimeIngestService returns the market-event consumer service for realtime hourly consolidation.
 func NewRealtimeIngestService(store RealtimeMarketStore) *RealtimeIngestService {
 	return &RealtimeIngestService{store: store}
 }
 
+// IngestRealtimeCandles persists raw market events, rebuilds the affected hour, and upserts the result.
 func (s *RealtimeIngestService) IngestRealtimeCandles(ctx context.Context, candles []candle.Candle) error {
 	if len(candles) == 0 {
 		return nil

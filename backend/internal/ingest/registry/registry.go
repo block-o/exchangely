@@ -15,10 +15,12 @@ import (
 var ErrNoSource = errors.New("no supported market source")
 var ErrNoData = errors.New("market source returned no candles")
 
+// Registry tries the configured market sources in order until one returns usable candles.
 type Registry struct {
 	sources []ingest.Source
 }
 
+// New builds a source registry while dropping nil adapters so partial configs stay valid.
 func New(sources ...ingest.Source) *Registry {
 	filtered := make([]ingest.Source, 0, len(sources))
 	for _, source := range sources {
@@ -30,6 +32,7 @@ func New(sources ...ingest.Source) *Registry {
 	return &Registry{sources: filtered}
 }
 
+// FetchCandles probes compatible sources in priority order and treats empty responses as fallthrough.
 func (r *Registry) FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error) {
 	var errs []error
 	attempted := false
@@ -96,6 +99,7 @@ func (r *Registry) FetchCandles(ctx context.Context, request ingest.Request) ([]
 	return nil, errors.Join(errs...)
 }
 
+// ParsePairSymbol splits a tracked pair symbol into base and quote assets for source adapters.
 func ParsePairSymbol(symbol string) (base string, quote string, err error) {
 	symbol = strings.ToUpper(strings.TrimSpace(symbol))
 	quotes := []string{"USDT", "EUR"}

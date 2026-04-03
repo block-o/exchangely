@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -22,6 +24,14 @@ func TestRunningComposeStack(t *testing.T) {
 	databaseURL := os.Getenv("EXCHANGELY_E2E_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("EXCHANGELY_E2E_DATABASE_URL is not set")
+	}
+	marketTopic := strings.TrimSpace(os.Getenv("EXCHANGELY_E2E_KAFKA_MARKET_TOPIC"))
+	if marketTopic == "" {
+		t.Skip("EXCHANGELY_E2E_KAFKA_MARKET_TOPIC is not set")
+	}
+	kafkaContainer := strings.TrimSpace(os.Getenv("EXCHANGELY_E2E_KAFKA_CONTAINER"))
+	if kafkaContainer == "" {
+		t.Skip("EXCHANGELY_E2E_KAFKA_CONTAINER is not set")
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -83,7 +93,7 @@ func TestRunningComposeStack(t *testing.T) {
 	})
 
 	t.Run("planner lease", func(t *testing.T) {
-		waitFor(t, 20*time.Second, func() bool {
+		waitFor(t, 40*time.Second, func() bool {
 			holder, expiresAt, err := plannerLease(db, "planner_leader")
 			if err != nil {
 				t.Fatalf("planner lease query failed: %v", err)
@@ -174,6 +184,94 @@ func TestRunningComposeStack(t *testing.T) {
 		}
 		if latest.LastUpdateUnix != end.Unix() {
 			t.Fatalf("expected ticker timestamp %d, got %d", end.Unix(), latest.LastUpdateUnix)
+		}
+	})
+
+	t.Run("realtime market events", func(t *testing.T) {
+		realtimePair := "E2EREALTIMEUSDT"
+		realtimeTime := time.Date(2026, 4, 3, 11, 0, 0, 0, time.UTC)
+		realtimeCandle := candle.Candle{
+			Pair:      realtimePair,
+			Interval:  "1h",
+			Timestamp: realtimeTime.Unix(),
+			Open:      201,
+			High:      208,
+			Low:       199,
+			Close:     205,
+			Volume:    12.5,
+			Source:    "e2e-market-event",
+			Finalized: false,
+		}
+
+		t.Cleanup(func() {
+			_, _ = db.Exec(`DELETE FROM raw_candles WHERE pair_symbol = $1`, realtimePair)
+			_, _ = db.Exec(`DELETE FROM candles_1h WHERE pair_symbol = $1`, realtimePair)
+		})
+
+		publishCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := publishMarketEvent(publishCtx, kafkaContainer, marketTopic, realtimeCandle); err != nil {
+			t.Fatalf("publish realtime market event failed: %v", err)
+		}
+
+		waitFor(t, 20*time.Second, func() bool {
+			rawCount, hourlyCount, err := realtimeCounts(db, realtimePair, realtimeTime)
+			if err != nil {
+				t.Fatalf("realtime counts query failed: %v", err)
+			}
+			return rawCount > 0 && hourlyCount > 0
+		})
+
+		rawCount, hourlyCount, err := realtimeCounts(db, realtimePair, realtimeTime)
+		if err != nil {
+			t.Fatalf("realtime counts query failed: %v", err)
+		}
+		if rawCount != 1 {
+			t.Fatalf("expected 1 raw realtime candle, got %d", rawCount)
+		}
+		if hourlyCount != 1 {
+			t.Fatalf("expected 1 consolidated realtime candle, got %d", hourlyCount)
+		}
+
+		var historical struct {
+			Data []struct {
+				Pair      string  `json:"pair"`
+				Interval  string  `json:"interval"`
+				Timestamp int64   `json:"timestamp"`
+				Close     float64 `json:"close"`
+				Source    string  `json:"source"`
+			} `json:"data"`
+		}
+		historicalURL := fmt.Sprintf(
+			"%s/api/v1/historical/%s?interval=1h&start_time=%d&end_time=%d",
+			baseURL,
+			realtimePair,
+			realtimeTime.Add(-time.Hour).Unix(),
+			realtimeTime.Add(time.Hour).Unix(),
+		)
+		getJSON(t, client, historicalURL, &historical)
+		if len(historical.Data) != 1 {
+			t.Fatalf("expected 1 realtime historical candle, got %d", len(historical.Data))
+		}
+		if historical.Data[0].Source != "consolidated" || historical.Data[0].Close != realtimeCandle.Close {
+			t.Fatalf("unexpected realtime historical payload: %+v", historical.Data[0])
+		}
+
+		var latest struct {
+			Pair           string  `json:"pair"`
+			Price          float64 `json:"price"`
+			LastUpdateUnix int64   `json:"last_update_unix"`
+			Source         string  `json:"source"`
+		}
+		getJSON(t, client, baseURL+"/api/v1/ticker/"+realtimePair, &latest)
+		if latest.Pair != realtimePair || latest.Source != "consolidated" {
+			t.Fatalf("unexpected realtime ticker payload: %+v", latest)
+		}
+		if latest.Price != realtimeCandle.Close {
+			t.Fatalf("expected realtime ticker price %v, got %v", realtimeCandle.Close, latest.Price)
+		}
+		if latest.LastUpdateUnix != realtimeTime.Unix() {
+			t.Fatalf("expected realtime ticker timestamp %d, got %d", realtimeTime.Unix(), latest.LastUpdateUnix)
 		}
 	})
 }
@@ -304,4 +402,50 @@ func plannerLease(db *sql.DB, leaseName string) (holder string, expiresAt time.T
 	`, leaseName)
 	err = row.Scan(&holder, &expiresAt)
 	return
+}
+
+func realtimeCounts(db *sql.DB, pair string, bucketStart time.Time) (rawCount int, hourlyCount int, err error) {
+	row := db.QueryRow(`
+		SELECT
+			COUNT(*) FILTER (WHERE source = 'e2e-market-event'),
+			(
+				SELECT COUNT(*)
+				FROM candles_1h
+				WHERE pair_symbol = $1
+				  AND bucket_start = $2
+			)
+		FROM raw_candles
+		WHERE pair_symbol = $1
+		  AND interval = '1h'
+		  AND bucket_start = $2
+	`, pair, bucketStart.UTC())
+	err = row.Scan(&rawCount, &hourlyCount)
+	return
+}
+
+func publishMarketEvent(ctx context.Context, kafkaContainer, topic string, item candle.Candle) error {
+	body, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+
+	command := exec.CommandContext(
+		ctx,
+		"docker",
+		"exec",
+		kafkaContainer,
+		"/bin/sh",
+		"-lc",
+		fmt.Sprintf(
+			"printf '%%s\\n' '%s|%s' | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic %s --property parse.key=true --property key.separator='|' >/dev/null",
+			item.Pair,
+			string(body),
+			topic,
+		),
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }

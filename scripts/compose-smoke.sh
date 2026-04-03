@@ -4,6 +4,8 @@ set -eu
 STACK_SERVICES="timescaledb kafka kafka-init backend"
 BASE_URL="${EXCHANGELY_E2E_BASE_URL:-http://127.0.0.1:8080}"
 DATABASE_URL="${EXCHANGELY_E2E_DATABASE_URL:-postgres://postgres:postgres@127.0.0.1:5432/exchangely?sslmode=disable}"
+KAFKA_BROKERS="${EXCHANGELY_E2E_KAFKA_BROKERS:-127.0.0.1:9092}"
+MARKET_TOPIC="${EXCHANGELY_E2E_KAFKA_MARKET_TOPIC:-exchangely.market.ticks}"
 KAFKA_CONTAINER="${EXCHANGELY_E2E_KAFKA_CONTAINER:-exchangely-kafka}"
 
 assert_topic() {
@@ -37,7 +39,12 @@ until curl -sS "$BASE_URL/api/v1/health" >/dev/null 2>&1; do
 done
 
 cd backend
-EXCHANGELY_E2E_BASE_URL="$BASE_URL" EXCHANGELY_E2E_DATABASE_URL="$DATABASE_URL" go test ./tests/e2e -count=1
+EXCHANGELY_E2E_BASE_URL="$BASE_URL" \
+EXCHANGELY_E2E_DATABASE_URL="$DATABASE_URL" \
+EXCHANGELY_E2E_KAFKA_BROKERS="$KAFKA_BROKERS" \
+EXCHANGELY_E2E_KAFKA_MARKET_TOPIC="$MARKET_TOPIC" \
+EXCHANGELY_E2E_KAFKA_CONTAINER="$KAFKA_CONTAINER" \
+go test ./tests/e2e -count=1
 
 assert_topic "exchangely.tasks"
 assert_topic "exchangely.market.ticks"

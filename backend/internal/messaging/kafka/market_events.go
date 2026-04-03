@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
@@ -46,7 +47,17 @@ func (p *MarketEventPublisher) PublishCandles(ctx context.Context, candles []can
 		})
 	}
 
-	return p.writer.WriteMessages(ctx, messages...)
+	if err := p.writer.WriteMessages(ctx, messages...); err != nil {
+		return err
+	}
+
+	first := candles[0]
+	slog.Info("market events published",
+		"pair", first.Pair,
+		"interval", first.Interval,
+		"candle_count", len(candles),
+	)
+	return nil
 }
 
 func (p *MarketEventPublisher) Close() error {
@@ -61,8 +72,10 @@ type CandleSink interface {
 }
 
 type MarketEventConsumer struct {
-	reader *kafkago.Reader
-	sink   CandleSink
+	reader  *kafkago.Reader
+	sink    CandleSink
+	topic   string
+	groupID string
 }
 
 func NewMarketEventConsumer(brokers []string, topic, groupID string, sink CandleSink) *MarketEventConsumer {
@@ -77,7 +90,9 @@ func NewMarketEventConsumer(brokers []string, topic, groupID string, sink Candle
 			GroupID: groupID,
 			MaxWait: 1 * time.Second,
 		}),
-		sink: sink,
+		sink:    sink,
+		topic:   topic,
+		groupID: groupID,
 	}
 }
 
@@ -85,6 +100,9 @@ func (c *MarketEventConsumer) Run(ctx context.Context) error {
 	if c == nil || c.reader == nil {
 		return nil
 	}
+
+	slog.Info("market event consumer started", "topic", c.topic, "group_id", c.groupID)
+	defer slog.Info("market event consumer stopped", "topic", c.topic, "group_id", c.groupID)
 
 	for {
 		message, err := c.reader.FetchMessage(ctx)
@@ -107,8 +125,14 @@ func (c *MarketEventConsumer) Run(ctx context.Context) error {
 func (c *MarketEventConsumer) handleMessage(ctx context.Context, message kafkago.Message) error {
 	var item candle.Candle
 	if err := json.Unmarshal(message.Value, &item); err != nil {
+		slog.Warn("market event consumer invalid payload", "error", err)
 		return err
 	}
+	slog.Info("market event consumed",
+		"pair", item.Pair,
+		"interval", item.Interval,
+		"timestamp", time.Unix(item.Timestamp, 0).UTC().Format(time.RFC3339),
+	)
 	return c.sink.IngestRealtimeCandles(ctx, []candle.Candle{item})
 }
 

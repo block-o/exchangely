@@ -25,7 +25,7 @@ type LeaseCoordinator interface {
 }
 
 type TaskSink interface {
-	Enqueue(ctx context.Context, tasks []task.Task) error
+	Enqueue(ctx context.Context, tasks []task.Task) ([]task.Task, error)
 }
 
 type TaskPublisher interface {
@@ -43,6 +43,7 @@ type Runner struct {
 	leases     LeaseCoordinator
 	tasks      TaskSink
 	publisher  TaskPublisher
+	isLeader   bool
 }
 
 func NewRunner(
@@ -92,7 +93,15 @@ func (r *Runner) runTick(ctx context.Context) error {
 		return err
 	}
 	if !acquired {
+		if r.isLeader {
+			slog.Info("planner leadership lost", "instance_id", r.instanceID, "lease_name", r.leaseName)
+			r.isLeader = false
+		}
 		return nil
+	}
+	if !r.isLeader {
+		slog.Info("planner leadership acquired", "instance_id", r.instanceID, "lease_name", r.leaseName)
+		r.isLeader = true
 	}
 
 	pairs, err := r.pairs.ListPairs(ctx)
@@ -127,17 +136,35 @@ func (r *Runner) runTick(ctx context.Context) error {
 	tasks := r.scheduler.BuildInitialBackfillTasks(pairs, adapted, now)
 	tasks = append(tasks, r.scheduler.BuildRealtimeTasks(pairs, adapted, now)...)
 	if len(tasks) == 0 {
+		slog.Debug("planner tick complete", "instance_id", r.instanceID, "pair_count", len(pairs), "task_count", 0)
 		return nil
 	}
 
-	if err := r.tasks.Enqueue(ctx, tasks); err != nil {
+	enqueuedTasks, err := r.tasks.Enqueue(ctx, tasks)
+	if err != nil {
 		return err
+	}
+	if len(enqueuedTasks) == 0 {
+		slog.Debug("planner tick complete", "instance_id", r.instanceID, "pair_count", len(pairs), "task_count", 0)
+		return nil
 	}
 
 	if r.publisher != nil {
-		if err := r.publisher.Publish(ctx, tasks); err != nil {
-			slog.Warn("planner task publish degraded", "error", err, "task_count", len(tasks))
+		if err := r.publisher.Publish(ctx, enqueuedTasks); err != nil {
+			slog.Warn("planner task publish degraded", "error", err, "task_count", len(enqueuedTasks))
 		}
+	}
+
+	for _, item := range enqueuedTasks {
+		slog.Info("planner scheduled task",
+			"instance_id", r.instanceID,
+			"task_id", item.ID,
+			"type", item.Type,
+			"pair", item.Pair,
+			"interval", item.Interval,
+			"window_start", item.WindowStart.UTC().Format(time.RFC3339),
+			"window_end", item.WindowEnd.UTC().Format(time.RFC3339),
+		)
 	}
 
 	return nil

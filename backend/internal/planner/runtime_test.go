@@ -180,13 +180,13 @@ type fakeTaskSink struct {
 	err          error
 }
 
-func (f *fakeTaskSink) Enqueue(_ context.Context, tasks []task.Task) error {
+func (f *fakeTaskSink) Enqueue(_ context.Context, tasks []task.Task) ([]task.Task, error) {
 	if f.err != nil {
-		return f.err
+		return nil, f.err
 	}
 	f.enqueueCalls++
 	f.tasks = append([]task.Task{}, tasks...)
-	return nil
+	return append([]task.Task{}, tasks...), nil
 }
 
 type fakeTaskPublisher struct {

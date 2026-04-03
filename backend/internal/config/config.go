@@ -12,6 +12,7 @@ type Config struct {
 	HTTPAddr           string
 	Role               string
 	LogLevel           string
+	CORSAllowedOrigins []string
 	DatabaseURL        string
 	KafkaBrokers       []string
 	KafkaTasksTopic    string
@@ -26,11 +27,14 @@ type Config struct {
 }
 
 func Load() Config {
+	env := getenv("BACKEND_ENV", "development")
+
 	return Config{
-		Env:                getenv("BACKEND_ENV", "development"),
+		Env:                env,
 		HTTPAddr:           getenv("BACKEND_HTTP_ADDR", ":8080"),
 		Role:               getenv("BACKEND_ROLE", "all"),
 		LogLevel:           getenv("BACKEND_LOG_LEVEL", "info"),
+		CORSAllowedOrigins: corsOrigins(env),
 		DatabaseURL:        getenv("BACKEND_DATABASE_URL", ""),
 		KafkaBrokers:       splitCSV(getenv("BACKEND_KAFKA_BROKERS", "")),
 		KafkaTasksTopic:    getenv("BACKEND_KAFKA_TOPIC_TASKS", "exchangely.tasks"),
@@ -43,6 +47,17 @@ func Load() Config {
 		WorkerBatchSize:    parseInt(getenv("BACKEND_WORKER_BATCH_SIZE", "8"), 8),
 		DefaultQuoteAssets: splitCSV(getenv("BACKEND_DEFAULT_QUOTE_ASSETS", "EUR,USDT")),
 	}
+}
+
+func corsOrigins(env string) []string {
+	value, ok := os.LookupEnv("BACKEND_CORS_ALLOWED_ORIGINS")
+	if ok {
+		return splitCSV(value)
+	}
+	if strings.EqualFold(strings.TrimSpace(env), "development") {
+		return []string{"http://localhost:5173", "http://127.0.0.1:5173"}
+	}
+	return nil
 }
 
 func getenv(key, fallback string) string {

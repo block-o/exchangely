@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,8 +12,9 @@ import (
 )
 
 func main() {
-	logger := telemetry.ConfigureLogger(slog.LevelInfo)
 	cfg := config.Load()
+	logger := telemetry.ConfigureLogger(telemetry.ParseLevel(cfg.LogLevel))
+	logger.Info("starting exchangely backend process")
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -27,4 +27,6 @@ func main() {
 		logger.Error("application terminated", "error", err)
 		os.Exit(1)
 	}
+
+	logger.Info("application exited cleanly")
 }

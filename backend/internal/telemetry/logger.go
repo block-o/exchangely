@@ -3,6 +3,7 @@ package telemetry
 import (
 	"log/slog"
 	"os"
+	"strings"
 )
 
 func ConfigureLogger(level slog.Leveler) *slog.Logger {
@@ -15,4 +16,17 @@ func ConfigureLogger(level slog.Leveler) *slog.Logger {
 	}))
 	slog.SetDefault(logger)
 	return logger
+}
+
+func ParseLevel(value string) slog.Leveler {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }

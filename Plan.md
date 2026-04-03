@@ -1,335 +1,116 @@
 # Exchangely Plan
 
-## Purpose
+## Goal
 
-This file is the handoff ledger for continuing work across agents/sessions.
-It tracks:
-- what has already been implemented
-- what is currently verified
-- what is still open
-- what should be done next
-- environment and operational gotchas
+Exchangely is a high-availability crypto historical-data service for curated EUR and USDT pairs.
 
-Current branch: `master`
-
-Last committed work in git:
-- `b32fed4` Validate historical source coverage
-- `3d2cfbe` Add Binance API cooldown handling
-- `2c82df0` Scope Binance Vision to historical windows
-- `d7d3012` Remove synthetic candle fallback
-- `4b21203` Add Kafka topic bootstrap coverage
-
-Note:
-- The working tree may change between sessions; always check `git status --short`.
-- Before switching agents, read `git status --short`.
-
-## Product Goal
-
-Exchangely is a highly available crypto historical-data service:
+Core stack:
 - Go backend
 - React frontend scaffold
 - Kafka event bus
-- TimescaleDB persistence
-- Docker Compose local stack
-- focus on historical OHLCV for EUR and USDT quoted pairs
+- TimescaleDB/PostgreSQL persistence
+- Docker Compose local topology
 
-## Architecture Decisions Locked In
+## Current State
 
-These decisions were already made and implemented enough that new work should build on them, not replace them:
-
-1. Coordinator/Planner leadership is DB-backed, not Kafka-backed.
-   - PostgreSQL/Timescale is the source of truth for leases and task state.
-
-2. Kafka is used for task/event transport, but worker safety is DB-enforced.
-   - pair-level Postgres advisory locks prevent concurrent writes on the same pair
-   - task state is persisted in DB
-
-3. One Go binary runs API + planner + worker depending on role config.
-
-4. Daily candles are derived from hourly candles, not fetched independently.
-
-5. Static archive sources are valid for backfill.
-   - Binance Vision is now treated as a real backfill source
-
-## What Is Implemented
-
-### Backend Runtime
-
-- single binary app bootstrap
-- migrations on startup
-- catalog seeding for supported assets/pairs
-- DB-backed planner lease
-- planner task generation
-- DB-backed task enqueue/claim/complete/fail
-- worker loop
-- per-pair advisory lock
+Implemented:
+- single Go binary with API + planner + worker runtime
+- DB-backed planner lease and DB-backed task lifecycle
+- planner logs and publishes only newly inserted tasks
+- stale running tasks are reclaimed by the worker poller after timeout
+- pair-level advisory locking for worker exclusivity
 - raw candle persistence
 - hourly consolidation
-- daily consolidation from hourly only
-- realtime Kafka task and market event plumbing
-- DB-backed REST API
-- shared structured logger bootstrap via Go `log/slog`
-- backend runtime logging standardized on `log/slog` levels
+- daily consolidation derived from hourly only
+- realtime Kafka task and market-event flow
+- structured backend logging via `log/slog`
+- configurable CORS allowlist
+- Swagger/OpenAPI file serving
+- Docker Compose stack with Kafka KRaft, TimescaleDB, backend, frontend, and Kafka topic init
 
-### Ingestion Sources
+Ingestion sources:
+- Binance Vision for historical archive-backed backfill
+- Binance live API for recent USDT windows
+- Kraken live API for EUR windows
+- source cooldown handling for Binance and Kraken
+- gap detection for historical hourly backfill
+- source fallthrough when a supported source returns no candles
 
-- Binance API adapter
-  - cooldown after rate-limit responses
-  - only used for windows that extend into the current UTC day
-- Kraken API adapter
-- Binance Vision archive adapter
-  - monthly kline zip archives
-  - daily archive fallback if monthly archive missing
-  - timestamp normalization for Binance’s newer microsecond archives
-  - only used for windows closed before the current UTC day
-- Kraken improvements
-  - dynamic `AssetPairs` resolution
-  - cooldown after rate-limit responses
-  - cooldown also applies when `AssetPairs` lookup is rate-limited
-- registry improvements
-  - empty source responses now fall through to the next supporting source
-  - no-data conditions surface as task failures instead of silent success
-- backfill coverage validation
-  - historical hourly backfill now fails when a source response leaves gaps inside the requested window
+## Verified
 
-### Frontend
+Verified locally:
+- `go test ./...`
+- planner lifecycle and scheduling tests
+- worker execution and idempotency-oriented tests
+- Kafka admin and consumer tests
+- source adapter tests for Binance, Binance Vision, Kraken, and registry behavior
+- Compose smoke workflow via `./scripts/compose-smoke.sh`
+- live Compose runtime logs now show planner leadership, worker task start/end, and source fetch activity
+- stale `running` tasks were reclaimed and completed successfully in the live stack
 
-- basic React/Vite scaffold is present
-- API consumer scaffold exists
-- not a focus yet
+Compose smoke assertions currently cover:
+- backend health
+- seeded assets and pairs
+- planner leadership in API and DB lease table
+- sync-status rows
+- task enqueue, task claim, and task progress in DB
+- deterministic `/historical` and `/ticker` reads from a seeded fixture
+- Kafka topics
+- Kafka consumer groups
 
-### Local Infra
+## Runtime Notes
 
-- Docker Compose stack for:
-  - backend
-  - frontend
-  - Kafka `apache/kafka:4.1.2`
-  - Timescale `timescale/timescaledb:2.26.1-pg18`
-- one-shot Kafka topic bootstrap service:
-  - `kafka-init`
-- repo-native Compose smoke verification:
-  - `scripts/compose-smoke.sh`
-  - `backend/tests/e2e/compose_smoke_test.go`
+Locked-in architecture choices:
+- PostgreSQL/Timescale is the source of truth for leases, sync state, and task state
+- Kafka is transport, not coordination state
+- daily candles are derived from hourly candles
+- Compose owns Kafka topic creation; the backend no longer does app-level topic bootstrap
 
-## Important Migrations Added Locally
+Operational notes:
+- local backend rebuilds may require `DOCKER_DEFAULT_PLATFORM=linux/arm64` if the shell environment is polluted
+- immediately after container recreation there can be a brief HTTP reset window before the backend is reachable
 
-These were added in the runtime stabilization work:
-- `backend/migrations/000004_interval_sync_state.up.sql`
-- `backend/migrations/000004_interval_sync_state.down.sql`
-- `backend/migrations/000005_reconcile_sync_state.up.sql`
-- `backend/migrations/000005_reconcile_sync_state.down.sql`
+## Remaining Gaps
 
-Purpose:
-- split sync progress into hourly vs daily state
-- reconcile bad interval state created by earlier scheduler behavior
+1. Backfill/source strategy still needs hardening.
+   - free sources can still underfill or rate-limit requests
+   - source selection is better, but still not final
+   - live-source behavior still needs more explicit coverage for realtime windows
 
-## Key Runtime Fixes Already Done Locally
+2. Realtime mode is still basic.
+   - consolidation works, but live source strategy and 24h ticker behavior can be improved
 
-### Scheduler/Sync Fixes
+3. Compose coverage is stronger, but not full failure-mode coverage.
+   - current smoke path validates happy-path runtime state
+   - restart/failure/recovery scenarios are still open
 
-- task IDs now include interval
-- daily backfill is not scheduled until hourly backfill is complete
-- sync status tracks hourly and daily progress separately
-- inconsistent historical sync flags are reconciled on migration/read
-- failed tasks are no longer retried immediately in a tight loop
+## Current Focus
 
-### Kafka/Compose Fixes
+Active workstream:
+- improve runtime observability
+- harden ingestion/backfill behavior
+- keep extending verification only when it materially improves confidence
 
-- Kafka topics are created by Compose via `deploy/kafka/init-topics.sh`
-- backend no longer attempts app-level topic creation at startup
-- local stack avoids Kafka 4.1.2 `CreateTopics` API-version mismatch noise
+Next likely steps:
+1. validate realtime task execution and market-event ingestion under Compose
+2. keep hardening source behavior around rate limits, fallbacks, and status reporting
+3. extend Compose coverage where it checks failure recovery, especially stale/retried task paths
 
-### Docker/Platform Fixes
+## Deferred TODOs
 
-- backend image build works for `linux/arm64`
-- backend Dockerfile now respects `TARGETARCH`
+- Evaluate Go Testcontainers for isolated per-test Kafka/Timescale integration tests.
+  - keep Docker Compose as the main local stack and smoke/deployment-shape verification path
+  - revisit Testcontainers only after the current Compose-backed verification path stops being the main bottleneck
 
-## What Has Been Verified
+## Read First
 
-Verified locally in this workspace:
-
-- `go test ./...` passes
-- lifecycle integration tests now cover:
-  - hourly backfill scheduling + execution + sync advancement
-  - daily promotion + realtime eligibility
-- planner runner tests now cover:
-  - lease gating
-  - missing sync-state seeding
-  - enqueue + publish behavior
-- Kafka consumer tests now cover:
-  - invalid task payload handling
-  - task handler invocation/error swallowing
-  - market event decoding and forwarding
-- Kafka admin tests now cover:
-  - retry behavior
-  - topic config normalization
-  - broker fallback
-  - already-exists tolerance
-- live source tests now cover:
-  - Binance cooldown after rate-limit responses
-  - Kraken cooldown after rate-limit responses
-- backfill executor tests now cover:
-  - missing source registry
-  - source coverage gaps
-- runtime now emits structured logs on main execution paths
-  - server and migrate entrypoints
-  - app bootstrap/shutdown
-  - planner publish degradation
-  - worker task failures
-  - Kafka task-consumer failures
-- Docker Compose stack starts
-- backend health endpoint returns healthy status
-- Kafka topics exist:
-  - `exchangely.tasks`
-  - `exchangely.market.ticks`
-- system sync status endpoint works
-- a running Compose stack can now be smoke-tested with:
-  - `make e2e`
-  - verified locally via `./scripts/compose-smoke.sh`
-  - smoke assertions cover health, seeded catalog endpoints, planner leadership, active lease persistence, sync-status rows, task claims, task-state progress in the database, deterministic `/historical` and `/ticker` API reads, Kafka topics, and Kafka consumer-group presence
-- Kafka validation after backend restart is clean:
-  - no fresh `UnsupportedVersionException` entries in broker logs
-  - task and market consumer groups rejoin successfully
-  - smoke workflow now verifies topics and consumer groups from the broker CLI
-
-Useful verification commands:
-
-```sh
-go test ./...
-curl -sS http://127.0.0.1:8080/api/v1/health
-curl -sS http://127.0.0.1:8080/api/v1/system/sync-status
-docker compose ps
-docker exec exchangely-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
-```
-
-## Current Live Behavior
-
-Last observed backend state:
-- API health was `ok`
-- Kafka health was `ok`
-- Timescale health was `ok`
-- hourly backfill had progressed to complete across tracked pairs
-- planner moved into daily phase after scheduler fixes
-
-## Known Gaps / Risks
-
-1. Source coverage is still incomplete and tasks can fail when free remote sources do not provide reliable coverage.
-   - synthetic fallback candles have been removed from the executor to protect data quality
-   - source reliability and coverage still need to improve
-
-2. Realtime ingestion is still basic.
-   - more robust polling/streaming and fallback logic is still needed
-
-3. There is not yet full Compose-level automated integration coverage.
-   - there is now a smoke-level Compose verification path, but not full failure-mode coverage
-
-4. Data-source strategy is still mixed between archive and live API.
-   - source selection and rate-limit handling still need to improve over time
-
-## Current Uncommitted Files
-
-Refresh this section before handoff with `git status --short`.
-
-Important:
-- `backend/server` is a local artifact and should not be committed.
-
-## Operational Gotchas
-
-### Docker platform
-
-The shell session previously inherited:
-- `DOCKER_DEFAULT_PLATFORM=linux/amd64`
-
-That caused Docker/Buildx to pass `TARGETARCH=amd64` into the Go build.
-
-For backend rebuilds in this environment, use:
-
-```sh
-DOCKER_DEFAULT_PLATFORM=linux/arm64 docker compose up --build -d backend
-```
-
-For direct infra-only commands where platform auto-selection is safer, prefer:
-
-```sh
-env -u DOCKER_DEFAULT_PLATFORM docker compose up -d kafka-init backend
-```
-
-### Restart window
-
-Immediately after backend container recreation, `curl` to `:8080` may briefly return:
-- `Recv failure: Connection reset by peer`
-
-This was transient during startup; retry after a few seconds.
-
-## Recommended Next Steps
-
-### Next priority
-
-1. Continue hardening backfill sources.
-   - reduce task failures caused by public-source gaps
-   - prefer archive-backed coverage where possible
-   - add better source selection and retry/cooldown behavior
-
-2. Add fuller Compose-level integration coverage.
-   - planner lease under the Compose stack
-   - task enqueue/consume against Kafka + DB together
-   - startup/bootstrap checks around topic init and API readiness
-   - extend beyond smoke coverage into behavioral assertions
-
-3. Improve backfill source strategy.
-   - prefer archive sources first for historical windows
-   - reduce live API usage during heavy backfill
-   - add source-level throttling / cooldown beyond Kraken
-   - detect and classify partial historical coverage earlier when provider APIs underfill a request
-
-4. Improve realtime mode.
-   - better source selection
-   - more deterministic 24h ticker variation
-   - clearer boundary between live ingestion and consolidation
-
-
-5. Evaluate Go Testcontainers for richer isolated integration tests.
-  - keep Docker Compose as the primary local stack and smoke/deployment-shape verification path
-  - use Testcontainers later if needed for per-test Kafka/Timescale lifecycles in `go test`
-  - defer this until after the current Compose-backed verification plan is stronger
-
-
-### Good candidate tasks for parallel agents
-
-- Agent 1: commit hygiene + repo cleanup
-  - review uncommitted files
-  - remove/ignore local artifacts like `backend/server`
-  - produce a clean checkpoint commit
-
-- Agent 2: integration tests
-  - Docker Compose startup checks
-  - planner/worker/Kafka flow validation
-
-- Agent 3: integration tests
-  - hourly to daily materialization checks
-  - idempotency and retry coverage
-
-- Agent 4: source strategy hardening
-  - backfill source priority rules
-  - rate-limit handling and source cooldown policy
-
-## Files Another Agent Should Read First
-
+New agent starting points:
 - `Plan.md`
 - `docker-compose.yml`
 - `backend/internal/app/app.go`
-- `backend/internal/planner/scheduler.go`
-- `backend/internal/storage/postgres/sync_repository.go`
+- `backend/internal/planner/runtime.go`
 - `backend/internal/worker/backfill_executor.go`
+- `backend/internal/ingest/registry/registry.go`
 - `backend/internal/ingest/binancevision/client.go`
+- `backend/internal/ingest/binance/client.go`
 - `backend/internal/ingest/kraken/client.go`
-- `backend/migrations/000004_interval_sync_state.up.sql`
-- `backend/migrations/000005_reconcile_sync_state.up.sql`
-
-## Short Handoff Summary
-
-The system is past the pure scaffold stage.
-The main local stack works.
-The planner/worker flow is DB-backed and running.
-Static Binance Vision backfill is integrated.
-The biggest remaining work is deeper integration coverage, data-quality hardening, and reducing fallback/generated candles.

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,7 +22,11 @@ type Services struct {
 	System  *service.SystemService
 }
 
-func New(svcs Services) http.Handler {
+type Options struct {
+	AllowedOrigins []string
+}
+
+func New(svcs Services, opts Options) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/v1/health", func(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +101,7 @@ func New(svcs Services) http.Handler {
 		http.ServeFile(w, r, path)
 	})
 
-	return mux
+	return withAccessLog(withCORS(mux, opts.AllowedOrigins))
 }
 
 func parseUnix(value string) time.Time {
@@ -133,4 +138,72 @@ func toAnySlice[T any](items []T) []any {
 		out = append(out, item)
 	}
 	return out
+}
+
+func withCORS(next http.Handler, allowedOrigins []string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		allowedOrigin, ok := matchAllowedOrigin(origin, allowedOrigins)
+		if ok {
+			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		}
+
+		if r.Method == http.MethodOptions {
+			if ok {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			http.Error(w, "origin not allowed", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withAccessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startedAt := time.Now()
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+
+		next.ServeHTTP(recorder, r)
+
+		slog.Info("http request completed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"query", r.URL.RawQuery,
+			"status", recorder.status,
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+			"remote_addr", r.RemoteAddr,
+		)
+	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
+}
+
+func matchAllowedOrigin(origin string, allowedOrigins []string) (string, bool) {
+	if origin == "" {
+		return "", false
+	}
+	for _, candidate := range allowedOrigins {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if candidate == "*" || candidate == origin {
+			return origin, true
+		}
+	}
+	return "", false
 }

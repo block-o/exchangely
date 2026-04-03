@@ -18,6 +18,8 @@ type TaskHandler interface {
 type TaskConsumer struct {
 	reader  *kafkago.Reader
 	handler TaskHandler
+	topic   string
+	groupID string
 }
 
 func NewTaskConsumer(brokers []string, topic, groupID string, handler TaskHandler) *TaskConsumer {
@@ -33,6 +35,8 @@ func NewTaskConsumer(brokers []string, topic, groupID string, handler TaskHandle
 			MaxWait: 1 * time.Second,
 		}),
 		handler: handler,
+		topic:   topic,
+		groupID: groupID,
 	}
 }
 
@@ -40,6 +44,9 @@ func (c *TaskConsumer) Run(ctx context.Context) error {
 	if c == nil || c.reader == nil {
 		return nil
 	}
+
+	slog.Info("task consumer started", "topic", c.topic, "group_id", c.groupID)
+	defer slog.Info("task consumer stopped", "topic", c.topic, "group_id", c.groupID)
 
 	for {
 		message, err := c.reader.FetchMessage(ctx)

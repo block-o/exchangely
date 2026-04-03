@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -47,10 +48,18 @@ func (c *Client) Name() string {
 }
 
 func (c *Client) Supports(request ingest.Request) bool {
-	return request.Quote == "EUR" && (request.Interval == "1h" || request.Interval == "1d")
+	if request.Quote != "EUR" || (request.Interval != "1h" && request.Interval != "1d") {
+		return false
+	}
+
+	currentDayStart := c.now().UTC().Truncate(24 * time.Hour)
+	return request.EndTime.UTC().After(currentDayStart)
 }
 
 func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error) {
+	if !c.Supports(request) {
+		return nil, fmt.Errorf("unsupported request %s %s", request.Pair, request.Interval)
+	}
 	if err := c.cooldownError(); err != nil {
 		return nil, err
 	}
@@ -83,6 +92,7 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 
 	if resp.StatusCode == http.StatusTooManyRequests {
 		c.setCooldown()
+		slog.Warn("kraken source rate limited", "pair", request.Pair, "interval", request.Interval, "status", resp.StatusCode)
 		return nil, fmt.Errorf("kraken status %d", resp.StatusCode)
 	}
 	if resp.StatusCode >= 400 {
@@ -212,6 +222,7 @@ func (c *Client) loadPairMap(ctx context.Context) error {
 
 	if resp.StatusCode == http.StatusTooManyRequests {
 		c.setCooldown()
+		slog.Warn("kraken asset-pairs rate limited", "status", resp.StatusCode)
 		return fmt.Errorf("kraken asset pairs status %d", resp.StatusCode)
 	}
 	if resp.StatusCode >= 400 {
@@ -255,6 +266,7 @@ func (c *Client) loadPairMap(ctx context.Context) error {
 	c.pairMap = pairs
 	c.cachedAt = c.now().UTC()
 	c.mu.Unlock()
+	slog.Info("kraken asset-pairs cache refreshed", "pair_count", len(pairs))
 	return nil
 }
 

@@ -34,6 +34,8 @@ type App struct {
 	marketConsumer  *kafka.MarketEventConsumer
 	planRunner      *planner.Runner
 	workerRunner    *worker.Runner
+	instanceID      string
+	corsOriginCount int
 	role            string
 }
 
@@ -79,6 +81,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Catalog: catalogService,
 		Market:  marketService,
 		System:  systemService,
+	}, router.Options{
+		AllowedOrigins: cfg.CORSAllowedOrigins,
 	})
 
 	taskPublisher := kafka.NewTaskPublisher(cfg.KafkaBrokers, cfg.KafkaTasksTopic)
@@ -134,20 +138,33 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		marketConsumer:  marketConsumer,
 		planRunner:      plannerRunner,
 		workerRunner:    workerRunner,
+		instanceID:      instanceID,
+		corsOriginCount: len(cfg.CORSAllowedOrigins),
 		role:            cfg.Role,
 	}, nil
 }
 
 func (a *App) Run(ctx context.Context) error {
+	slog.Info("backend runtime starting",
+		"instance_id", a.instanceID,
+		"http_addr", a.server.Addr,
+		"role", effectiveRole(a.role),
+		"planner_enabled", hasRole(a.role, "planner"),
+		"worker_enabled", hasRole(a.role, "worker"),
+		"cors_allowed_origins", a.corsOriginCount,
+	)
+
 	errCh := make(chan error, 5)
 
 	go func() {
+		slog.Info("http server listening", "addr", a.server.Addr)
 		if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()
 
 	if hasRole(a.role, "planner") {
+		slog.Info("planner loop enabled")
 		go func() {
 			if err := a.planRunner.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				errCh <- fmt.Errorf("planner loop: %w", err)
@@ -156,6 +173,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	if hasRole(a.role, "worker") {
+		slog.Info("worker loops enabled")
 		go func() {
 			if err := a.taskConsumer.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				errCh <- fmt.Errorf("task consumer loop: %w", err)
@@ -175,6 +193,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
+		slog.Info("shutdown requested", "reason", ctx.Err())
 		return a.shutdown()
 	case err := <-errCh:
 		_ = a.shutdown()
@@ -221,6 +240,7 @@ func (a *App) shutdown() error {
 		return errs[0]
 	}
 
+	slog.Info("shutdown complete", "instance_id", a.instanceID)
 	return nil
 }
 
@@ -250,4 +270,11 @@ func consumerGroup(base, suffix string) string {
 		base = "exchangely-workers"
 	}
 	return base + "-" + suffix
+}
+
+func effectiveRole(role string) string {
+	if strings.TrimSpace(role) == "" {
+		return "all"
+	}
+	return role
 }

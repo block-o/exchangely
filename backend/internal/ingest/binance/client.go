@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -79,6 +80,11 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusTeapot {
 		c.setCooldown()
+		slog.Warn("binance source rate limited",
+			"pair", request.Pair,
+			"interval", request.Interval,
+			"status", resp.StatusCode,
+		)
 		return nil, fmt.Errorf("binance status %d", resp.StatusCode)
 	}
 	if resp.StatusCode >= 400 {

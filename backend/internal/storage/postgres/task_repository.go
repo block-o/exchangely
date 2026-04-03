@@ -8,6 +8,9 @@ import (
 	"github.com/block-o/exchangely/backend/internal/domain/task"
 )
 
+const failedRetryDelay = "5 minutes"
+const staleRunningTimeout = "30 minutes"
+
 type TaskRepository struct {
 	db       *sql.DB
 	workerID string
@@ -20,24 +23,37 @@ func NewTaskRepository(db *sql.DB, workerID string) *TaskRepository {
 	}
 }
 
-func (r *TaskRepository) Enqueue(ctx context.Context, tasks []task.Task) error {
+func (r *TaskRepository) Enqueue(ctx context.Context, tasks []task.Task) ([]task.Task, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback()
 
+	enqueued := make([]task.Task, 0, len(tasks))
 	for _, item := range tasks {
-		if _, err := tx.ExecContext(ctx, `
+		result, err := tx.ExecContext(ctx, `
 			INSERT INTO tasks (id, task_type, pair_symbol, interval, window_start, window_end, status, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
 			ON CONFLICT (id) DO NOTHING
-		`, item.ID, item.Type, item.Pair, item.Interval, item.WindowStart.UTC(), item.WindowEnd.UTC()); err != nil {
-			return err
+		`, item.ID, item.Type, item.Pair, item.Interval, item.WindowStart.UTC(), item.WindowEnd.UTC())
+		if err != nil {
+			return nil, err
+		}
+
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+		if rows == 1 {
+			enqueued = append(enqueued, item)
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return enqueued, nil
 }
 
 func (r *TaskRepository) Claim(ctx context.Context, id string) (bool, error) {
@@ -49,8 +65,12 @@ func (r *TaskRepository) Claim(ctx context.Context, id string) (bool, error) {
 		    updated_at = NOW(),
 		    last_error = NULL
 		WHERE id = $1
-		  AND status IN ('pending', 'failed')
-	`, id, r.workerID)
+		  AND (
+			status = 'pending'
+			OR (status = 'failed' AND updated_at <= NOW() - $3::interval)
+			OR (status = 'running' AND updated_at <= NOW() - $4::interval)
+		  )
+	`, id, r.workerID, failedRetryDelay, staleRunningTimeout)
 	if err != nil {
 		return false, err
 	}
@@ -90,13 +110,14 @@ func (r *TaskRepository) Pending(ctx context.Context, limit int) ([]task.Task, e
 		SELECT id, task_type, pair_symbol, interval, window_start, window_end
 		FROM tasks
 		WHERE status = 'pending'
-		   OR (status = 'failed' AND updated_at <= NOW() - INTERVAL '5 minutes')
+		   OR (status = 'failed' AND updated_at <= NOW() - $2::interval)
+		   OR (status = 'running' AND updated_at <= NOW() - $3::interval)
 		ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END,
 		         window_start,
 		         CASE interval WHEN '1h' THEN 0 ELSE 1 END,
 		         created_at
 		LIMIT $1
-	`, limit)
+	`, limit, failedRetryDelay, staleRunningTimeout)
 	if err != nil {
 		return nil, err
 	}

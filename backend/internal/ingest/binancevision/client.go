@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -76,6 +77,11 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 		items, err := c.fetchMonthly(ctx, symbol, request, month)
 		if err != nil {
 			if errors.Is(err, errArchiveNotFound) {
+				slog.Info("binance vision monthly archive missing, trying daily archives",
+					"pair", request.Pair,
+					"interval", request.Interval,
+					"month", month.Format("2006-01"),
+				)
 				items, err = c.fetchDailyRange(ctx, symbol, request, month)
 			}
 			if err != nil && !errors.Is(err, errArchiveNotFound) {

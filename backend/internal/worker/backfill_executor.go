@@ -54,6 +54,7 @@ func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources M
 }
 
 func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
+	startedAt := time.Now()
 	switch item.Type {
 	case task.TypeBackfill, task.TypeConsolidate, task.TypeRealtime:
 	default:
@@ -62,17 +63,65 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 
 	candles, err := e.materializeCandles(ctx, item)
 	if err != nil {
+		slog.Warn("task execution failed",
+			"task_id", item.ID,
+			"type", item.Type,
+			"pair", item.Pair,
+			"interval", item.Interval,
+			"window_start", item.WindowStart.UTC().Format(time.RFC3339),
+			"window_end", item.WindowEnd.UTC().Format(time.RFC3339),
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+			"error", err,
+		)
 		return err
 	}
 	if len(candles) == 0 {
-		return e.sync.UpsertProgress(ctx, item.Pair, item.Interval, item.WindowEnd.UTC(), backfillComplete(item))
+		if err := e.sync.UpsertProgress(ctx, item.Pair, item.Interval, item.WindowEnd.UTC(), backfillComplete(item)); err != nil {
+			slog.Warn("task sync progress update failed",
+				"task_id", item.ID,
+				"type", item.Type,
+				"pair", item.Pair,
+				"interval", item.Interval,
+				"error", err,
+			)
+			return err
+		}
+		slog.Info("task execution produced no candles",
+			"task_id", item.ID,
+			"type", item.Type,
+			"pair", item.Pair,
+			"interval", item.Interval,
+			"window_start", item.WindowStart.UTC().Format(time.RFC3339),
+			"window_end", item.WindowEnd.UTC().Format(time.RFC3339),
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+		)
+		return nil
 	}
 
 	if err := e.candles.UpsertCandles(ctx, item.Interval, candles); err != nil {
+		slog.Warn("task candle upsert failed",
+			"task_id", item.ID,
+			"type", item.Type,
+			"pair", item.Pair,
+			"interval", item.Interval,
+			"candle_count", len(candles),
+			"error", err,
+		)
 		return err
 	}
 
-	return e.sync.UpsertProgress(ctx, item.Pair, item.Interval, item.WindowEnd.UTC(), backfillComplete(item))
+	if err := e.sync.UpsertProgress(ctx, item.Pair, item.Interval, item.WindowEnd.UTC(), backfillComplete(item)); err != nil {
+		slog.Warn("task sync progress update failed",
+			"task_id", item.ID,
+			"type", item.Type,
+			"pair", item.Pair,
+			"interval", item.Interval,
+			"error", err,
+		)
+		return err
+	}
+
+	return nil
 }
 
 func (e *BackfillExecutor) materializeCandles(ctx context.Context, item task.Task) ([]candle.Candle, error) {
@@ -101,6 +150,12 @@ func (e *BackfillExecutor) publishRealtime(ctx context.Context, item task.Task) 
 		if err := e.events.PublishCandles(ctx, sourceCandles); err != nil {
 			return nil, err
 		}
+		slog.Info("realtime task published market events",
+			"task_id", item.ID,
+			"pair", item.Pair,
+			"interval", item.Interval,
+			"candle_count", len(sourceCandles),
+		)
 		return nil, nil
 	}
 
@@ -149,6 +204,12 @@ func (e *BackfillExecutor) materializeDaily(ctx context.Context, item task.Task)
 		return nil, ErrHourlyDataUnavailable
 	}
 
+	slog.Info("daily consolidation started",
+		"task_id", item.ID,
+		"pair", item.Pair,
+		"interval", item.Interval,
+		"hourly_candle_count", len(hourlyCandles),
+	)
 	return consolidate.DailyFromHourly(hourlyCandles)
 }
 
@@ -173,8 +234,6 @@ func (e *BackfillExecutor) fetchSourceCandles(ctx context.Context, item task.Tas
 	if err == nil {
 		return items, nil
 	}
-
-	slog.Warn("market source fetch failed", "pair", item.Pair, "interval", item.Interval, "error", err)
 	return nil, fmt.Errorf("%w: %v", ErrMarketSourceUnavailable, err)
 }
 

@@ -43,6 +43,7 @@ func (p *Processor) Process(ctx context.Context, item task.Task) error {
 	if err != nil || !claimed {
 		return err
 	}
+	startedAt := time.Now()
 
 	unlock, err := p.locker.Lock(ctx, item.Pair)
 	if err != nil {
@@ -50,12 +51,34 @@ func (p *Processor) Process(ctx context.Context, item task.Task) error {
 	}
 	defer unlock()
 
+	slog.Info("worker task started",
+		"task_id", item.ID,
+		"type", item.Type,
+		"pair", item.Pair,
+		"interval", item.Interval,
+		"window_start", item.WindowStart.UTC().Format(time.RFC3339),
+		"window_end", item.WindowEnd.UTC().Format(time.RFC3339),
+	)
+
 	if err := p.executor.Execute(ctx, item); err != nil {
 		_ = p.store.Fail(ctx, item.ID, err.Error())
 		return err
 	}
 
-	return p.store.Complete(ctx, item.ID)
+	if err := p.store.Complete(ctx, item.ID); err != nil {
+		return err
+	}
+
+	slog.Info("worker task completed",
+		"task_id", item.ID,
+		"type", item.Type,
+		"pair", item.Pair,
+		"interval", item.Interval,
+		"window_start", item.WindowStart.UTC().Format(time.RFC3339),
+		"window_end", item.WindowEnd.UTC().Format(time.RFC3339),
+		"duration_ms", time.Since(startedAt).Milliseconds(),
+	)
+	return nil
 }
 
 type PendingSource interface {
@@ -99,6 +122,9 @@ func (r *Runner) runBatch(ctx context.Context) error {
 	items, err := r.source.Pending(ctx, r.batchSize)
 	if err != nil {
 		return err
+	}
+	if len(items) > 0 {
+		slog.Info("worker batch fetched", "task_count", len(items))
 	}
 
 	for _, item := range items {

@@ -36,6 +36,9 @@ func TestFetchCandlesParsesKrakenOHLC(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client())
+	client.now = func() time.Time {
+		return time.Unix(1711933200, 0).UTC()
+	}
 	items, err := client.FetchCandles(context.Background(), ingest.Request{
 		Pair:      "BTCEUR",
 		Base:      "BTC",
@@ -82,6 +85,9 @@ func TestFetchCandlesResolvesWsnamePairs(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client())
+	client.now = func() time.Time {
+		return time.Unix(1711933200, 0).UTC()
+	}
 	items, err := client.FetchCandles(context.Background(), ingest.Request{
 		Pair:      "ETHEUR",
 		Base:      "ETH",
@@ -123,7 +129,7 @@ func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
 
 	client := NewClient(server.URL, server.Client())
 	client.now = func() time.Time {
-		return time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC)
+		return time.Unix(1711933200, 0).UTC()
 	}
 	_, err := client.FetchCandles(context.Background(), ingest.Request{
 		Pair:      "BTCEUR",
@@ -163,7 +169,7 @@ func TestFetchCandlesEntersCooldownWhenAssetPairsRateLimited(t *testing.T) {
 
 	client := NewClient(server.URL, server.Client())
 	client.now = func() time.Time {
-		return time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC)
+		return time.Unix(1711933200, 0).UTC()
 	}
 
 	request := ingest.Request{
@@ -186,5 +192,34 @@ func TestFetchCandlesEntersCooldownWhenAssetPairsRateLimited(t *testing.T) {
 	}
 	if requests != 1 {
 		t.Fatalf("expected only the first request to hit kraken, got %d requests", requests)
+	}
+}
+
+func TestSupportsOnlyRecentWindows(t *testing.T) {
+	client := NewClient("https://api.kraken.com", http.DefaultClient)
+	client.now = func() time.Time {
+		return time.Date(2026, 4, 2, 15, 0, 0, 0, time.UTC)
+	}
+
+	if !client.Supports(ingest.Request{
+		Pair:      "BTCEUR",
+		Base:      "BTC",
+		Quote:     "EUR",
+		Interval:  "1h",
+		StartTime: time.Date(2026, 4, 1, 23, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 4, 2, 1, 0, 0, 0, time.UTC),
+	}) {
+		t.Fatal("expected current-day window to be supported")
+	}
+
+	if client.Supports(ingest.Request{
+		Pair:      "BTCEUR",
+		Base:      "BTC",
+		Quote:     "EUR",
+		Interval:  "1h",
+		StartTime: time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+	}) {
+		t.Fatal("expected fully historical window to bypass live kraken")
 	}
 }

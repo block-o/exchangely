@@ -4,6 +4,19 @@ export type HealthResponse = {
   timestamp: number;
 };
 
+export type SyncPairStatus = {
+  pair: string;
+  backfill_completed: boolean;
+  last_synced_unix: number;
+  next_target_unix: number;
+  hourly_backfill_completed: boolean;
+  daily_backfill_completed: boolean;
+  hourly_synced_unix: number;
+  daily_synced_unix: number;
+  next_hourly_target_unix: number;
+  next_daily_target_unix: number;
+};
+
 export type Asset = {
   symbol: string;
   name: string;
@@ -37,18 +50,6 @@ export interface Ticker {
   low_24h?: number;
   last_update_unix: number;
   source: string;
-};
-
-export type SyncPairStatus = {
-  pair: string;
-  backfill_completed: boolean;
-  last_synced_unix: number;
-  next_target_unix: number;
-};
-
-export type SyncStatus = {
-  planner_leader: string;
-  pairs: SyncPairStatus[];
 };
 
 export type ListResponse<T> = {

@@ -1,4 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
+import { fetchHealth } from "../api/health";
+import { fetchSyncStatus } from "../api/system";
+import type { HealthResponse, SyncPairStatus } from "../types/api";
 
 export interface Task {
   id: string;
@@ -21,6 +24,13 @@ interface TasksResponse {
   recentTotal: number;
   recentLimit: number;
   recentPage: number;
+}
+
+interface ActiveWarning {
+  id: string;
+  level: "warning" | "error";
+  title: string;
+  detail: string;
 }
 
 // All known task types in display order
@@ -86,6 +96,89 @@ function taskStatusLabel(status?: string) {
     default:
       return status || "Pending";
   }
+}
+
+function truncate(text: string, limit = 140) {
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit - 1)}…`;
+}
+
+function previewPairs(pairs: string[], limit = 3) {
+  if (pairs.length <= limit) return pairs.join(", ");
+  return `${pairs.slice(0, limit).join(", ")} +${pairs.length - limit} more`;
+}
+
+function buildWarnings(health: HealthResponse | null, syncPairs: SyncPairStatus[], failedTasks: Task[]): ActiveWarning[] {
+  const warnings: ActiveWarning[] = [];
+
+  if (health && health.status !== "ok") {
+    const failingChecks = Object.entries(health.checks)
+      .filter(([, status]) => status !== "ok")
+      .map(([name]) => name);
+    warnings.push({
+      id: "system-health",
+      level: "error",
+      title: "System health degraded",
+      detail:
+        failingChecks.length > 0
+          ? `Failing checks: ${failingChecks.join(", ")}.`
+          : "One or more system health checks are failing.",
+    });
+  }
+
+  const hourlyPending = syncPairs.filter((pair) => !pair.hourly_backfill_completed);
+  if (hourlyPending.length > 0) {
+    warnings.push({
+      id: "hourly-backfill",
+      level: "warning",
+      title: "Hourly backfill pending",
+      detail: `${hourlyPending.length} pairs are still filling hourly history: ${previewPairs(
+        hourlyPending.map((pair) => pair.pair)
+      )}.`,
+    });
+  }
+
+  const dailyPending = syncPairs.filter(
+    (pair) => pair.hourly_backfill_completed && !pair.daily_backfill_completed
+  );
+  if (dailyPending.length > 0) {
+    warnings.push({
+      id: "daily-backfill",
+      level: "warning",
+      title: "Daily backfill pending",
+      detail: `${dailyPending.length} pairs are not ready for consolidation yet: ${previewPairs(
+        dailyPending.map((pair) => pair.pair)
+      )}.`,
+    });
+  }
+
+  const integrityFailures = failedTasks.filter((task) => task.type === "integrity_check");
+  if (integrityFailures.length > 0) {
+    const latest = integrityFailures[0];
+    warnings.push({
+      id: "integrity-failures",
+      level: "error",
+      title: "Integrity check failures detected",
+      detail: `${integrityFailures.length} recent integrity checks failed. Latest: ${latest.pair} ${
+        latest.last_error ? `(${truncate(latest.last_error, 110)})` : ""
+      }`.trim(),
+    });
+  }
+
+  const otherFailures = failedTasks.filter((task) => task.type !== "integrity_check");
+  if (otherFailures.length > 0) {
+    const latest = otherFailures[0];
+    warnings.push({
+      id: "task-failures",
+      level: "warning",
+      title: "Task failures need review",
+      detail: `${otherFailures.length} non-validator tasks failed recently. Latest: ${TYPE_LABELS[latest.type] ?? latest.type} ${
+        latest.pair && latest.pair !== "*" ? `for ${latest.pair} ` : ""
+      }${latest.last_error ? `(${truncate(latest.last_error, 110)})` : ""}`.trim(),
+    });
+  }
+
+  return warnings;
 }
 
 // ── Multi filter dropdown ───────────────────────────────────────────────────
@@ -280,6 +373,8 @@ export function SystemPanel() {
   const [upcomingTotal, setUpcomingTotal] = useState(0);
   const [recentTotal, setRecentTotal] = useState(0);
   const [apiVersion, setApiVersion] = useState<string>("Unknown");
+  const [warnings, setWarnings] = useState<ActiveWarning[]>([]);
+  const [warningsLoading, setWarningsLoading] = useState(true);
 
   const [upcomingPage, setUpcomingPage] = useState(1);
   const [recentPage, setRecentPage] = useState(1);
@@ -292,6 +387,36 @@ export function SystemPanel() {
 
   // @ts-ignore - injected by vite build
   const uiVersion = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "Unknown";
+
+  const fetchWarnings = async () => {
+    try {
+      const failedTasksUrl = `${import.meta.env.VITE_API_BASE_URL}/system/tasks?recent_limit=10&recent_page=1&status=failed`;
+      const [health, syncPairs, failedTasksResponse] = await Promise.all([
+        fetchHealth(),
+        fetchSyncStatus(),
+        fetch(failedTasksUrl).then((res) => {
+          if (!res.ok) {
+            throw new Error(`failed tasks request failed: ${res.status}`);
+          }
+          return res.json() as Promise<TasksResponse>;
+        }),
+      ]);
+
+      setWarnings(buildWarnings(health, syncPairs, failedTasksResponse.recent || []));
+    } catch (e) {
+      console.error("Failed to fetch active warnings", e);
+      setWarnings([
+        {
+          id: "warnings-unavailable",
+          level: "warning",
+          title: "Warnings unavailable",
+          detail: "Health and synchronization warnings could not be loaded.",
+        },
+      ]);
+    } finally {
+      setWarningsLoading(false);
+    }
+  };
 
   const fetchTasks = async () => {
     const typeFilter = Array.from(recentFilter).join(",");
@@ -321,6 +446,15 @@ export function SystemPanel() {
       .catch(console.error);
     
     fetchTasks();
+    fetchWarnings();
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      fetchWarnings();
+    }, 15000);
+
+    return () => window.clearInterval(interval);
   }, []);
 
   // Re-fetch when paging or the recent-task filter changes
@@ -378,6 +512,92 @@ export function SystemPanel() {
           <div>UI: v{uiVersion}</div>
           <div>API: {apiVersion}</div>
         </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: "1rem",
+          padding: "1rem",
+          backgroundColor: "var(--surface-color)",
+          borderRadius: "12px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "1rem",
+            gap: "1rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <h3 style={{ fontSize: "1rem", margin: 0 }}>Active Warnings</h3>
+            <p style={{ margin: "0.35rem 0 0", opacity: 0.7, fontSize: "0.85rem" }}>
+              Current platform risks derived from health, sync progress, and failed tasks.
+            </p>
+          </div>
+          <div style={{ fontSize: "0.82rem", opacity: 0.7 }}>
+            {warningsLoading ? "Loading…" : `${warnings.length} active`}
+          </div>
+        </div>
+
+        {warningsLoading ? (
+          <p style={{ opacity: 0.6, fontSize: "0.9rem", margin: 0 }}>Loading active warnings…</p>
+        ) : warnings.length === 0 ? (
+          <p style={{ opacity: 0.6, fontSize: "0.9rem", margin: 0 }}>
+            No active warnings. Health checks are passing and backfills are caught up.
+          </p>
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              gap: "0.75rem",
+            }}
+          >
+            {warnings.map((warning) => (
+              <article
+                key={warning.id}
+                style={{
+                  padding: "0.9rem 1rem",
+                  borderRadius: "10px",
+                  border: `1px solid ${
+                    warning.level === "error" ? "rgba(255,107,107,0.45)" : "rgba(255,196,61,0.35)"
+                  }`,
+                  background:
+                    warning.level === "error" ? "rgba(120,28,28,0.18)" : "rgba(140,96,0,0.14)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "0.75rem",
+                    marginBottom: "0.45rem",
+                  }}
+                >
+                  <strong style={{ fontSize: "0.92rem" }}>{warning.title}</strong>
+                  <span
+                    style={{
+                      fontSize: "0.72rem",
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      opacity: 0.75,
+                    }}
+                  >
+                    {warning.level}
+                  </span>
+                </div>
+                <p style={{ margin: 0, fontSize: "0.84rem", lineHeight: 1.45, opacity: 0.86 }}>
+                  {warning.detail}
+                </p>
+              </article>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: "2rem", marginTop: "1rem" }}>

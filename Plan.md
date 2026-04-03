@@ -22,8 +22,8 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - **Container Strategy**: `npm ci --legacy-peer-deps` within a multi-stage Alpine Docker restricts OS leaks.
 
 ## Roadmap & Missing Features
-- [ ] Finish the **health validator scheduled task**: task emission and worker execution already exist, but findings still need persistence, API exposure, UI surfacing, and configurable thresholds.
-- [ ] Add Active Warnings area on top of the task status pannel. This we will list all active warnings of the platform (ie, increct health, backfill pending etc)
+- [ ] Finish the **health validator scheduled task**: task emission and worker execution already exist; configurable thresholds and failed-task surfacing are now wired, but findings still need persistence and dedicated API exposure.
+- [x] Add Active Warnings area on top of the task status panel so current platform risks such as degraded health, pending backfills, and recent task failures are visible without digging through task history.
 - [ ] Add **CryptoDataDownload** as a dedicated backfill provider.
 - [ ] Add **CoinGecko** as an additional realtime ticker provider.
 - [ ] Add **Yahoo Finance (Yfinance)** as a ticker provider.

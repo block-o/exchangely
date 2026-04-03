@@ -2,7 +2,8 @@ package service
 
 import (
 	"context"
-	"database/sql"
+	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -25,8 +26,8 @@ type LeaseReader interface {
 }
 
 type SystemTaskReader interface {
-	UpcomingTasks(ctx context.Context, limit int) ([]task.Task, error)
-	RecentTasks(ctx context.Context, limit int) ([]task.Task, error)
+	UpcomingTasks(ctx context.Context, limit, offset int) ([]task.Task, int, error)
+	RecentTasks(ctx context.Context, limit, offset int, types []string) ([]task.Task, int, error)
 }
 
 type SystemService struct {
@@ -60,64 +61,126 @@ func NewSystemService(dbChecker, kafkaChecker Pinger, syncReader SyncReader, tas
 	}
 }
 
-func (s *SystemService) UpcomingTasks(ctx context.Context, limit int) ([]task.Task, error) {
+func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([]task.Task, int, error) {
 	// 1. Fetch genuine pending tasks that have been emitted to the DB.
-	dbTasks, err := s.taskReader.UpcomingTasks(ctx, limit)
+	dbTasks, total, err := s.taskReader.UpcomingTasks(ctx, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+
+	// Build an index of pair+type combos that already have a real pending task.
+	// Projections for those combos are suppressed — show the real thing, not the forecast.
+	type pairType struct{ pair, taskType string }
+	pendingIndex := make(map[pairType]bool, len(dbTasks))
+	for _, t := range dbTasks {
+		pendingIndex[pairType{t.Pair, t.Type}] = true
+	}
+
+	// Override interval for real tasks if they are live ticker.
+	pollIntervalStr := formatDuration(s.pollInterval)
+	for i := range dbTasks {
+		if dbTasks[i].Type == task.TypeRealtime {
+			dbTasks[i].Interval = pollIntervalStr
+		}
 	}
 
 	// 2. Fetch the sync states so we can project future runs.
 	rows, err := s.syncReader.SnapshotRows(ctx)
 	if err != nil {
-		return dbTasks, nil // gracefully fall back on DB tasks
+		return dbTasks, total, nil // gracefully fall back on DB tasks
 	}
 
-	for _, row := range rows {
-		if !row.HourlyBackfillCompleted {
-			// Backfill projection.
-			// The next execution is the start of the un-synced window.
-			// It begins precisely after the LastSynced (or initial configured boundary).
-			nextGapStart := row.HourlySyncedUnix
-			if nextGapStart == 0 {
-				nextGapStart = time.Now().UTC().AddDate(0, 0, -30).Truncate(time.Hour).Unix()
+	// Only add projections if we are on the first page
+	if offset == 0 {
+		for _, row := range rows {
+			if !row.HourlyBackfillCompleted {
+				// Skip projection if a real pending backfill already exists for this pair.
+				if pendingIndex[pairType{row.Pair, task.TypeBackfill}] {
+					continue
+				}
+
+				// Backfill projection.
+				nextGapStart := row.HourlySyncedUnix
+				if nextGapStart == 0 {
+					nextGapStart = time.Now().UTC().AddDate(0, 0, -30).Truncate(time.Hour).Unix()
+				}
+				nextGapEnd := nextGapStart + 3600
+
+				dbTasks = append(dbTasks, task.Task{
+					ID:          "proj-backfill-" + row.Pair,
+					Type:        task.TypeBackfill,
+					Pair:        row.Pair,
+					Interval:    "1h",
+					Status:      "scheduled",
+					WindowStart: time.Unix(nextGapStart, 0).UTC(),
+					WindowEnd:   time.Unix(nextGapEnd, 0).UTC(),
+				})
+			} else {
+				// Skip projection if a real pending realtime task already exists for this pair.
+				if pendingIndex[pairType{row.Pair, task.TypeRealtime}] {
+					continue
+				}
+
+				// Realtime projection: next poll boundary.
+				pollBound := time.Now().UTC().Truncate(s.pollInterval).Add(s.pollInterval)
+				windowEnd := pollBound.Add(time.Hour)
+
+				dbTasks = append(dbTasks, task.Task{
+					ID:          "proj-realtime-" + row.Pair,
+					Type:        task.TypeRealtime,
+					Pair:        row.Pair,
+					Interval:    pollIntervalStr,
+					Status:      "scheduled",
+					WindowStart: pollBound,
+					WindowEnd:   windowEnd,
+				})
 			}
-			
-			// Compute the next target segment (1 hour stride).
-			nextGapEnd := nextGapStart + 3600
-			
-			dbTasks = append(dbTasks, task.Task{
-				ID:          "proj-backfill-" + row.Pair,
-				Type:        task.TypeBackfill,
-				Pair:        row.Pair,
-				Interval:    "1h",
-				Status:      "scheduled",
-				WindowStart: time.Unix(nextGapStart, 0).UTC(),
-				WindowEnd:   time.Unix(nextGapEnd, 0).UTC(),
-			})
-		} else {
-			// Realtime projection.
-			// Scheduled exactly for the next poll interval bound.
-			pollBound := time.Now().UTC().Truncate(s.pollInterval).Add(s.pollInterval)
-			windowEnd := pollBound.Add(time.Hour)
-
-			dbTasks = append(dbTasks, task.Task{
-				ID:          "proj-realtime-" + row.Pair,
-				Type:        task.TypeRealtime,
-				Pair:        row.Pair,
-				Interval:    "1h",
-				Status:      "scheduled",
-				WindowStart: pollBound,
-				WindowEnd:   windowEnd,
-			})
 		}
+		// Note: total count doesn't include projections for simplicity, as they are synthetic
 	}
 
-	return dbTasks, nil
+	return dbTasks, total, nil
 }
 
-func (s *SystemService) RecentTasks(ctx context.Context, limit int) ([]task.Task, error) {
-	return s.taskReader.RecentTasks(ctx, limit)
+// formatDuration renders a time.Duration into a concise human-readable string
+// like "2m", "30s", or "1h30m".
+func formatDuration(d time.Duration) string {
+	if d == 0 {
+		return "0s"
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	switch {
+	case h > 0 && m == 0 && s == 0:
+		return fmt.Sprintf("%dh", h)
+	case h > 0 && s == 0:
+		return fmt.Sprintf("%dh%dm", h, m)
+	case h > 0:
+		return fmt.Sprintf("%dh%dm%ds", h, m, s)
+	case m > 0 && s == 0:
+		return fmt.Sprintf("%dm", m)
+	case m > 0:
+		return fmt.Sprintf("%dm%ds", m, s)
+	default:
+		return fmt.Sprintf("%ds", s)
+	}
+}
+
+func (s *SystemService) RecentTasks(ctx context.Context, limit, offset int, types []string) ([]task.Task, int, error) {
+	tasks, total, err := s.taskReader.RecentTasks(ctx, limit, offset, types)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Show poll interval for real ticker tasks
+	pollIntervalStr := formatDuration(s.pollInterval)
+	for i := range tasks {
+		if tasks[i].Type == task.TypeRealtime {
+			tasks[i].Interval = pollIntervalStr
+		}
+	}
+	return tasks, total, nil
 }
 
 func (s *SystemService) NotifyUpdate() {
@@ -131,21 +194,52 @@ func (s *SystemService) NotifyUpdate() {
 	}
 }
 
-func (s *SystemService) Subscribe() <-chan struct{} {
-	ch := make(chan struct{}, 1)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.updateChs = append(s.updateChs, ch)
-	return ch
-}
+func (s *SystemService) StreamTasks(ctx context.Context, ch chan<- []task.Task) error {
+	slog.Info("SSE client subscribed to task stream")
+	
+	// Initial push (first page, no filters)
+	upcoming, _, _ := s.UpcomingTasks(ctx, 50, 0)
+	recent, _, _ := s.RecentTasks(ctx, 50, 0, nil)
+	select {
+	case ch <- append(upcoming, recent...):
+	default:
+	}
 
-func (s *SystemService) Unsubscribe(ch <-chan struct{}) {
+	update := make(chan struct{}, 1)
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, c := range s.updateChs {
-		if c == ch {
-			s.updateChs = append(s.updateChs[:i], s.updateChs[i+1:]...)
-			return
+	s.updateChs = append(s.updateChs, update)
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		for i, c := range s.updateChs {
+			if c == update {
+				s.updateChs = append(s.updateChs[:i], s.updateChs[i+1:]...)
+				break
+			}
+		}
+		s.mu.Unlock()
+		slog.Info("SSE client disconnected")
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-update:
+			upcoming, _, _ := s.UpcomingTasks(ctx, 50, 0)
+			recent, _, _ := s.RecentTasks(ctx, 50, 0, nil)
+			select {
+			case ch <- append(upcoming, recent...):
+			default:
+			}
+		case <-time.After(3 * time.Second): // Poll internal state if no updates
+			upcoming, _, _ := s.UpcomingTasks(ctx, 50, 0)
+			recent, _, _ := s.RecentTasks(ctx, 50, 0, nil)
+			select {
+			case ch <- append(upcoming, recent...):
+			default:
+			}
 		}
 	}
 }
@@ -155,59 +249,52 @@ func (s *SystemService) Health(ctx context.Context) HealthStatus {
 		"api": "ok",
 	}
 
-	status := "ok"
 	if err := s.dbChecker.Ping(ctx); err != nil {
-		checks["timescaledb"] = "degraded"
-		status = "degraded"
+		checks["db"] = "error"
 	} else {
-		checks["timescaledb"] = "ok"
+		checks["db"] = "ok"
 	}
 
 	if err := s.kafkaChecker.Ping(ctx); err != nil {
-		checks["kafka"] = "degraded"
-		status = "degraded"
+		checks["kafka"] = "error"
 	} else {
 		checks["kafka"] = "ok"
+	}
+
+	status := "ok"
+	for _, v := range checks {
+		if v != "ok" {
+			status = "degraded"
+			break
+		}
 	}
 
 	return HealthStatus{
 		Status:    status,
 		Checks:    checks,
-		Timestamp: time.Now().UTC().Unix(),
+		Timestamp: time.Now().Unix(),
 	}
 }
 
-func (s *SystemService) SyncStatus(ctx context.Context) (syncstatus.Snapshot, error) {
+func (s *SystemService) CurrentPlannerLeader(ctx context.Context) (lease.Lease, error) {
+	return s.leaseReader.Current(ctx, s.leaseName)
+}
+
+func (s *SystemService) SyncSnapshot(ctx context.Context) ([]syncstatus.PairSyncStatus, error) {
 	rows, err := s.syncReader.SnapshotRows(ctx)
 	if err != nil {
-		return syncstatus.Snapshot{}, err
+		return nil, err
 	}
 
-	holder := "unknown"
-	if current, err := s.leaseReader.Current(ctx, s.leaseName); err == nil {
-		holder = current.HolderID
-	} else if err != sql.ErrNoRows {
-		return syncstatus.Snapshot{}, err
-	}
-
-	items := make([]syncstatus.PairSyncStatus, 0, len(rows))
+	result := make([]syncstatus.PairSyncStatus, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, syncstatus.PairSyncStatus{
+		result = append(result, syncstatus.PairSyncStatus{
 			Pair:                    row.Pair,
-			BackfillCompleted:       row.BackfillCompleted,
-			LastSyncedUnix:          row.LastSyncedUnix,
-			NextTargetUnix:          row.NextTargetUnix,
-			HourlyBackfillCompleted: row.HourlyBackfillCompleted,
-			DailyBackfillCompleted:  row.DailyBackfillCompleted,
 			HourlySyncedUnix:        row.HourlySyncedUnix,
 			DailySyncedUnix:         row.DailySyncedUnix,
-			NextHourlyTargetUnix:    row.NextHourlyTargetUnix,
-			NextDailyTargetUnix:     row.NextDailyTargetUnix,
+			HourlyBackfillCompleted: row.HourlyBackfillCompleted,
+			DailyBackfillCompleted:  row.DailyBackfillCompleted,
 		})
 	}
-
-	return syncstatus.Snapshot{
-		PlannerLeader: holder,
-		Pairs:         items,
-	}, nil
+	return result, nil
 }

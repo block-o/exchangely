@@ -144,12 +144,12 @@ func TestDailyPromotionMakesPairRealtimeEligible(t *testing.T) {
 		DailyBackfillCompleted:  true,
 	}
 
-	realtime := scheduler.BuildRealtimeTasks([]pair.Pair{{Symbol: "BTCEUR"}}, state, now)
-	if len(realtime) != 1 {
-		t.Fatalf("expected realtime task after daily promotion, got %d", len(realtime))
+	afterPromotion := scheduler.BuildRealtimeTasks([]pair.Pair{{Symbol: "BTCEUR"}}, state, now)
+	if len(afterPromotion) != 2 {
+		t.Fatalf("expected 2 tasks (realtime/sanity) after daily promotion, got %d", len(afterPromotion))
 	}
-	if realtime[0].Type != task.TypeRealtime || realtime[0].Interval != "1h" {
-		t.Fatalf("unexpected realtime task: %+v", realtime[0])
+	if afterPromotion[0].Type != task.TypeRealtime || afterPromotion[0].Interval != "1h" {
+		t.Fatalf("unexpected realtime task: %+v", afterPromotion[0])
 	}
 }
 

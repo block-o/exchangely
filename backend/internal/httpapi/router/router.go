@@ -1,9 +1,7 @@
 package router
 
 import (
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/block-o/exchangely/backend/internal/domain/task"
 	"github.com/block-o/exchangely/backend/internal/httpapi/dto"
 	"github.com/block-o/exchangely/backend/internal/service"
 )
@@ -96,15 +95,6 @@ func New(svcs Services, opts Options) http.Handler {
 	})
 
 	// GET /api/v1/tickers/stream — Server-Sent Events (SSE) endpoint.
-	// The connection stays open and pushes a full ticker snapshot each time the
-	// backend's EventBus fires (triggered by BackfillExecutor or RealtimeIngestService
-	// after a successful Postgres write). This eliminates frontend polling entirely.
-	//
-	// Lifecycle:
-	//   1. Subscribe to MarketService's EventBus channel.
-	//   2. Immediately send the current ticker state as the first SSE event.
-	//   3. Block on the channel; on each signal, re-query and push fresh state.
-	//   4. On client disconnect (ctx.Done), unsubscribe and close.
 	mux.HandleFunc("/api/v1/tickers/stream", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -120,32 +110,27 @@ func New(svcs Services, opts Options) http.Handler {
 		updates := svcs.Market.Subscribe()
 		defer svcs.Market.Unsubscribe(updates)
 
-		// Send initial snapshot so the client has data immediately on connect.
-		items, err := svcs.Market.Tickers(ctx)
-		if err == nil {
-			data, _ := json.Marshal(items)
-			fmt.Fprintf(w, "data: %s\n\n", string(data))
-			flusher.Flush()
-		}
+		// Initial push
+		items, _ := svcs.Market.Tickers(ctx)
+		data, _ := json.Marshal(map[string]any{"tickers": items})
+		fmt.Fprintf(w, "data: %s\n\n", string(data))
+		flusher.Flush()
 
-		// Block until either the client disconnects or new data arrives.
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-updates:
-				items, err := svcs.Market.Tickers(ctx)
-				if err == nil {
-					data, _ := json.Marshal(items)
-					fmt.Fprintf(w, "data: %s\n\n", string(data))
-					flusher.Flush()
-				}
+				items, _ := svcs.Market.Tickers(ctx)
+				data, _ := json.Marshal(map[string]any{"tickers": items})
+				fmt.Fprintf(w, "data: %s\n\n", string(data))
+				flusher.Flush()
 			}
 		}
 	})
 
 	mux.HandleFunc("/api/v1/system/sync-status", func(w http.ResponseWriter, r *http.Request) {
-		item, err := svcs.System.SyncStatus(r.Context())
+		item, err := svcs.System.SyncSnapshot(r.Context())
 		if err != nil {
 			writeError(w, err)
 			return
@@ -161,19 +146,35 @@ func New(svcs Services, opts Options) http.Handler {
 
 	mux.HandleFunc("/api/v1/system/tasks", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		upcoming, err := svcs.System.UpcomingTasks(ctx, 10)
+		
+		limit := getIntParam(r, "limit", 50)
+		page := getIntParam(r, "page", 1)
+		offset := (page - 1) * limit
+		
+		typesStr := r.URL.Query().Get("type")
+		var types []string
+		if typesStr != "" {
+			types = strings.Split(typesStr, ",")
+		}
+
+		upcoming, upTotal, err := svcs.System.UpcomingTasks(ctx, limit, offset)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		recent, err := svcs.System.RecentTasks(ctx, 10)
+		recent, recTotal, err := svcs.System.RecentTasks(ctx, limit, offset, types)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
+
 		writeJSON(w, http.StatusOK, map[string]any{
-			"upcoming": upcoming,
-			"recent":   recent,
+			"upcoming":      upcoming,
+			"upcomingTotal": upTotal,
+			"recent":        recent,
+			"recentTotal":   recTotal,
+			"limit":         limit,
+			"page":          page,
 		})
 	})
 
@@ -189,26 +190,29 @@ func New(svcs Services, opts Options) http.Handler {
 		}
 
 		ctx := r.Context()
-		updates := svcs.System.Subscribe()
-		defer svcs.System.Unsubscribe(updates)
-
-		// Initial push
-		upcoming, _ := svcs.System.UpcomingTasks(ctx, 10)
-		recent, _ := svcs.System.RecentTasks(ctx, 10)
-		data, _ := json.Marshal(map[string]any{
-			"upcoming": upcoming,
-			"recent":   recent,
-		})
-		fmt.Fprintf(w, "data: %s\n\n", string(data))
-		flusher.Flush()
+		ch := make(chan []task.Task)
+		
+		go func() {
+			if err := svcs.System.StreamTasks(ctx, ch); err != nil {
+				slog.Warn("task stream ended", "error", err)
+			}
+		}()
 
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-updates:
-				upcoming, _ := svcs.System.UpcomingTasks(ctx, 10)
-				recent, _ := svcs.System.RecentTasks(ctx, 10)
+			case tasks := <-ch:
+				upcoming := []task.Task{}
+				recent := []task.Task{}
+				for _, t := range tasks {
+					if t.Status == "pending" || t.Status == "scheduled" {
+						upcoming = append(upcoming, t)
+					} else {
+						recent = append(recent, t)
+					}
+				}
+				
 				data, _ := json.Marshal(map[string]any{
 					"upcoming": upcoming,
 					"recent":   recent,
@@ -230,59 +234,68 @@ func New(svcs Services, opts Options) http.Handler {
 	return withAccessLog(withCORS(mux, opts.AllowedOrigins))
 }
 
-func parseUnix(value string) time.Time {
-	if value == "" {
-		return time.Time{}
+func getIntParam(r *http.Request, name string, defaultVal int) int {
+	val := r.URL.Query().Get(name)
+	if val == "" {
+		return defaultVal
 	}
-	unix, err := strconv.ParseInt(value, 10, 64)
+	i, err := strconv.Atoi(val)
 	if err != nil {
-		return time.Time{}
+		return defaultVal
 	}
-	return time.Unix(unix, 0).UTC()
+	return i
 }
 
-func writeJSON(w http.ResponseWriter, status int, payload any) {
+func parseUnix(val string) time.Time {
+	if val == "" {
+		return time.Time{}
+	}
+	sec, _ := strconv.ParseInt(val, 10, 64)
+	return time.Unix(sec, 0).UTC()
+}
+
+func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	json.NewEncoder(w).Encode(data)
 }
 
 func writeError(w http.ResponseWriter, err error) {
-	status := http.StatusInternalServerError
-	if errors.Is(err, os.ErrNotExist) {
-		status = http.StatusNotFound
-	}
-	if errors.Is(err, sql.ErrNoRows) {
-		status = http.StatusNotFound
-	}
-	http.Error(w, err.Error(), status)
+	slog.Error("request failed", "error", err)
+	http.Error(w, err.Error(), http.StatusInternalServerError)
 }
 
 func toAnySlice[T any](items []T) []any {
-	out := make([]any, 0, len(items))
-	for _, item := range items {
-		out = append(out, item)
+	result := make([]any, len(items))
+	for i, item := range items {
+		result[i] = item
 	}
-	return out
+	return result
 }
 
 func withCORS(next http.Handler, allowedOrigins []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := strings.TrimSpace(r.Header.Get("Origin"))
-		allowedOrigin, ok := matchAllowedOrigin(origin, allowedOrigins)
-		if ok {
-			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
-			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		origin := r.Header.Get("Origin")
+		allowed := false
+		for _, o := range allowedOrigins {
+			if o == "*" || o == origin {
+				allowed = true
+				break
+			}
+		}
+
+		if allowed {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		}
 
 		if r.Method == http.MethodOptions {
-			if ok {
-				w.WriteHeader(http.StatusNoContent)
+			if !allowed {
+				w.WriteHeader(http.StatusForbidden)
 				return
 			}
-			http.Error(w, "origin not allowed", http.StatusForbidden)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 
@@ -292,55 +305,12 @@ func withCORS(next http.Handler, allowedOrigins []string) http.Handler {
 
 func withAccessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		startedAt := time.Now()
-		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-
-		next.ServeHTTP(recorder, r)
-
-		slog.Info("http request completed",
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		slog.Debug("request",
 			"method", r.Method,
-			"path", r.URL.Path,
-			"query", r.URL.RawQuery,
-			"status", recorder.status,
-			"duration_ms", time.Since(startedAt).Milliseconds(),
-			"remote_addr", r.RemoteAddr,
+			"url", r.URL.String(),
+			"duration", time.Since(start),
 		)
 	})
-}
-
-// statusRecorder wraps ResponseWriter to capture the HTTP status code for access logging.
-// It also implements http.Flusher so that SSE streaming works through the logging middleware.
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
-}
-
-func (r *statusRecorder) WriteHeader(status int) {
-	r.status = status
-	r.ResponseWriter.WriteHeader(status)
-}
-
-// Flush delegates to the underlying ResponseWriter's Flush if supported.
-// This is required for Server-Sent Events — without it, the SSE handler's
-// w.(http.Flusher) type assertion fails and returns 500.
-func (r *statusRecorder) Flush() {
-	if f, ok := r.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-func matchAllowedOrigin(origin string, allowedOrigins []string) (string, bool) {
-	if origin == "" {
-		return "", false
-	}
-	for _, candidate := range allowedOrigins {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
-			continue
-		}
-		if candidate == "*" || candidate == origin {
-			return origin, true
-		}
-	}
-	return "", false
 }

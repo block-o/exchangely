@@ -69,8 +69,8 @@ func TestBuildRealtimeTasksIncludesOnlyCaughtUpPairs(t *testing.T) {
 		},
 	}, now)
 
-	if len(tasks) != 2 {
-		t.Fatalf("expected 2 realtime tasks, got %d", len(tasks))
+	if len(tasks) != 4 {
+		t.Fatalf("expected 4 tasks (2 realtime, 2 sanity), got %d", len(tasks))
 	}
 	foundETH := false
 	for _, task := range tasks {
@@ -108,8 +108,8 @@ func TestRealtimeTasksGenerateDistinctIDsPerPollWindow(t *testing.T) {
 	tasks1 := scheduler.BuildRealtimeTasks(pairs, caughtUp, t1)
 	tasks2 := scheduler.BuildRealtimeTasks(pairs, caughtUp, t2)
 
-	if len(tasks1) != 1 || len(tasks2) != 1 {
-		t.Fatalf("expected 1 task each, got %d and %d", len(tasks1), len(tasks2))
+	if len(tasks1) != 2 || len(tasks2) != 2 {
+		t.Fatalf("expected 2 tasks each (1 realtime, 1 sanity), got %d and %d", len(tasks1), len(tasks2))
 	}
 	if tasks1[0].ID == tasks2[0].ID {
 		t.Fatalf("expected distinct task IDs across poll windows, both got %q", tasks1[0].ID)
@@ -118,9 +118,11 @@ func TestRealtimeTasksGenerateDistinctIDsPerPollWindow(t *testing.T) {
 	// But two calls within the SAME 2-minute window should produce the same ID.
 	t3 := time.Date(2026, 4, 2, 12, 0, 30, 0, time.UTC) // 30s into the same window as t1
 	tasks3 := scheduler.BuildRealtimeTasks(pairs, caughtUp, t3)
-	if len(tasks3) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(tasks3))
+	// Each tick emits 2 tasks: 1 live_ticker + 1 integrity_check.
+	if len(tasks3) != 2 {
+		t.Fatalf("expected 2 tasks (realtime + sanity), got %d", len(tasks3))
 	}
+	// The live_ticker ID (index 0) must be the same across calls in the same poll window.
 	if tasks1[0].ID != tasks3[0].ID {
 		t.Fatalf("expected same task ID within same poll window, got %q vs %q", tasks1[0].ID, tasks3[0].ID)
 	}
@@ -136,5 +138,28 @@ func TestNewSchedulerDefaultsPollInterval(t *testing.T) {
 	s2 := NewScheduler(-1 * time.Second)
 	if s2.realtimePollInterval != 2*time.Minute {
 		t.Fatalf("expected 2m default for negative, got %v", s2.realtimePollInterval)
+	}
+}
+// TestBuildCleanupTask verifies that the cleanup task is correctly generated
+// with a unique ID per day.
+func TestBuildCleanupTask(t *testing.T) {
+	s := NewScheduler(2 * time.Minute)
+	now1 := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	now2 := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
+
+	task1 := s.BuildCleanupTask(now1)
+	task2 := s.BuildCleanupTask(now2)
+
+	if task1.Type != "task_cleanup" {
+		t.Errorf("expected cleanup type, got %s", task1.Type)
+	}
+
+	if task1.ID == task2.ID {
+		t.Errorf("expected distinct daily IDs, both got %s", task1.ID)
+	}
+
+	expectedID1 := "task_cleanup:daily:1775088000"
+	if task1.ID != expectedID1 {
+		t.Errorf("expected ID %s, got %s", expectedID1, task1.ID)
 	}
 }

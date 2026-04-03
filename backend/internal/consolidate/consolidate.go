@@ -18,7 +18,11 @@ func FromRaw(interval string, items []candle.Candle) ([]candle.Candle, error) {
 
 	grouped := map[int64][]candle.Candle{}
 	for _, item := range items {
-		grouped[item.Timestamp] = append(grouped[item.Timestamp], item)
+		groupKey := item.Timestamp
+		if interval == "1h" {
+			groupKey = time.Unix(item.Timestamp, 0).UTC().Truncate(time.Hour).Unix()
+		}
+		grouped[groupKey] = append(grouped[groupKey], item)
 	}
 
 	keys := make([]int64, 0, len(grouped))
@@ -30,14 +34,26 @@ func FromRaw(interval string, items []candle.Candle) ([]candle.Candle, error) {
 	result := make([]candle.Candle, 0, len(keys))
 	for _, key := range keys {
 		group := grouped[key]
-		openSum := 0.0
-		closeSum := 0.0
+		sort.Slice(group, func(i, j int) bool { return group[i].Timestamp < group[j].Timestamp })
+
+		earliestTs := group[0].Timestamp
+		latestTs := group[len(group)-1].Timestamp
+
+		openSum, openCount := 0.0, 0
+		closeSum, closeCount := 0.0, 0
 		high := group[0].High
 		low := group[0].Low
 		volume := 0.0
+
 		for _, item := range group {
-			openSum += item.Open
-			closeSum += item.Close
+			if item.Timestamp == earliestTs {
+				openSum += item.Open
+				openCount++
+			}
+			if item.Timestamp == latestTs {
+				closeSum += item.Close
+				closeCount++
+			}
 			if item.High > high {
 				high = item.High
 			}
@@ -46,14 +62,15 @@ func FromRaw(interval string, items []candle.Candle) ([]candle.Candle, error) {
 			}
 			volume += item.Volume
 		}
+
 		result = append(result, candle.Candle{
 			Pair:      group[0].Pair,
 			Interval:  interval,
 			Timestamp: key,
-			Open:      openSum / float64(len(group)),
+			Open:      openSum / float64(openCount),
 			High:      high,
 			Low:       low,
-			Close:     closeSum / float64(len(group)),
+			Close:     closeSum / float64(closeCount),
 			Volume:    volume,
 			Source:    "consolidated",
 			Finalized: true,

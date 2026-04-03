@@ -105,7 +105,7 @@ func TestBackfillExecutorFailsWhenSourceCoverageIsIncomplete(t *testing.T) {
 			{Pair: "BTCUSDT", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC).Unix(), Open: 10, High: 11, Low: 9, Close: 10.5, Volume: 1, Source: "binance"},
 			{Pair: "BTCUSDT", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 2, 0, 0, 0, time.UTC).Unix(), Open: 11, High: 12, Low: 10, Close: 11.5, Volume: 1, Source: "binance"},
 		},
-	}, nil)
+	}, nil, nil)
 
 	err := executor.Execute(context.Background(), task.Task{
 		ID:          "backfill:BTCUSDT:coverage-gap",
@@ -256,6 +256,14 @@ func (f *fakeMarketSource) FetchCandles(_ context.Context, _ ingest.Request) ([]
 		return nil, f.err
 	}
 	return f.items, nil
+}
+
+func (f *fakeMarketSource) Name() string {
+	return "fake"
+}
+
+func (f *fakeMarketSource) Supports(_ ingest.Request) bool {
+	return true
 }
 
 type fakeMarketPublisher struct {

@@ -69,7 +69,12 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 		return nil, err
 	}
 
-	interval, err := krakenInterval(request.Interval)
+	intervalStr := request.Interval
+	if intervalStr == "1h" {
+		intervalStr = "1m"
+	}
+
+	interval, err := krakenInterval(intervalStr)
 	if err != nil {
 		return nil, err
 	}
@@ -296,6 +301,8 @@ func (c *Client) setCooldown() {
 
 func krakenInterval(interval string) (int, error) {
 	switch interval {
+	case "1m":
+		return 1, nil
 	case "1h":
 		return 60, nil
 	case "1d":

@@ -32,7 +32,7 @@ func NewScheduler(pollInterval time.Duration) *Scheduler {
 		pollInterval = 2 * time.Minute
 	}
 	return &Scheduler{
-		backfillWindow1H:     24 * time.Hour,
+		backfillWindow1H:     12 * time.Hour,
 		backfillWindow1D:     7 * 24 * time.Hour,
 		realtimePollInterval: pollInterval,
 	}
@@ -68,6 +68,21 @@ func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[strin
 	return tasks
 }
 
+// BuildCleanupTask emits a single task_cleanup task per calendar day (keyed by midnight UTC).
+// The planner's idempotent Enqueue ensures it only executes once per day regardless of restart count.
+func (s *Scheduler) BuildCleanupTask(now time.Time) task.Task {
+	dayStart := now.UTC().Truncate(24 * time.Hour)
+	dayEnd := dayStart.Add(24 * time.Hour)
+	return task.Task{
+		ID:          fmt.Sprintf("%s:daily:%d", task.TypeCleanup, dayStart.Unix()),
+		Type:        task.TypeCleanup,
+		Pair:        "*", // global — not pair-specific
+		Interval:    "1d",
+		WindowStart: dayStart,
+		WindowEnd:   dayEnd,
+	}
+}
+
 // BuildRealtimeTasks emits one polling task per fully caught-up pair for the current
 // poll window. The task ID includes the poll-window start timestamp (truncated to
 // realtimePollInterval), so the planner's idempotent Enqueue recognizes each window
@@ -83,14 +98,11 @@ func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncS
 
 	for _, trackedPair := range pairs {
 		pairState, ok := state[trackedPair.Symbol]
-		// We only require hourly backfill to be caught up so we don't clobber historical writes.
-		// Daily backfill can continue in the background while realtime dashboard data flows.
 		if !ok || !pairState.HourlyBackfillCompleted {
 			continue
 		}
 
-		// Use pollWindow in the ID so each poll interval generates a unique task.
-		// The actual fetch window remains the full current hour for API compatibility.
+		// Realtime extraction
 		tasks = append(tasks, task.Task{
 			ID:          taskID(task.TypeRealtime, trackedPair.Symbol, "1h", pollWindow, nextHour),
 			Type:        task.TypeRealtime,
@@ -98,6 +110,17 @@ func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncS
 			Interval:    "1h",
 			WindowStart: currentHour,
 			WindowEnd:   nextHour,
+		})
+
+		// Integrity Check extraction (for the immediately preceding fully-matured hour)
+		prevHour := currentHour.Add(-time.Hour)
+		tasks = append(tasks, task.Task{
+			ID:          taskID(task.TypeDataSanity, trackedPair.Symbol, "1h", prevHour, currentHour),
+			Type:        task.TypeDataSanity,
+			Pair:        trackedPair.Symbol,
+			Interval:    "1h",
+			WindowStart: prevHour,
+			WindowEnd:   currentHour,
 		})
 	}
 

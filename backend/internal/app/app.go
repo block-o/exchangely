@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/config"
+	"github.com/block-o/exchangely/backend/internal/domain/task"
 	"github.com/block-o/exchangely/backend/internal/httpapi/router"
+	"github.com/block-o/exchangely/backend/internal/ingest"
 	"github.com/block-o/exchangely/backend/internal/ingest/binance"
 	"github.com/block-o/exchangely/backend/internal/ingest/binancevision"
 	"github.com/block-o/exchangely/backend/internal/ingest/kraken"
@@ -90,11 +92,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	taskPublisher := kafka.NewTaskPublisher(cfg.KafkaBrokers, cfg.KafkaTasksTopic)
 	marketPublisher := kafka.NewMarketEventPublisher(cfg.KafkaBrokers, cfg.KafkaMarketTopic)
-	sourceRegistry := ingestregistry.New(
-		binancevision.NewClient("", nil),
-		kraken.NewClient("", nil),
-		binance.NewClient("", nil),
-	)
+	binanceSrc := binance.NewClient("", nil)
+	krakenSrc := kraken.NewClient("", nil)
+	bvSrc := binancevision.NewClient("", nil)
+	
+	sourceRegistry := ingestregistry.New(bvSrc, krakenSrc, binanceSrc)
 	realtimeIngest := service.NewRealtimeIngestService(marketRepo, marketService)
 	plannerRunner := planner.NewRunner(
 		instanceID,
@@ -109,10 +111,22 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		taskPublisher,
 	)
 
+	backfillExe := worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry, marketPublisher, marketService)
+	validatorExe := worker.NewValidatorExecutor([]ingest.Source{binanceSrc, krakenSrc, bvSrc})
+	cleanupExe := worker.NewCleanupExecutor(taskRepo, 7*24*time.Hour) // Retain 7 days of logs
+	
+	routerExe := worker.NewRouterExecutor(map[string]worker.Executor{
+		task.TypeBackfill:    backfillExe,
+		task.TypeRealtime:    backfillExe,
+		task.TypeConsolidate: backfillExe,
+		task.TypeDataSanity:  validatorExe,
+		task.TypeCleanup:     cleanupExe,
+	})
+
 	workerProcessor := worker.NewProcessor(
 		taskRepo,
 		pairLocker,
-		worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry, marketPublisher, marketService),
+		routerExe,
 	)
 	taskConsumer := kafka.NewTaskConsumer(
 		cfg.KafkaBrokers,

@@ -24,6 +24,7 @@ type SyncRow struct {
 	DailySyncedUnix         int64
 	NextHourlyTargetUnix    int64
 	NextDailyTargetUnix     int64
+	UpdatedAt               time.Time
 }
 
 type SyncRepository struct {
@@ -149,7 +150,8 @@ func (r *SyncRepository) SnapshotRows(ctx context.Context) ([]SyncRow, error) {
 		       COALESCE(EXTRACT(EPOCH FROM s.hourly_last_synced_at)::BIGINT, 0),
 		       COALESCE(EXTRACT(EPOCH FROM s.daily_last_synced_at)::BIGINT, 0),
 		       EXTRACT(EPOCH FROM NOW() + INTERVAL '1 hour')::BIGINT,
-		       EXTRACT(EPOCH FROM date_trunc('day', NOW() AT TIME ZONE 'UTC') + INTERVAL '1 day')::BIGINT
+		       EXTRACT(EPOCH FROM date_trunc('day', NOW() AT TIME ZONE 'UTC') + INTERVAL '1 day')::BIGINT,
+		       COALESCE(s.updated_at, NOW())
 		FROM pairs p
 		LEFT JOIN sync_status s ON s.pair_symbol = p.symbol
 		ORDER BY p.symbol
@@ -173,6 +175,7 @@ func (r *SyncRepository) SnapshotRows(ctx context.Context) ([]SyncRow, error) {
 			&item.DailySyncedUnix,
 			&item.NextHourlyTargetUnix,
 			&item.NextDailyTargetUnix,
+			&item.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

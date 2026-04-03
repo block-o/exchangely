@@ -60,9 +60,14 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 		return nil, err
 	}
 
+	intervalStr := request.Interval
+	if intervalStr == "1h" {
+		intervalStr = "1m"
+	}
+
 	params := url.Values{}
 	params.Set("symbol", request.Base+request.Quote)
-	params.Set("interval", request.Interval)
+	params.Set("interval", intervalStr)
 	params.Set("startTime", strconv.FormatInt(request.StartTime.UTC().UnixMilli(), 10))
 	params.Set("endTime", strconv.FormatInt(request.EndTime.UTC().UnixMilli(), 10))
 	params.Set("limit", "1000")

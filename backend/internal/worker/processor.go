@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -36,6 +37,22 @@ func NewProcessor(store TaskStore, locker PairLocker, executor Executor) *Proces
 		locker:   locker,
 		executor: executor,
 	}
+}
+
+type RouterExecutor struct {
+	routers map[string]Executor
+}
+
+func NewRouterExecutor(routers map[string]Executor) *RouterExecutor {
+	return &RouterExecutor{routers: routers}
+}
+
+func (r *RouterExecutor) Execute(ctx context.Context, item task.Task) error {
+	executor, ok := r.routers[item.Type]
+	if !ok {
+		return fmt.Errorf("no executor registered for task type %q", item.Type)
+	}
+	return executor.Execute(ctx, item)
 }
 
 func (p *Processor) Process(ctx context.Context, item task.Task) error {

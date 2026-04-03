@@ -54,7 +54,6 @@ type MarketNotifier interface {
 	NotifyUpdate()
 }
 
-
 // NewBackfillExecutor returns the worker-side executor for backfill, daily consolidation, and realtime tasks.
 func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources MarketSource, events MarketEventPublisher, notifier MarketNotifier) *BackfillExecutor {
 	return &BackfillExecutor{

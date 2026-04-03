@@ -21,7 +21,7 @@ type MarketRepository interface {
 type MarketService struct {
 	repo      MarketRepository
 	updateChs []chan struct{} // one buffered channel per active SSE subscriber
-	mu        sync.RWMutex   // guards updateChs slice
+	mu        sync.RWMutex    // guards updateChs slice
 }
 
 // NewMarketService returns a MarketService backed by the given repository.

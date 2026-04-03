@@ -289,9 +289,9 @@ func (r *MarketRepository) Ticker(ctx context.Context, pairSymbol string) (ticke
 //
 //   - "latest":     DISTINCT ON (pair_symbol) picks the most recent hourly candle per pair.
 //   - "past":       DISTINCT ON (pair_symbol) picks the candle closest to (but not after) 24h ago,
-//                   used as the baseline for percentage-change calculation.
+//     used as the baseline for percentage-change calculation.
 //   - "window_24h": GROUP BY pair_symbol aggregates MAX(high) and MIN(low) over all candles
-//                   within the trailing 24-hour window, powering the 24h High/Low columns.
+//     within the trailing 24-hour window, powering the 24h High/Low columns.
 //
 // The final SELECT LEFT JOINs all three CTEs so that pairs with fewer than 24h of data
 // still appear (old_price falls back to the current price, high/low may be NULL).

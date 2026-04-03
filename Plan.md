@@ -6,7 +6,7 @@ Exchangely is a high-availability crypto historical-data service for curated EUR
 
 Core stack:
 - Go backend
-- React frontend scaffold
+- React frontend
 - Kafka event bus
 - TimescaleDB/PostgreSQL persistence
 - Docker Compose local topology
@@ -27,6 +27,8 @@ Implemented:
 - configurable CORS allowlist
 - Swagger/OpenAPI file serving
 - Docker Compose stack with Kafka KRaft, TimescaleDB, backend, frontend, and Kafka topic init
+- README architecture diagram and updated runtime notes
+- initial codebase documentation/test coverage for operational behavior
 
 Ingestion sources:
 - Binance Vision for historical archive-backed backfill
@@ -84,17 +86,36 @@ Operational notes:
    - current smoke path validates happy-path runtime state
    - restart/failure/recovery scenarios are still open
 
+4. Frontend is still scaffold-grade.
+   - the main dashboard should move toward a CoinMarketCap-style market board
+   - the first tab should prioritize pair overview, latest values, and small trend charts
+   - a separate operational tab should expose service health, sync status, and recent task activity
+   - the visual direction should be more intentional and Material-inspired, not bare scaffolding
+
+5. Critical backend paths need better inline documentation.
+   - scheduler, planner runtime, source registry, worker execution flow, and realtime ingest need clearer package/type/method comments
+   - the goal is faster handoff and easier maintenance, not comment noise
+
 ## Current Focus
 
 Active workstream:
 - improve runtime observability
 - harden ingestion/backfill behavior
+- plan the first real frontend experience
+- improve codebase documentation around critical runtime paths
 - keep extending verification only when it materially improves confidence
 
 Next likely steps:
 1. validate realtime task execution and market-event ingestion under Compose
 2. keep hardening source behavior around rate limits, fallbacks, and status reporting
 3. extend Compose coverage where it checks failure recovery, especially stale/retried task paths
+4. design and scaffold the first real frontend dashboard:
+   - market overview tab with pair cards/table, latest values, and mini charts
+   - system tab with health, sync progress, and recent task status
+5. add documentation to critical backend flows:
+   - scheduler and task generation
+   - registry source selection and fallback rules
+   - worker execution lifecycle and realtime ingest path
 
 ## Deferred TODOs
 

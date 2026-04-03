@@ -116,6 +116,7 @@ Next likely steps:
    - scheduler and task generation
    - registry source selection and fallback rules
    - worker execution lifecycle and realtime ingest path
+5. configure GitHub Actions to lint, validate the project (including frontend and backend), and run e2e tests
 
 ## Deferred TODOs
 

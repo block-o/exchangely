@@ -83,6 +83,32 @@ func (s *Scheduler) BuildCleanupTask(now time.Time) task.Task {
 	}
 }
 
+// BuildConsolidationTasks emits one daily consolidation task per pair for the last fully-closed UTC day.
+// These tasks rebuild the previous daily candle from canonical hourly candles after backfill catch-up.
+func (s *Scheduler) BuildConsolidationTasks(pairs []pair.Pair, state map[string]SyncState, now time.Time) []task.Task {
+	currentDay := now.UTC().Truncate(24 * time.Hour)
+	prevDay := currentDay.Add(-24 * time.Hour)
+	tasks := make([]task.Task, 0)
+
+	for _, trackedPair := range pairs {
+		pairState, ok := state[trackedPair.Symbol]
+		if !ok || !pairState.HourlyBackfillCompleted || !pairState.DailyBackfillCompleted {
+			continue
+		}
+
+		tasks = append(tasks, task.Task{
+			ID:          taskID(task.TypeConsolidate, trackedPair.Symbol, "1d", prevDay, currentDay),
+			Type:        task.TypeConsolidate,
+			Pair:        trackedPair.Symbol,
+			Interval:    "1d",
+			WindowStart: prevDay,
+			WindowEnd:   currentDay,
+		})
+	}
+
+	return tasks
+}
+
 // BuildRealtimeTasks emits one polling task per fully caught-up pair for the current
 // poll window. The task ID includes the poll-window start timestamp (truncated to
 // realtimePollInterval), so the planner's idempotent Enqueue recognizes each window

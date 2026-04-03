@@ -15,10 +15,12 @@ export interface Task {
 interface TasksResponse {
   upcoming: Task[];
   upcomingTotal: number;
+  upcomingLimit: number;
+  upcomingPage: number;
   recent: Task[];
   recentTotal: number;
-  limit: number;
-  page: number;
+  recentLimit: number;
+  recentPage: number;
 }
 
 // All known task types in display order
@@ -36,6 +38,13 @@ const TYPE_LABELS: Record<string, string> = {
   integrity_check: "Integrity Check",
   consolidation: "Consolidation",
   task_cleanup: "Task Log Cleanup",
+};
+
+const RECENT_TASK_STATUSES = ["completed", "failed"];
+
+const STATUS_LABELS: Record<string, string> = {
+  completed: "Completed",
+  failed: "Failed",
 };
 
 function formatDateTime(isoString?: string) {
@@ -62,14 +71,33 @@ function formatShortDate(isoString?: string) {
   });
 }
 
-// ── Type filter dropdown ────────────────────────────────────────────────────
-interface TypeFilterProps {
-  allTypes: string[];
+function taskStatusLabel(status?: string) {
+  switch (status) {
+    case "running":
+      return "Ongoing";
+    case "failed":
+      return "Failed";
+    case "completed":
+      return "Completed";
+    case "scheduled":
+      return "Scheduled";
+    case "pending":
+      return "Pending";
+    default:
+      return status || "Pending";
+  }
+}
+
+// ── Multi filter dropdown ───────────────────────────────────────────────────
+interface MultiFilterProps {
+  allOptions: string[];
+  labels?: Record<string, string>;
+  title: string;
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
 }
 
-function TypeFilter({ allTypes, selected, onChange }: TypeFilterProps) {
+function MultiFilter({ allOptions, labels, title, selected, onChange }: MultiFilterProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -94,7 +122,7 @@ function TypeFilter({ allTypes, selected, onChange }: TypeFilterProps) {
   }
 
   function selectAll() {
-    onChange(new Set(allTypes));
+    onChange(new Set(allOptions));
   }
 
   function clearAll() {
@@ -103,10 +131,10 @@ function TypeFilter({ allTypes, selected, onChange }: TypeFilterProps) {
 
   const label =
     selected.size === 0
-      ? "None"
-      : selected.size === allTypes.length
-      ? "All types"
-      : `${selected.size} type${selected.size > 1 ? "s" : ""}`;
+      ? `${title}: None`
+      : selected.size === allOptions.length
+      ? `${title}: All`
+      : `${title}: ${selected.size} selected`;
 
   return (
     <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
@@ -125,7 +153,7 @@ function TypeFilter({ allTypes, selected, onChange }: TypeFilterProps) {
           padding: "0.3rem 0.7rem",
         }}
       >
-        <span style={{ opacity: 0.7 }}>Filter:</span> {label}{" "}
+        {label}{" "}
         <span style={{ fontSize: "0.7rem", opacity: 0.6 }}>{open ? "▲" : "▼"}</span>
       </button>
 
@@ -165,7 +193,7 @@ function TypeFilter({ allTypes, selected, onChange }: TypeFilterProps) {
               None
             </button>
           </div>
-          {allTypes.map((type) => (
+          {allOptions.map((type) => (
             <label
               key={type}
               style={{
@@ -187,7 +215,7 @@ function TypeFilter({ allTypes, selected, onChange }: TypeFilterProps) {
                 onChange={() => toggle(type)}
                 style={{ accentColor: "var(--accent-color, #7c6fff)", width: "14px", height: "14px" }}
               />
-              {TYPE_LABELS[type] ?? type}
+              {labels?.[type] ?? TYPE_LABELS[type] ?? type}
             </label>
           ))}
         </div>
@@ -257,30 +285,29 @@ export function SystemPanel() {
   const [recentPage, setRecentPage] = useState(1);
   const [upcomingFilter, setUpcomingFilter] = useState<Set<string>>(new Set(TASK_TYPES));
   const [recentFilter, setRecentFilter] = useState<Set<string>>(new Set(TASK_TYPES));
+  const [recentStatusFilter, setRecentStatusFilter] = useState<Set<string>>(new Set(RECENT_TASK_STATUSES));
   
-  const LIMIT = 50;
+  const UPCOMING_LIMIT = 10;
+  const RECENT_LIMIT = 10;
 
   // @ts-ignore - injected by vite build
   const uiVersion = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "Unknown";
 
   const fetchTasks = async () => {
-    // Note: Upcoming doesn't filter by type in backend yet (as per plan focus), but could.
-    // For now, we always fetch page 1 of upcoming but paginate recent.
     const typeFilter = Array.from(recentFilter).join(",");
-    const url = `${import.meta.env.VITE_API_BASE_URL}/system/tasks?limit=${LIMIT}&page=${recentPage}&type=${typeFilter}`;
+    const statusFilter = Array.from(recentStatusFilter).join(",");
+    const url = `${import.meta.env.VITE_API_BASE_URL}/system/tasks?upcoming_limit=${UPCOMING_LIMIT}&upcoming_page=${upcomingPage}&recent_limit=${RECENT_LIMIT}&recent_page=${recentPage}&type=${typeFilter}&status=${statusFilter}`;
     
     try {
       const res = await fetch(url);
       const json: TasksResponse = await res.json();
       setRecentTotal(json.recentTotal);
       setUpcomingTotal(json.upcomingTotal);
-      
-      // If we are on page 1 of recent, we also update upcoming from this response
-      // But if we are only paginating recent, we keep upcoming from first fetch or SSE
-      setData(prev => ({
-        upcoming: json.upcoming || prev.upcoming,
-        recent: json.recent || []
-      }));
+
+      setData({
+        upcoming: json.upcoming || [],
+        recent: json.recent || [],
+      });
     } catch (e) {
       console.error("Failed to fetch tasks", e);
     }
@@ -296,30 +323,35 @@ export function SystemPanel() {
     fetchTasks();
   }, []);
 
-  // Re-fetch when recent page or filters change
+  // Re-fetch when paging or the recent-task filter changes
   useEffect(() => {
     fetchTasks();
-  }, [recentPage, recentFilter]);
+  }, [upcomingPage, recentPage, recentFilter, recentStatusFilter]);
 
-  // SSE for live updates (only if on page 1)
+  // SSE for live updates only on the first page of both panes.
   useEffect(() => {
-    if (recentPage !== 1) return;
+    if (upcomingPage !== 1 || recentPage !== 1) return;
 
-    const es = new EventSource(import.meta.env.VITE_API_BASE_URL + "/system/tasks/stream");
+    const typeFilter = Array.from(recentFilter).join(",");
+    const statusFilter = Array.from(recentStatusFilter).join(",");
+    const es = new EventSource(
+      `${import.meta.env.VITE_API_BASE_URL}/system/tasks/stream?upcoming_limit=${UPCOMING_LIMIT}&recent_limit=${RECENT_LIMIT}&type=${typeFilter}&status=${statusFilter}`
+    );
     es.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data);
-        // SSE pushes don't include totals yet, we just update the lists
+        setUpcomingTotal(parsed.upcomingTotal ?? 0);
+        setRecentTotal(parsed.recentTotal ?? 0);
         setData({
-          upcoming: parsed.upcoming || [],
-          recent: parsed.recent || [],
+          upcoming: (parsed.upcoming || []).slice(0, UPCOMING_LIMIT),
+          recent: (parsed.recent || []).slice(0, RECENT_LIMIT),
         });
       } catch (e) {
         console.error("Failed to parse SSE task data", e);
       }
     };
     return () => es.close();
-  }, [recentPage]);
+  }, [upcomingPage, recentPage, recentFilter, recentStatusFilter]);
 
   // Apply frontend filtering on top of whatever the API/SSE provides
   const filteredUpcoming = data.upcoming.filter(
@@ -327,7 +359,9 @@ export function SystemPanel() {
   );
   
   const filteredRecent = data.recent.filter(
-    (t) => recentFilter.size === 0 || recentFilter.has(t.type)
+    (t) =>
+      (recentFilter.size === 0 || recentFilter.has(t.type)) &&
+      (recentStatusFilter.size === 0 || recentStatusFilter.has(t.status || ""))
   );
 
   return (
@@ -368,22 +402,14 @@ export function SystemPanel() {
           >
             <h3 style={{ fontSize: "1rem", margin: 0 }}>Upcoming / Pending Tasks</h3>
             <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
-              {recentPage === 1 && (
-                <span style={{ 
-                  fontSize: "0.65rem", 
-                  background: "var(--status-success-bg, rgba(0,255,100,0.1))", 
-                  color: "var(--status-success-text, #00ff66)", 
-                  padding: "2px 6px", 
-                  borderRadius: "4px",
-                  textTransform: "uppercase",
-                  fontWeight: "bold",
-                  letterSpacing: "0.05em"
-                }}>Live</span>
-              )}
-              <TypeFilter
-                allTypes={TASK_TYPES}
+              <MultiFilter
+                title="Type"
+                allOptions={TASK_TYPES}
                 selected={upcomingFilter}
-                onChange={setUpcomingFilter}
+                onChange={(next) => {
+                  setUpcomingFilter(next);
+                  setUpcomingPage(1);
+                }}
               />
             </div>
           </div>
@@ -420,11 +446,13 @@ export function SystemPanel() {
                       <td>{t.pair}</td>
                       <td style={{ opacity: 0.7 }}>{t.interval}</td>
                       <td style={{ opacity: 0.85, fontSize: "0.8rem" }}>
-                        {t.status === "scheduled"
+                        {t.status === "running"
+                          ? "Ongoing"
+                          : t.status === "scheduled"
                           ? t.type === "historical_sweep"
                             ? `Backfill: ${formatShortDate(t.window_start)} → ${formatShortDate(t.window_end)}`
                             : `Next: ${formatShortDate(t.window_start)}`
-                          : t.status || "pending"}
+                          : taskStatusLabel(t.status)}
                       </td>
                     </tr>
                   ))}
@@ -432,6 +460,13 @@ export function SystemPanel() {
               </table>
             )}
           </div>
+
+          <Pagination
+            total={upcomingTotal}
+            limit={UPCOMING_LIMIT}
+            page={upcomingPage}
+            onPageChange={setUpcomingPage}
+          />
         </div>
 
         {/* ─ Recent ─ */}
@@ -453,15 +488,28 @@ export function SystemPanel() {
               marginBottom: "1rem",
             }}
           >
-            <h3 style={{ fontSize: "1rem", margin: 0 }}>Recently Completed Tasks</h3>
-            <TypeFilter
-              allTypes={TASK_TYPES}
-              selected={recentFilter}
-              onChange={(next) => {
-                setRecentFilter(next);
-                setRecentPage(1); // Reset to page 1 on filter change
-              }}
-            />
+            <h3 style={{ fontSize: "1rem", margin: 0 }}>Recent Task Outcomes</h3>
+            <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+              <MultiFilter
+                title="Status"
+                allOptions={RECENT_TASK_STATUSES}
+                labels={STATUS_LABELS}
+                selected={recentStatusFilter}
+                onChange={(next) => {
+                  setRecentStatusFilter(next);
+                  setRecentPage(1);
+                }}
+              />
+              <MultiFilter
+                title="Type"
+                allOptions={TASK_TYPES}
+                selected={recentFilter}
+                onChange={(next) => {
+                  setRecentFilter(next);
+                  setRecentPage(1); // Reset to page 1 on filter change
+                }}
+              />
+            </div>
           </div>
 
           <div style={{ flex: 1, minHeight: "300px" }}>
@@ -473,7 +521,7 @@ export function SystemPanel() {
                   <tr>
                     <th style={{ textAlign: "left" }}>Type</th>
                     <th>Pair</th>
-                    <th>Completed At</th>
+                    <th>Updated At</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -489,7 +537,6 @@ export function SystemPanel() {
                             fontSize: "0.78rem",
                             whiteSpace: "nowrap",
                           }}
-                          title={t.last_error || ""}
                         >
                           {TYPE_LABELS[t.type] ?? t.type}
                         </span>
@@ -501,11 +548,19 @@ export function SystemPanel() {
                       <td>
                         <span
                           className={t.status === "failed" ? "text-down" : "text-up"}
-                          style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "0.3rem",
+                            textDecoration: t.status === "failed" && t.last_error ? "underline dotted" : "none",
+                            textUnderlineOffset: "2px",
+                            cursor: t.status === "failed" && t.last_error ? "help" : "default",
+                          }}
+                          title={t.status === "failed" ? t.last_error || "" : ""}
                         >
-                          {t.status}
+                          {taskStatusLabel(t.status)}
                           {t.status === "failed" && t.last_error && (
-                            <span title={t.last_error}>⚠️</span>
+                            <span aria-label="Error details available">⚠</span>
                           )}
                         </span>
                       </td>
@@ -518,7 +573,7 @@ export function SystemPanel() {
           
           <Pagination 
             total={recentTotal} 
-            limit={LIMIT} 
+            limit={RECENT_LIMIT} 
             page={recentPage} 
             onPageChange={setRecentPage} 
           />

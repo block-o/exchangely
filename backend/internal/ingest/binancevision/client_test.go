@@ -13,12 +13,12 @@ import (
 	"github.com/block-o/exchangely/backend/internal/ingest"
 )
 
-func TestFetchCandlesReadsMonthlyArchive(t *testing.T) {
+func TestFetchCandlesReadsDailyArchives(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/monthly/klines/BTCUSDT/1h/") {
+		if !strings.Contains(r.URL.Path, "/daily/klines/BTCUSDT/1h/") {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		writeZipCSV(t, w, "BTCUSDT-1h-2024-01.csv", strings.Join([]string{
+		writeZipCSV(t, w, "BTCUSDT-1h-2024-01-01.csv", strings.Join([]string{
 			"1704067200000,42283.58,42554.57,42261.02,42475.23,1271.68108,1704070799999,0,0,0,0,0",
 			"1704070800000,42475.23,42775.00,42431.65,42613.56,1196.37856,1704074399999,0,0,0,0,0",
 		}, "\n"))
@@ -45,11 +45,9 @@ func TestFetchCandlesReadsMonthlyArchive(t *testing.T) {
 	}
 }
 
-func TestFetchCandlesFallsBackToDailyArchives(t *testing.T) {
+func TestFetchCandlesReadsAcrossMultipleDailyArchives(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case strings.Contains(r.URL.Path, "/monthly/klines/BTCUSDT/1h/"):
-			http.NotFound(w, r)
 		case strings.Contains(r.URL.Path, "BTCUSDT-1h-2024-01-01.zip"):
 			writeZipCSV(t, w, "BTCUSDT-1h-2024-01-01.csv", "1704067200000,42283.58,42554.57,42261.02,42475.23,1271.68108,1704070799999,0,0,0,0,0")
 		case strings.Contains(r.URL.Path, "BTCUSDT-1h-2024-01-02.zip"):

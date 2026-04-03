@@ -15,17 +15,20 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - **DevOps**: GitHub Actions CI workflow, strict Node.js 24 + Go 1.24 build limits via Docker configurations.
 - **Operations Dashboard**: SSE-powered `SystemPanel` accurately tracking and predicting future backfill and realtime poll gaps.
 - **Documentation**: Substantial inline godoc standard for SSE/SQL methods mapping.
+- **Task Runtime Extensions**: Scheduler now emits `integrity_check` tasks for caught-up pairs and workers execute cross-source validation passes.
 
 ## Runtime Notes
 - **Data Backbone**: PostgreSQL/Timescale is the authoritative source for states. Kafka acts firmly as a transport mechanism, not a state-store coordination layer.
-- **Container Strategy**: `npm ci --legacy-peer-deps` within a multi-stage Alpine Docker restricts OS leaks. 
+- **Container Strategy**: `npm ci --legacy-peer-deps` within a multi-stage Alpine Docker restricts OS leaks.
 
 ## Roadmap & Missing Features
-- [ ] Create a **health validator scheduled task** to cross-examine data sanity and consolidation accuracy across multiple providers (e.g. Binance vs Kraken divergence logs & gap detection).
+- [ ] Finish the **health validator scheduled task**: task emission and worker execution already exist, but findings still need persistence, API exposure, UI surfacing, and configurable thresholds.
+- [ ] Add Active Warnings area on top of the task status pannel. This we will list all active warnings of the platform (ie, increct health, backfill pending etc)
 - [ ] Add **CryptoDataDownload** as a dedicated backfill provider.
 - [ ] Add **CoinGecko** as an additional realtime ticker provider.
 - [ ] Add **Yahoo Finance (Yfinance)** as a ticker provider.
 - [ ] **Refactored Ingest**: Split the `ingest` module cleanly into two distinct submodules: `backfill` and `realtime`.
+- [ ] Add scheduled **month/year rollup buckets** derived from hourly/daily canonical candles rather than provider-native month archives.
 - [ ] **Fiat/Forex Pairs**: Begin tracking currency-to-currency pairs (e.g., EURUSD, EURGBP).
 - [ ] Implement robust source load-balancing, rate-limit back-off (circuit breakers for `429 Too Many Requests`), and caching.
 - [ ] Upgrade frontend sparklines to true SVG/Canvas line charts.
@@ -34,6 +37,10 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 ## Current Focus
 **Data Integrity Validator & New Provider Integration**
 The immediate phase aims at ensuring that fetched records match securely across exchanges prior to write, followed quickly by introducing new data sources (CryptoDataDownload, CoinGecko, Yfinance) and splitting up the ingestion mechanics into dedicated paths.
+
+Operational rule updates:
+- Historical source fetch granularity must never be coarser than **1 day**, and **1 hour** remains the preferred canonical backfill resolution.
+- Provider-native monthly archives should not drive historical sweeps; larger buckets such as month/year must be built later by scheduled consolidation from canonical stored candles.
 
 ## Deferred TODOs
 - Evaluate Go Testcontainers for isolated per-test Kafka/Timescale integration tests (Revisit only once the core feature stability allows it).

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/block-o/exchangely/backend/internal/domain/task"
 	"github.com/block-o/exchangely/backend/internal/httpapi/dto"
 	"github.com/block-o/exchangely/backend/internal/service"
 )
@@ -146,23 +145,33 @@ func New(svcs Services, opts Options) http.Handler {
 
 	mux.HandleFunc("/api/v1/system/tasks", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		
-		limit := getIntParam(r, "limit", 50)
-		page := getIntParam(r, "page", 1)
-		offset := (page - 1) * limit
-		
+
+		defaultLimit := positiveInt(getIntParam(r, "limit", 50), 50)
+		upcomingLimit := positiveInt(getIntParam(r, "upcoming_limit", defaultLimit), defaultLimit)
+		recentLimit := positiveInt(getIntParam(r, "recent_limit", defaultLimit), defaultLimit)
+		defaultPage := positiveInt(getIntParam(r, "page", 1), 1)
+		upcomingPage := positiveInt(getIntParam(r, "upcoming_page", defaultPage), defaultPage)
+		recentPage := positiveInt(getIntParam(r, "recent_page", defaultPage), defaultPage)
+		upcomingOffset := (upcomingPage - 1) * upcomingLimit
+		recentOffset := (recentPage - 1) * recentLimit
+
 		typesStr := r.URL.Query().Get("type")
 		var types []string
 		if typesStr != "" {
 			types = strings.Split(typesStr, ",")
 		}
+		statusesStr := r.URL.Query().Get("status")
+		var statuses []string
+		if statusesStr != "" {
+			statuses = strings.Split(statusesStr, ",")
+		}
 
-		upcoming, upTotal, err := svcs.System.UpcomingTasks(ctx, limit, offset)
+		upcoming, upTotal, err := svcs.System.UpcomingTasks(ctx, upcomingLimit, upcomingOffset)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		recent, recTotal, err := svcs.System.RecentTasks(ctx, limit, offset, types)
+		recent, recTotal, err := svcs.System.RecentTasks(ctx, recentLimit, recentOffset, types, statuses)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -171,10 +180,12 @@ func New(svcs Services, opts Options) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"upcoming":      upcoming,
 			"upcomingTotal": upTotal,
+			"upcomingLimit": upcomingLimit,
+			"upcomingPage":  upcomingPage,
 			"recent":        recent,
 			"recentTotal":   recTotal,
-			"limit":         limit,
-			"page":          page,
+			"recentLimit":   recentLimit,
+			"recentPage":    recentPage,
 		})
 	})
 
@@ -190,10 +201,25 @@ func New(svcs Services, opts Options) http.Handler {
 		}
 
 		ctx := r.Context()
-		ch := make(chan []task.Task)
-		
+		defaultLimit := positiveInt(getIntParam(r, "limit", 50), 50)
+		upcomingLimit := positiveInt(getIntParam(r, "upcoming_limit", defaultLimit), defaultLimit)
+		recentLimit := positiveInt(getIntParam(r, "recent_limit", defaultLimit), defaultLimit)
+
+		typesStr := r.URL.Query().Get("type")
+		var types []string
+		if typesStr != "" {
+			types = strings.Split(typesStr, ",")
+		}
+		statusesStr := r.URL.Query().Get("status")
+		var statuses []string
+		if statusesStr != "" {
+			statuses = strings.Split(statusesStr, ",")
+		}
+
+		ch := make(chan service.TaskStreamSnapshot)
+
 		go func() {
-			if err := svcs.System.StreamTasks(ctx, ch); err != nil {
+			if err := svcs.System.StreamTasks(ctx, ch, upcomingLimit, recentLimit, types, statuses); err != nil {
 				slog.Warn("task stream ended", "error", err)
 			}
 		}()
@@ -202,21 +228,8 @@ func New(svcs Services, opts Options) http.Handler {
 			select {
 			case <-ctx.Done():
 				return
-			case tasks := <-ch:
-				upcoming := []task.Task{}
-				recent := []task.Task{}
-				for _, t := range tasks {
-					if t.Status == "pending" || t.Status == "scheduled" {
-						upcoming = append(upcoming, t)
-					} else {
-						recent = append(recent, t)
-					}
-				}
-				
-				data, _ := json.Marshal(map[string]any{
-					"upcoming": upcoming,
-					"recent":   recent,
-				})
+			case snapshot := <-ch:
+				data, _ := json.Marshal(snapshot)
 				fmt.Fprintf(w, "data: %s\n\n", string(data))
 				flusher.Flush()
 			}
@@ -244,6 +257,13 @@ func getIntParam(r *http.Request, name string, defaultVal int) int {
 		return defaultVal
 	}
 	return i
+}
+
+func positiveInt(value, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 func parseUnix(val string) time.Time {

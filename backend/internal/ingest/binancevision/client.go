@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -73,21 +72,13 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 	result := make([]candle.Candle, 0)
 	var errs []error
 
-	for month := monthStart(request.StartTime.UTC()); month.Before(request.EndTime.UTC()); month = month.AddDate(0, 1, 0) {
-		items, err := c.fetchMonthly(ctx, symbol, request, month)
+	for day := dayStart(request.StartTime.UTC()); day.Before(request.EndTime.UTC()); day = day.AddDate(0, 0, 1) {
+		items, err := c.fetchDailyArchive(ctx, symbol, request, day)
 		if err != nil {
-			if errors.Is(err, errArchiveNotFound) {
-				slog.Info("binance vision monthly archive missing, trying daily archives",
-					"pair", request.Pair,
-					"interval", request.Interval,
-					"month", month.Format("2006-01"),
-				)
-				items, err = c.fetchDailyRange(ctx, symbol, request, month)
-			}
-			if err != nil && !errors.Is(err, errArchiveNotFound) {
+			if !errors.Is(err, errArchiveNotFound) {
 				errs = append(errs, err)
-				continue
 			}
+			continue
 		}
 
 		for _, item := range items {
@@ -108,48 +99,16 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 	return nil, fmt.Errorf("no binance vision archives available for %s %s", request.Pair, request.Interval)
 }
 
-func (c *Client) fetchMonthly(ctx context.Context, symbol string, request ingest.Request, month time.Time) ([]candle.Candle, error) {
+func (c *Client) fetchDailyArchive(ctx context.Context, symbol string, request ingest.Request, day time.Time) ([]candle.Candle, error) {
 	path := fmt.Sprintf(
-		"/data/spot/monthly/klines/%s/%s/%s-%s-%s.zip",
+		"/data/spot/daily/klines/%s/%s/%s-%s-%s.zip",
 		symbol,
 		request.Interval,
 		symbol,
 		request.Interval,
-		month.Format("2006-01"),
+		day.Format("2006-01-02"),
 	)
 	return c.fetchArchive(ctx, path, request)
-}
-
-func (c *Client) fetchDailyRange(ctx context.Context, symbol string, request ingest.Request, month time.Time) ([]candle.Candle, error) {
-	start := maxTime(month, request.StartTime.UTC())
-	end := minTime(month.AddDate(0, 1, 0), request.EndTime.UTC())
-	items := make([]candle.Candle, 0)
-	found := false
-
-	for day := dayStart(start); day.Before(end); day = day.AddDate(0, 0, 1) {
-		path := fmt.Sprintf(
-			"/data/spot/daily/klines/%s/%s/%s-%s-%s.zip",
-			symbol,
-			request.Interval,
-			symbol,
-			request.Interval,
-			day.Format("2006-01-02"),
-		)
-		dailyItems, err := c.fetchArchive(ctx, path, request)
-		if err != nil {
-			if errors.Is(err, errArchiveNotFound) {
-				continue
-			}
-			return nil, err
-		}
-		found = true
-		items = append(items, dailyItems...)
-	}
-
-	if !found {
-		return nil, errArchiveNotFound
-	}
-	return items, nil
 }
 
 func (c *Client) fetchArchive(ctx context.Context, path string, request ingest.Request) ([]candle.Candle, error) {
@@ -265,11 +224,6 @@ func normalizeBinanceTimestamp(value int64) int64 {
 	}
 }
 
-func monthStart(value time.Time) time.Time {
-	value = value.UTC()
-	return time.Date(value.Year(), value.Month(), 1, 0, 0, 0, 0, time.UTC)
-}
-
 func dayStart(value time.Time) time.Time {
 	value = value.UTC()
 	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
@@ -277,13 +231,6 @@ func dayStart(value time.Time) time.Time {
 
 func minTime(a, b time.Time) time.Time {
 	if a.Before(b) {
-		return a
-	}
-	return b
-}
-
-func maxTime(a, b time.Time) time.Time {
-	if a.After(b) {
 		return a
 	}
 	return b

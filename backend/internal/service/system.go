@@ -27,7 +27,7 @@ type LeaseReader interface {
 
 type SystemTaskReader interface {
 	UpcomingTasks(ctx context.Context, limit, offset int) ([]task.Task, int, error)
-	RecentTasks(ctx context.Context, limit, offset int, types []string) ([]task.Task, int, error)
+	RecentTasks(ctx context.Context, limit, offset int, types, statuses []string) ([]task.Task, int, error)
 }
 
 type SystemService struct {
@@ -46,6 +46,13 @@ type HealthStatus struct {
 	Status    string            `json:"status"`
 	Checks    map[string]string `json:"checks"`
 	Timestamp int64             `json:"timestamp"`
+}
+
+type TaskStreamSnapshot struct {
+	Upcoming      []task.Task `json:"upcoming"`
+	UpcomingTotal int         `json:"upcomingTotal"`
+	Recent        []task.Task `json:"recent"`
+	RecentTotal   int         `json:"recentTotal"`
 }
 
 func NewSystemService(dbChecker, kafkaChecker Pinger, syncReader SyncReader, taskReader SystemTaskReader, leaseReader LeaseReader, leaseName string, pollInterval time.Duration) *SystemService {
@@ -92,6 +99,19 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 
 	// Only add projections if we are on the first page
 	if offset == 0 {
+		if !pendingIndex[pairType{"*", task.TypeCleanup}] {
+			dayStart := time.Now().UTC().Truncate(24 * time.Hour)
+			dbTasks = append(dbTasks, task.Task{
+				ID:          "proj-cleanup",
+				Type:        task.TypeCleanup,
+				Pair:        "*",
+				Interval:    "1d",
+				Status:      "scheduled",
+				WindowStart: dayStart,
+				WindowEnd:   dayStart.Add(24 * time.Hour),
+			})
+		}
+
 		for _, row := range rows {
 			if !row.HourlyBackfillCompleted {
 				// Skip projection if a real pending backfill already exists for this pair.
@@ -118,22 +138,49 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 			} else {
 				// Skip projection if a real pending realtime task already exists for this pair.
 				if pendingIndex[pairType{row.Pair, task.TypeRealtime}] {
-					continue
+				} else {
+					// Realtime projection: next poll boundary.
+					pollBound := time.Now().UTC().Truncate(s.pollInterval).Add(s.pollInterval)
+					windowEnd := pollBound.Add(time.Hour)
+
+					dbTasks = append(dbTasks, task.Task{
+						ID:          "proj-realtime-" + row.Pair,
+						Type:        task.TypeRealtime,
+						Pair:        row.Pair,
+						Interval:    pollIntervalStr,
+						Status:      "scheduled",
+						WindowStart: pollBound,
+						WindowEnd:   windowEnd,
+					})
 				}
 
-				// Realtime projection: next poll boundary.
-				pollBound := time.Now().UTC().Truncate(s.pollInterval).Add(s.pollInterval)
-				windowEnd := pollBound.Add(time.Hour)
+				if !pendingIndex[pairType{row.Pair, task.TypeDataSanity}] {
+					currentHour := time.Now().UTC().Truncate(time.Hour)
+					prevHour := currentHour.Add(-time.Hour)
+					dbTasks = append(dbTasks, task.Task{
+						ID:          "proj-integrity-" + row.Pair,
+						Type:        task.TypeDataSanity,
+						Pair:        row.Pair,
+						Interval:    "1h",
+						Status:      "scheduled",
+						WindowStart: prevHour,
+						WindowEnd:   currentHour,
+					})
+				}
 
-				dbTasks = append(dbTasks, task.Task{
-					ID:          "proj-realtime-" + row.Pair,
-					Type:        task.TypeRealtime,
-					Pair:        row.Pair,
-					Interval:    pollIntervalStr,
-					Status:      "scheduled",
-					WindowStart: pollBound,
-					WindowEnd:   windowEnd,
-				})
+				if row.DailyBackfillCompleted && !pendingIndex[pairType{row.Pair, task.TypeConsolidate}] {
+					currentDay := time.Now().UTC().Truncate(24 * time.Hour)
+					prevDay := currentDay.Add(-24 * time.Hour)
+					dbTasks = append(dbTasks, task.Task{
+						ID:          "proj-consolidation-" + row.Pair,
+						Type:        task.TypeConsolidate,
+						Pair:        row.Pair,
+						Interval:    "1d",
+						Status:      "scheduled",
+						WindowStart: prevDay,
+						WindowEnd:   currentDay,
+					})
+				}
 			}
 		}
 		// Note: total count doesn't include projections for simplicity, as they are synthetic
@@ -167,8 +214,8 @@ func formatDuration(d time.Duration) string {
 	}
 }
 
-func (s *SystemService) RecentTasks(ctx context.Context, limit, offset int, types []string) ([]task.Task, int, error) {
-	tasks, total, err := s.taskReader.RecentTasks(ctx, limit, offset, types)
+func (s *SystemService) RecentTasks(ctx context.Context, limit, offset int, types, statuses []string) ([]task.Task, int, error) {
+	tasks, total, err := s.taskReader.RecentTasks(ctx, limit, offset, types, statuses)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -194,14 +241,19 @@ func (s *SystemService) NotifyUpdate() {
 	}
 }
 
-func (s *SystemService) StreamTasks(ctx context.Context, ch chan<- []task.Task) error {
+func (s *SystemService) StreamTasks(ctx context.Context, ch chan<- TaskStreamSnapshot, upcomingLimit, recentLimit int, recentTypes, recentStatuses []string) error {
 	slog.Info("SSE client subscribed to task stream")
-	
-	// Initial push (first page, no filters)
-	upcoming, _, _ := s.UpcomingTasks(ctx, 50, 0)
-	recent, _, _ := s.RecentTasks(ctx, 50, 0, nil)
+
+	// Initial push for page 1 using the caller's requested limits/filters.
+	upcoming, upcomingTotal, _ := s.UpcomingTasks(ctx, upcomingLimit, 0)
+	recent, recentTotal, _ := s.RecentTasks(ctx, recentLimit, 0, recentTypes, recentStatuses)
 	select {
-	case ch <- append(upcoming, recent...):
+	case ch <- TaskStreamSnapshot{
+		Upcoming:      upcoming,
+		UpcomingTotal: upcomingTotal,
+		Recent:        recent,
+		RecentTotal:   recentTotal,
+	}:
 	default:
 	}
 
@@ -227,17 +279,27 @@ func (s *SystemService) StreamTasks(ctx context.Context, ch chan<- []task.Task) 
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-update:
-			upcoming, _, _ := s.UpcomingTasks(ctx, 50, 0)
-			recent, _, _ := s.RecentTasks(ctx, 50, 0, nil)
+			upcoming, upcomingTotal, _ := s.UpcomingTasks(ctx, upcomingLimit, 0)
+			recent, recentTotal, _ := s.RecentTasks(ctx, recentLimit, 0, recentTypes, recentStatuses)
 			select {
-			case ch <- append(upcoming, recent...):
+			case ch <- TaskStreamSnapshot{
+				Upcoming:      upcoming,
+				UpcomingTotal: upcomingTotal,
+				Recent:        recent,
+				RecentTotal:   recentTotal,
+			}:
 			default:
 			}
 		case <-time.After(3 * time.Second): // Poll internal state if no updates
-			upcoming, _, _ := s.UpcomingTasks(ctx, 50, 0)
-			recent, _, _ := s.RecentTasks(ctx, 50, 0, nil)
+			upcoming, upcomingTotal, _ := s.UpcomingTasks(ctx, upcomingLimit, 0)
+			recent, recentTotal, _ := s.RecentTasks(ctx, recentLimit, 0, recentTypes, recentStatuses)
 			select {
-			case ch <- append(upcoming, recent...):
+			case ch <- TaskStreamSnapshot{
+				Upcoming:      upcoming,
+				UpcomingTotal: upcomingTotal,
+				Recent:        recent,
+				RecentTotal:   recentTotal,
+			}:
 			default:
 			}
 		}

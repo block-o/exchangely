@@ -292,6 +292,9 @@ func intervalDuration(interval string) (time.Duration, error) {
 }
 
 func backfillComplete(item task.Task) bool {
+	if item.Type == task.TypeConsolidate {
+		return false
+	}
 	now := time.Now().UTC()
 	switch item.Interval {
 	case "1d":

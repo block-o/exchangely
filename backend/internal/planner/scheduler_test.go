@@ -83,6 +83,37 @@ func TestBuildRealtimeTasksIncludesOnlyCaughtUpPairs(t *testing.T) {
 	}
 }
 
+func TestBuildConsolidationTasksIncludesOnlyFullyCaughtUpPairs(t *testing.T) {
+	scheduler := NewScheduler(2 * time.Minute)
+	now := time.Date(2026, 4, 2, 12, 34, 0, 0, time.UTC)
+
+	tasks := scheduler.BuildConsolidationTasks([]pair.Pair{
+		{Symbol: "BTCEUR"},
+		{Symbol: "ETHUSDT"},
+	}, map[string]SyncState{
+		"BTCEUR": {
+			HourlyBackfillCompleted: true,
+			DailyBackfillCompleted:  true,
+		},
+		"ETHUSDT": {
+			HourlyBackfillCompleted: true,
+			DailyBackfillCompleted:  false,
+		},
+	}, now)
+
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 consolidation task, got %d", len(tasks))
+	}
+	if tasks[0].Type != "consolidation" || tasks[0].Pair != "BTCEUR" || tasks[0].Interval != "1d" {
+		t.Fatalf("unexpected consolidation task: %+v", tasks[0])
+	}
+	expectedStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	expectedEnd := time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)
+	if !tasks[0].WindowStart.Equal(expectedStart) || !tasks[0].WindowEnd.Equal(expectedEnd) {
+		t.Fatalf("unexpected consolidation window: %+v", tasks[0])
+	}
+}
+
 // TestRealtimeTasksGenerateDistinctIDsPerPollWindow verifies that calling
 // BuildRealtimeTasks at two different times within the same hour produces
 // tasks with different IDs. Before the sub-hour polling fix, both calls
@@ -140,6 +171,7 @@ func TestNewSchedulerDefaultsPollInterval(t *testing.T) {
 		t.Fatalf("expected 2m default for negative, got %v", s2.realtimePollInterval)
 	}
 }
+
 // TestBuildCleanupTask verifies that the cleanup task is correctly generated
 // with a unique ID per day.
 func TestBuildCleanupTask(t *testing.T) {

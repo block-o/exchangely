@@ -152,7 +152,7 @@ func (r *TaskRepository) Pending(ctx context.Context, limit int) ([]task.Task, e
 // UpcomingTasks fetches tasks that have not yet been claimed, ordered by their intended window start.
 func (r *TaskRepository) UpcomingTasks(ctx context.Context, limit, offset int) ([]task.Task, int, error) {
 	var total int
-	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE status = 'pending'").Scan(&total)
+	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE status IN ('pending', 'running')").Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -160,8 +160,8 @@ func (r *TaskRepository) UpcomingTasks(ctx context.Context, limit, offset int) (
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, task_type, pair_symbol, interval, window_start, window_end, status, created_at
 		FROM tasks
-		WHERE status = 'pending'
-		ORDER BY window_start ASC, created_at ASC
+		WHERE status IN ('pending', 'running')
+		ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END, window_start ASC, created_at ASC
 		LIMIT $1 OFFSET $2
 	`, limit, offset)
 	if err != nil {
@@ -183,10 +183,10 @@ func (r *TaskRepository) UpcomingTasks(ctx context.Context, limit, offset int) (
 }
 
 // RecentTasks fetches most recently completed or failed tasks.
-func (r *TaskRepository) RecentTasks(ctx context.Context, limit, offset int, types []string) ([]task.Task, int, error) {
+func (r *TaskRepository) RecentTasks(ctx context.Context, limit, offset int, types, statuses []string) ([]task.Task, int, error) {
 	where := "status IN ('completed', 'failed')"
 	args := []any{}
-	
+
 	if len(types) > 0 {
 		placeholders := make([]string, len(types))
 		for i := range types {
@@ -194,6 +194,15 @@ func (r *TaskRepository) RecentTasks(ctx context.Context, limit, offset int, typ
 			args = append(args, types[i])
 		}
 		where += fmt.Sprintf(" AND task_type IN (%s)", strings.Join(placeholders, ","))
+	}
+
+	if len(statuses) > 0 {
+		placeholders := make([]string, len(statuses))
+		for i := range statuses {
+			placeholders[i] = fmt.Sprintf("$%d", len(args)+1)
+			args = append(args, statuses[i])
+		}
+		where += fmt.Sprintf(" AND status IN (%s)", strings.Join(placeholders, ","))
 	}
 
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM tasks WHERE %s", where)

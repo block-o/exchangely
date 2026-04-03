@@ -137,6 +137,7 @@ func (r *Runner) runTick(ctx context.Context) error {
 
 	now := time.Now().UTC()
 	tasks := r.scheduler.BuildInitialBackfillTasks(pairs, adapted, now)
+	tasks = append(tasks, r.scheduler.BuildConsolidationTasks(pairs, adapted, now)...)
 	tasks = append(tasks, r.scheduler.BuildRealtimeTasks(pairs, adapted, now)...)
 	tasks = append(tasks, r.scheduler.BuildCleanupTask(now)) // daily task log pruning
 	if len(tasks) == 0 {

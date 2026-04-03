@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
@@ -51,7 +52,7 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 			StartTime: item.WindowStart.UTC(),
 			EndTime:   item.WindowEnd.UTC(),
 		}
-		
+
 		if !source.Supports(req) {
 			continue
 		}
@@ -61,7 +62,7 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 			slog.Warn("data integrity source ping failed", "source", source.Name(), "error", err)
 			continue
 		}
-		
+
 		results[source.Name()] = candles
 		if len(candles) > expectedCandleCount {
 			expectedCandleCount = len(candles)
@@ -74,12 +75,14 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 	}
 
 	// 1. Check for Continuity Gaps (e.g., Binance has 60 candles but Kraken has 58)
+	gapSourceCount := 0
 	for name, set := range results {
 		if len(set) < expectedCandleCount {
-			slog.Warn("data integrity GAP detected", 
-				"pair", item.Pair, 
-				"source", name, 
-				"missing", expectedCandleCount - len(set),
+			gapSourceCount++
+			slog.Warn("data integrity GAP detected",
+				"pair", item.Pair,
+				"source", name,
+				"missing", expectedCandleCount-len(set),
 			)
 		}
 	}
@@ -101,7 +104,7 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 		if len(sourceMap) < 2 {
 			continue
 		}
-		
+
 		var maxPrice, minPrice float64 = 0, math.MaxFloat64
 		for _, price := range sourceMap {
 			if price > maxPrice {
@@ -130,9 +133,18 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 		}
 	}
 
-	if breachCount == 0 {
+	if gapSourceCount == 0 && breachCount == 0 {
 		slog.Info("data integrity successfully validated", "pair", item.Pair, "window", item.WindowStart, "sources", len(results))
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf(
+		"integrity check failed for %s %s window %s-%s: %d source gaps, %d price divergences",
+		item.Pair,
+		item.Interval,
+		item.WindowStart.UTC().Format(time.RFC3339),
+		item.WindowEnd.UTC().Format(time.RFC3339),
+		gapSourceCount,
+		breachCount,
+	)
 }

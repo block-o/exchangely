@@ -99,6 +99,7 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 
 	// Only add projections if we are on the first page
 	if offset == 0 {
+		projectedCount := 0
 		if !pendingIndex[pairType{"*", task.TypeCleanup}] {
 			dayStart := time.Now().UTC().Truncate(24 * time.Hour)
 			dbTasks = append(dbTasks, task.Task{
@@ -110,6 +111,7 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 				WindowStart: dayStart,
 				WindowEnd:   dayStart.Add(24 * time.Hour),
 			})
+			projectedCount++
 		}
 
 		for _, row := range rows {
@@ -135,6 +137,7 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 					WindowStart: time.Unix(nextGapStart, 0).UTC(),
 					WindowEnd:   time.Unix(nextGapEnd, 0).UTC(),
 				})
+				projectedCount++
 			} else {
 				// Skip projection if a real pending realtime task already exists for this pair.
 				if pendingIndex[pairType{row.Pair, task.TypeRealtime}] {
@@ -152,6 +155,7 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 						WindowStart: pollBound,
 						WindowEnd:   windowEnd,
 					})
+					projectedCount++
 				}
 
 				if !pendingIndex[pairType{row.Pair, task.TypeDataSanity}] {
@@ -166,6 +170,7 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 						WindowStart: prevHour,
 						WindowEnd:   currentHour,
 					})
+					projectedCount++
 				}
 
 				if row.DailyBackfillCompleted && !pendingIndex[pairType{row.Pair, task.TypeConsolidate}] {
@@ -180,10 +185,15 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 						WindowStart: prevDay,
 						WindowEnd:   currentDay,
 					})
+					projectedCount++
 				}
 			}
 		}
-		// Note: total count doesn't include projections for simplicity, as they are synthetic
+
+		total += projectedCount
+		if limit > 0 && len(dbTasks) > limit {
+			dbTasks = dbTasks[:limit]
+		}
 	}
 
 	return dbTasks, total, nil

@@ -247,6 +247,7 @@ func (f *fakeSyncWriter) UpsertProgress(_ context.Context, pairSymbol, interval 
 }
 
 type fakeMarketSource struct {
+	name  string
 	items []candle.Candle
 	err   error
 }
@@ -259,6 +260,9 @@ func (f *fakeMarketSource) FetchCandles(_ context.Context, _ ingest.Request) ([]
 }
 
 func (f *fakeMarketSource) Name() string {
+	if f.name != "" {
+		return f.name
+	}
 	return "fake"
 }
 

@@ -15,6 +15,9 @@ planner:
 worker:
   poll_interval: 5s
   batch_size: 8
+integrity:
+  min_sources: 2
+  max_divergence_pct: 0.5
 assets:
   quote_assets:
     - EUR

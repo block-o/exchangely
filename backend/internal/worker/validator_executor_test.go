@@ -26,7 +26,7 @@ func TestValidatorExecutorIdentifiesDivergence(t *testing.T) {
 		},
 	}
 
-	executor := NewValidatorExecutor([]ingest.Source{source1, source2})
+	executor := NewValidatorExecutor([]ingest.Source{source1, source2}, ValidatorOptions{})
 
 	item := task.Task{
 		Type:        task.TypeDataSanity,
@@ -53,7 +53,7 @@ func TestValidatorExecutorIgnoresInsufficientSources(t *testing.T) {
 		},
 	}
 
-	executor := NewValidatorExecutor([]ingest.Source{source1})
+	executor := NewValidatorExecutor([]ingest.Source{source1}, ValidatorOptions{})
 	item := task.Task{
 		Type:     task.TypeDataSanity,
 		Pair:     "BTCEUR",
@@ -81,7 +81,7 @@ func TestValidatorExecutorFailsOnCoverageGap(t *testing.T) {
 		},
 	}
 
-	executor := NewValidatorExecutor([]ingest.Source{source1, source2})
+	executor := NewValidatorExecutor([]ingest.Source{source1, source2}, ValidatorOptions{})
 	err := executor.Execute(context.Background(), task.Task{
 		Type:        task.TypeDataSanity,
 		Pair:        "BTCEUR",
@@ -98,7 +98,7 @@ func TestValidatorExecutorFailsOnCoverageGap(t *testing.T) {
 }
 
 func TestValidatorExecutorFailsOnWrongTaskType(t *testing.T) {
-	executor := NewValidatorExecutor([]ingest.Source{&fakeMarketSource{}})
+	executor := NewValidatorExecutor([]ingest.Source{&fakeMarketSource{}}, ValidatorOptions{})
 	item := task.Task{
 		Type: task.TypeBackfill,
 	}
@@ -106,5 +106,36 @@ func TestValidatorExecutorFailsOnWrongTaskType(t *testing.T) {
 	err := executor.Execute(context.Background(), item)
 	if err == nil {
 		t.Fatalf("expected error when handling non-sanity task type")
+	}
+}
+
+func TestValidatorExecutorUsesConfiguredThresholds(t *testing.T) {
+	source1 := &fakeMarketSource{
+		name: "s1",
+		items: []candle.Candle{
+			{Pair: "BTCEUR", Timestamp: 1000, Close: 100.0, Source: "s1"},
+		},
+	}
+	source2 := &fakeMarketSource{
+		name: "s2",
+		items: []candle.Candle{
+			{Pair: "BTCEUR", Timestamp: 1000, Close: 100.6, Source: "s2"},
+		},
+	}
+	executor := NewValidatorExecutor([]ingest.Source{source1, source2}, ValidatorOptions{
+		MinSources:       2,
+		MaxDivergencePct: 1.0,
+	})
+	item := task.Task{
+		Type:        task.TypeDataSanity,
+		Pair:        "BTCEUR",
+		Interval:    "1h",
+		WindowStart: time.Unix(0, 0),
+		WindowEnd:   time.Unix(3600, 0),
+	}
+
+	err := executor.Execute(context.Background(), item)
+	if err != nil {
+		t.Fatalf("expected divergence below configured threshold to pass, got %v", err)
 	}
 }

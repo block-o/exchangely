@@ -40,3 +40,17 @@ func TestLoadUsesConfiguredCORSOrigins(t *testing.T) {
 		t.Fatalf("unexpected configured origins: %v", cfg.CORSAllowedOrigins)
 	}
 }
+
+func TestLoadUsesConfiguredIntegrityValidatorSettings(t *testing.T) {
+	t.Setenv("BACKEND_INTEGRITY_MIN_SOURCES", "3")
+	t.Setenv("BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT", "1.25")
+
+	cfg := Load()
+
+	if cfg.IntegrityMinSources != 3 {
+		t.Fatalf("expected integrity min sources 3, got %d", cfg.IntegrityMinSources)
+	}
+	if cfg.IntegrityMaxDivergencePct != 1.25 {
+		t.Fatalf("expected integrity divergence pct 1.25, got %v", cfg.IntegrityMaxDivergencePct)
+	}
+}

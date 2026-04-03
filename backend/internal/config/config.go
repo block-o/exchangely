@@ -23,33 +23,37 @@ type Config struct {
 	PlannerTick        time.Duration
 	// RealtimePollInterval controls how frequently the planner emits fresh realtime
 	// tasks for caught-up pairs. Shorter intervals mean fresher ticker prices.
-	RealtimePollInterval time.Duration
-	WorkerPollInterval   time.Duration
-	WorkerBatchSize      int
-	DefaultQuoteAssets   []string
+	RealtimePollInterval      time.Duration
+	WorkerPollInterval        time.Duration
+	WorkerBatchSize           int
+	IntegrityMinSources       int
+	IntegrityMaxDivergencePct float64
+	DefaultQuoteAssets        []string
 }
 
 func Load() Config {
 	env := getenv("BACKEND_ENV", "development")
 
 	return Config{
-		Env:                  env,
-		HTTPAddr:             getenv("BACKEND_HTTP_ADDR", ":8080"),
-		Role:                 getenv("BACKEND_ROLE", "all"),
-		LogLevel:             getenv("BACKEND_LOG_LEVEL", "info"),
-		CORSAllowedOrigins:   corsOrigins(env),
-		DatabaseURL:          getenv("BACKEND_DATABASE_URL", ""),
-		KafkaBrokers:         splitCSV(getenv("BACKEND_KAFKA_BROKERS", "")),
-		KafkaTasksTopic:      getenv("BACKEND_KAFKA_TOPIC_TASKS", "exchangely.tasks"),
-		KafkaMarketTopic:     getenv("BACKEND_KAFKA_TOPIC_MARKET_TICKS", "exchangely.market.ticks"),
-		KafkaConsumerGroup:   getenv("BACKEND_KAFKA_CONSUMER_GROUP", "exchangely-workers"),
-		PlannerLeaseName:     getenv("BACKEND_PLANNER_LEASE_NAME", "planner_leader"),
-		PlannerLeaseTTL:      parseDuration(getenv("BACKEND_PLANNER_LEASE_TTL", "15s")),
-		PlannerTick:          parseDuration(getenv("BACKEND_PLANNER_TICK", "10s")),
-		RealtimePollInterval: parseDuration(getenv("BACKEND_REALTIME_POLL_INTERVAL", "2m")),
-		WorkerPollInterval:   parseDuration(getenv("BACKEND_WORKER_POLL_INTERVAL", "5s")),
-		WorkerBatchSize:      parseInt(getenv("BACKEND_WORKER_BATCH_SIZE", "8"), 8),
-		DefaultQuoteAssets:   splitCSV(getenv("BACKEND_DEFAULT_QUOTE_ASSETS", "EUR,USDT")),
+		Env:                       env,
+		HTTPAddr:                  getenv("BACKEND_HTTP_ADDR", ":8080"),
+		Role:                      getenv("BACKEND_ROLE", "all"),
+		LogLevel:                  getenv("BACKEND_LOG_LEVEL", "info"),
+		CORSAllowedOrigins:        corsOrigins(env),
+		DatabaseURL:               getenv("BACKEND_DATABASE_URL", ""),
+		KafkaBrokers:              splitCSV(getenv("BACKEND_KAFKA_BROKERS", "")),
+		KafkaTasksTopic:           getenv("BACKEND_KAFKA_TOPIC_TASKS", "exchangely.tasks"),
+		KafkaMarketTopic:          getenv("BACKEND_KAFKA_TOPIC_MARKET_TICKS", "exchangely.market.ticks"),
+		KafkaConsumerGroup:        getenv("BACKEND_KAFKA_CONSUMER_GROUP", "exchangely-workers"),
+		PlannerLeaseName:          getenv("BACKEND_PLANNER_LEASE_NAME", "planner_leader"),
+		PlannerLeaseTTL:           parseDuration(getenv("BACKEND_PLANNER_LEASE_TTL", "15s")),
+		PlannerTick:               parseDuration(getenv("BACKEND_PLANNER_TICK", "10s")),
+		RealtimePollInterval:      parseDuration(getenv("BACKEND_REALTIME_POLL_INTERVAL", "2m")),
+		WorkerPollInterval:        parseDuration(getenv("BACKEND_WORKER_POLL_INTERVAL", "5s")),
+		WorkerBatchSize:           parseInt(getenv("BACKEND_WORKER_BATCH_SIZE", "8"), 8),
+		IntegrityMinSources:       parseInt(getenv("BACKEND_INTEGRITY_MIN_SOURCES", "2"), 2),
+		IntegrityMaxDivergencePct: parseFloat(getenv("BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT", "0.5"), 0.5),
+		DefaultQuoteAssets:        splitCSV(getenv("BACKEND_DEFAULT_QUOTE_ASSETS", "EUR,USDT")),
 	}
 }
 
@@ -96,6 +100,15 @@ func parseDuration(value string) time.Duration {
 
 func parseInt(value string, fallback int) int {
 	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
+}
+
+func parseFloat(value string, fallback float64) float64 {
+	parsed, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return fallback
 	}

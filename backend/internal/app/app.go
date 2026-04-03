@@ -95,7 +95,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	binanceSrc := binance.NewClient("", nil)
 	krakenSrc := kraken.NewClient("", nil)
 	bvSrc := binancevision.NewClient("", nil)
-	
+
 	sourceRegistry := ingestregistry.New(bvSrc, krakenSrc, binanceSrc)
 	realtimeIngest := service.NewRealtimeIngestService(marketRepo, marketService)
 	plannerRunner := planner.NewRunner(
@@ -112,9 +112,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	)
 
 	backfillExe := worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry, marketPublisher, marketService)
-	validatorExe := worker.NewValidatorExecutor([]ingest.Source{binanceSrc, krakenSrc, bvSrc})
+	validatorExe := worker.NewValidatorExecutor([]ingest.Source{binanceSrc, krakenSrc, bvSrc}, worker.ValidatorOptions{
+		MinSources:       cfg.IntegrityMinSources,
+		MaxDivergencePct: cfg.IntegrityMaxDivergencePct,
+	})
 	cleanupExe := worker.NewCleanupExecutor(taskRepo, 7*24*time.Hour) // Retain 7 days of logs
-	
+
 	routerExe := worker.NewRouterExecutor(map[string]worker.Executor{
 		task.TypeBackfill:    backfillExe,
 		task.TypeRealtime:    backfillExe,

@@ -14,10 +14,17 @@ import (
 )
 
 type ValidatorExecutor struct {
-	sources []ingest.Source
+	sources          []ingest.Source
+	minSources       int
+	maxDivergencePct float64
 }
 
-func NewValidatorExecutor(sources []ingest.Source) *ValidatorExecutor {
+type ValidatorOptions struct {
+	MinSources       int
+	MaxDivergencePct float64
+}
+
+func NewValidatorExecutor(sources []ingest.Source, opts ValidatorOptions) *ValidatorExecutor {
 	// Filter out nils
 	filtered := make([]ingest.Source, 0, len(sources))
 	for _, s := range sources {
@@ -25,7 +32,17 @@ func NewValidatorExecutor(sources []ingest.Source) *ValidatorExecutor {
 			filtered = append(filtered, s)
 		}
 	}
-	return &ValidatorExecutor{sources: filtered}
+	if opts.MinSources < 2 {
+		opts.MinSources = 2
+	}
+	if opts.MaxDivergencePct <= 0 {
+		opts.MaxDivergencePct = 0.5
+	}
+	return &ValidatorExecutor{
+		sources:          filtered,
+		minSources:       opts.MinSources,
+		maxDivergencePct: opts.MaxDivergencePct,
+	}
 }
 
 func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
@@ -69,8 +86,8 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 		}
 	}
 
-	if len(results) < 2 {
-		slog.Debug("data integrity validator aborted (insufficient peer overlap)", "pair", item.Pair, "available_sources", len(results))
+	if len(results) < v.minSources {
+		slog.Debug("data integrity validator aborted (insufficient peer overlap)", "pair", item.Pair, "available_sources", len(results), "required_sources", v.minSources)
 		return nil
 	}
 
@@ -87,7 +104,7 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 		}
 	}
 
-	// 2. Check for Price Divergence > 0.5%
+	// 2. Check for Price Divergence over the configured threshold.
 	// Map all candles by timestamp:
 	byTime := make(map[int64]map[string]float64)
 	for sourceName, set := range results {
@@ -120,12 +137,13 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 		}
 
 		variance := ((maxPrice - minPrice) / minPrice) * 100.0
-		if variance > 0.5 {
+		if variance > v.maxDivergencePct {
 			breachCount++
 			slog.Warn("data integrity DIVERGENCE detected",
 				"pair", item.Pair,
 				"timestamp", ts,
 				"variance_pct", fmt.Sprintf("%.2f%%", variance),
+				"threshold_pct", v.maxDivergencePct,
 				"max_price", maxPrice,
 				"min_price", minPrice,
 				"details", fmt.Sprintf("%v", sourceMap),

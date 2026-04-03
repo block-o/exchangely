@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"database/sql"
+	"sync"
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/lease"
 	"github.com/block-o/exchangely/backend/internal/domain/syncstatus"
+	"github.com/block-o/exchangely/backend/internal/domain/task"
 	postgresrepo "github.com/block-o/exchangely/backend/internal/storage/postgres"
 )
 
@@ -22,12 +24,20 @@ type LeaseReader interface {
 	Current(ctx context.Context, name string) (lease.Lease, error)
 }
 
+type SystemTaskReader interface {
+	UpcomingTasks(ctx context.Context, limit int) ([]task.Task, error)
+	RecentTasks(ctx context.Context, limit int) ([]task.Task, error)
+}
+
 type SystemService struct {
 	dbChecker    Pinger
 	kafkaChecker Pinger
 	syncReader   SyncReader
+	taskReader   SystemTaskReader
 	leaseName    string
 	leaseReader  LeaseReader
+	updateChs    []chan struct{}
+	mu           sync.RWMutex
 }
 
 type HealthStatus struct {
@@ -36,13 +46,53 @@ type HealthStatus struct {
 	Timestamp int64             `json:"timestamp"`
 }
 
-func NewSystemService(dbChecker, kafkaChecker Pinger, syncReader SyncReader, leaseReader LeaseReader, leaseName string) *SystemService {
+func NewSystemService(dbChecker, kafkaChecker Pinger, syncReader SyncReader, taskReader SystemTaskReader, leaseReader LeaseReader, leaseName string) *SystemService {
 	return &SystemService{
 		dbChecker:    dbChecker,
 		kafkaChecker: kafkaChecker,
 		syncReader:   syncReader,
+		taskReader:   taskReader,
 		leaseName:    leaseName,
 		leaseReader:  leaseReader,
+		updateChs:    make([]chan struct{}, 0),
+	}
+}
+
+func (s *SystemService) UpcomingTasks(ctx context.Context, limit int) ([]task.Task, error) {
+	return s.taskReader.UpcomingTasks(ctx, limit)
+}
+
+func (s *SystemService) RecentTasks(ctx context.Context, limit int) ([]task.Task, error) {
+	return s.taskReader.RecentTasks(ctx, limit)
+}
+
+func (s *SystemService) NotifyUpdate() {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, ch := range s.updateChs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (s *SystemService) Subscribe() <-chan struct{} {
+	ch := make(chan struct{}, 1)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateChs = append(s.updateChs, ch)
+	return ch
+}
+
+func (s *SystemService) Unsubscribe(ch <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.updateChs {
+		if c == ch {
+			s.updateChs = append(s.updateChs[:i], s.updateChs[i+1:]...)
+			return
+		}
 	}
 }
 

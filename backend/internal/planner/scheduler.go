@@ -19,8 +19,8 @@ type SyncState struct {
 // The realtimePollInterval controls how frequently fresh realtime polling tasks are
 // emitted for caught-up pairs. A shorter interval yields fresher ticker prices.
 type Scheduler struct {
-	backfillWindow1H    time.Duration
-	backfillWindow1D    time.Duration
+	backfillWindow1H     time.Duration
+	backfillWindow1D     time.Duration
 	realtimePollInterval time.Duration
 }
 
@@ -32,8 +32,8 @@ func NewScheduler(pollInterval time.Duration) *Scheduler {
 		pollInterval = 2 * time.Minute
 	}
 	return &Scheduler{
-		backfillWindow1H:    24 * time.Hour,
-		backfillWindow1D:    7 * 24 * time.Hour,
+		backfillWindow1H:     24 * time.Hour,
+		backfillWindow1D:     7 * 24 * time.Hour,
 		realtimePollInterval: pollInterval,
 	}
 }

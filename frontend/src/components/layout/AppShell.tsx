@@ -52,9 +52,11 @@ export function AppShell({ children }: PropsWithChildren) {
       </header>
       <main className="content">
         {/* Simple client-side hash router for the two views */}
-        {Array.isArray(children) 
-          ? children.find(child => `#${child.type.name.replace('Page', '').toLowerCase()}` === activeHash) || children[0]
-          : children}
+        <div key={activeHash} className="page-transition-wrapper">
+          {Array.isArray(children) 
+            ? children.find(child => `#${child.type.name.replace('Page', '').toLowerCase()}` === activeHash) || children[0]
+            : children}
+        </div>
       </main>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </div>

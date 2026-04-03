@@ -15,4 +15,6 @@ type Task struct {
 	Interval    string    `json:"interval"`
 	WindowStart time.Time `json:"window_start"`
 	WindowEnd   time.Time `json:"window_end"`
+	Status      string    `json:"status,omitempty"`
+	LastError   string    `json:"last_error,omitempty"`
 }

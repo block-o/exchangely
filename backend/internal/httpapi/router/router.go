@@ -153,6 +153,72 @@ func New(svcs Services, opts Options) http.Handler {
 		writeJSON(w, http.StatusOK, item)
 	})
 
+	mux.HandleFunc("/api/v1/system/version", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"api_version": "v1.0.0",
+		})
+	})
+
+	mux.HandleFunc("/api/v1/system/tasks", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		upcoming, err := svcs.System.UpcomingTasks(ctx, 10)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		recent, err := svcs.System.RecentTasks(ctx, 10)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"upcoming": upcoming,
+			"recent":   recent,
+		})
+	})
+
+	mux.HandleFunc("/api/v1/system/tasks/stream", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "SSE not supported", http.StatusInternalServerError)
+			return
+		}
+
+		ctx := r.Context()
+		updates := svcs.System.Subscribe()
+		defer svcs.System.Unsubscribe(updates)
+
+		// Initial push
+		upcoming, _ := svcs.System.UpcomingTasks(ctx, 10)
+		recent, _ := svcs.System.RecentTasks(ctx, 10)
+		data, _ := json.Marshal(map[string]any{
+			"upcoming": upcoming,
+			"recent":   recent,
+		})
+		fmt.Fprintf(w, "data: %s\n\n", string(data))
+		flusher.Flush()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-updates:
+				upcoming, _ := svcs.System.UpcomingTasks(ctx, 10)
+				recent, _ := svcs.System.RecentTasks(ctx, 10)
+				data, _ := json.Marshal(map[string]any{
+					"upcoming": upcoming,
+					"recent":   recent,
+				})
+				fmt.Fprintf(w, "data: %s\n\n", string(data))
+				flusher.Flush()
+			}
+		}
+	})
+
 	mux.HandleFunc("/swagger/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 		path := filepath.Join("..", "docs", "openapi", "openapi.yaml")
 		if _, err := os.Stat(path); err != nil {

@@ -72,9 +72,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		healthpostgres.NewHealthChecker(cfg.DatabaseURL),
 		kafka.NewHealthChecker(cfg.KafkaBrokers),
 		syncRepo,
+		taskRepo,
 		leaseRepo,
 		cfg.PlannerLeaseName,
 	)
+	taskRepo.SetNotifier(systemService)
 	marketService := service.NewMarketService(marketRepo)
 
 	handler := router.New(router.Services{

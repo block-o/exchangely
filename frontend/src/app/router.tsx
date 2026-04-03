@@ -1,4 +1,4 @@
 export const sections = [
   { id: "market", label: "Market" },
-  { id: "system", label: "System Operations" },
+  { id: "system", label: "Operations" },
 ];

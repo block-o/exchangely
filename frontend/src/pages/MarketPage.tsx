@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { fetchPairs } from "../api/pairs";
-import { fetchTicker } from "../api/system";
 import { fetchHistorical } from "../api/historical";
 import { useApi } from "../hooks/useApi";
 import { useSettings } from "../app/settings";

@@ -17,7 +17,7 @@ func TestRunTickSkipsSchedulingWhenLeaseNotAcquired(t *testing.T) {
 		"planner_leader",
 		15*time.Second,
 		10*time.Second,
-		NewScheduler(2 * time.Minute),
+		NewScheduler(2*time.Minute),
 		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
 		&fakeSyncProvider{states: map[string]postgresrepo.SyncState{}},
 		fakeLeaseCoordinator{acquired: false},
@@ -52,7 +52,7 @@ func TestRunTickSeedsMissingPairsAndEnqueuesTasks(t *testing.T) {
 		"planner_leader",
 		15*time.Second,
 		10*time.Second,
-		NewScheduler(2 * time.Minute),
+		NewScheduler(2*time.Minute),
 		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
 		syncProvider,
 		fakeLeaseCoordinator{acquired: true},
@@ -96,7 +96,7 @@ func TestRunTickPublishesRealtimeForCaughtUpPairs(t *testing.T) {
 		"planner_leader",
 		15*time.Second,
 		10*time.Second,
-		NewScheduler(2 * time.Minute),
+		NewScheduler(2*time.Minute),
 		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
 		&fakeSyncProvider{
 			states: map[string]postgresrepo.SyncState{

@@ -467,3 +467,20 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--color-bg-base);
   box-shadow: 0 2px 8px var(--color-accent-glow);
 }
+
+@keyframes pageFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.page-transition-wrapper {
+  animation: pageFadeIn 0.35s cubic-bezier(0.2, 0, 0, 1) forwards;
+}

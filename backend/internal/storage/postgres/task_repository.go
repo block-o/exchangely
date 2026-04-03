@@ -11,15 +11,30 @@ import (
 const failedRetryDelay = "5 minutes"
 const staleRunningTimeout = "30 minutes"
 
+type TaskNotifier interface {
+	NotifyUpdate()
+}
+
 type TaskRepository struct {
 	db       *sql.DB
 	workerID string
+	notifier TaskNotifier
 }
 
 func NewTaskRepository(db *sql.DB, workerID string) *TaskRepository {
 	return &TaskRepository{
 		db:       db,
 		workerID: workerID,
+	}
+}
+
+func (r *TaskRepository) SetNotifier(n TaskNotifier) {
+	r.notifier = n
+}
+
+func (r *TaskRepository) notify() {
+	if r.notifier != nil {
+		r.notifier.NotifyUpdate()
 	}
 }
 
@@ -53,6 +68,9 @@ func (r *TaskRepository) Enqueue(ctx context.Context, tasks []task.Task) ([]task
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	if len(enqueued) > 0 {
+		r.notify()
+	}
 	return enqueued, nil
 }
 
@@ -80,6 +98,9 @@ func (r *TaskRepository) Claim(ctx context.Context, id string) (bool, error) {
 		return false, err
 	}
 
+	if rows == 1 {
+		r.notify()
+	}
 	return rows == 1, nil
 }
 
@@ -91,6 +112,9 @@ func (r *TaskRepository) Complete(ctx context.Context, id string) error {
 		    updated_at = NOW()
 		WHERE id = $1
 	`, id)
+	if err == nil {
+		r.notify()
+	}
 	return err
 }
 
@@ -102,6 +126,9 @@ func (r *TaskRepository) Fail(ctx context.Context, id, reason string) error {
 		    updated_at = NOW()
 		WHERE id = $1
 	`, id, reason)
+	if err == nil {
+		r.notify()
+	}
 	return err
 }
 
@@ -128,6 +155,64 @@ func (r *TaskRepository) Pending(ctx context.Context, limit int) ([]task.Task, e
 		var item task.Task
 		if err := rows.Scan(&item.ID, &item.Type, &item.Pair, &item.Interval, &item.WindowStart, &item.WindowEnd); err != nil {
 			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	return items, rows.Err()
+}
+
+// UpcomingTasks fetches tasks that have not yet been claimed, ordered by their intended window start.
+func (r *TaskRepository) UpcomingTasks(ctx context.Context, limit int) ([]task.Task, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, task_type, pair_symbol, interval, window_start, window_end, status, created_at
+		FROM tasks
+		WHERE status = 'pending'
+		ORDER BY window_start ASC, created_at ASC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []task.Task
+	for rows.Next() {
+		var item task.Task
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.Type, &item.Pair, &item.Interval, &item.WindowStart, &item.WindowEnd, &item.Status, &createdAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	return items, rows.Err()
+}
+
+// RecentTasks fetches most recently completed or failed tasks.
+func (r *TaskRepository) RecentTasks(ctx context.Context, limit int) ([]task.Task, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, task_type, pair_symbol, interval, window_start, window_end, status, last_error, updated_at
+		FROM tasks
+		WHERE status IN ('completed', 'failed')
+		ORDER BY updated_at DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []task.Task
+	for rows.Next() {
+		var item task.Task
+		var lastError sql.NullString
+		var updatedAt time.Time
+		if err := rows.Scan(&item.ID, &item.Type, &item.Pair, &item.Interval, &item.WindowStart, &item.WindowEnd, &item.Status, &lastError, &updatedAt); err != nil {
+			return nil, err
+		}
+		if lastError.Valid {
+			item.LastError = lastError.String
 		}
 		items = append(items, item)
 	}

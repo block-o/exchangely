@@ -31,6 +31,8 @@ Implemented:
 - initial codebase documentation/test coverage for operational behavior
 - GitHub Actions CI workflow (linting, test suite, and Compose e2e test validation)
 - premium React frontend layout matching a CoinMarketCap-style Market dashboard and System Operations dashboard
+- realtime frontend market updates powered by Server-Sent Events (SSE) and an in-memory Go EventBus
+- frontend testing stack using Vitest, React Testing Library, and Happy-DOM
 Ingestion sources:
 - Binance Vision for historical archive-backed backfill
 - Binance live API for recent USDT windows
@@ -75,7 +77,9 @@ Operational notes:
 - immediately after container recreation there can be a brief HTTP reset window before the backend is reachable
 
 Architectural Decisions:
-- **Frontend Ticker Fetching:** The frontend Market board currently utilizes a "multi-fetch map-reduce" pattern to dynamically construct its table row by row. This was elected for expediency over waiting for backend support.
+- **Frontend Realtime Webhooks:** The UI avoids inefficient long-polling logic. Instead, we use Server-Sent Events (SSE) at `/api/v1/tickers/stream`. The Golang backend utilizes an in-memory PubSub Channel `EventBus` that the `worker` directly signals when a database upsert finishes, triggering the streaming API to broadcast diff payloads downstream instantly.
+- **Frontend Ticker Optimization:** We abandoned the "multi-fetch map-reduce" loop and replaced it with a single, highly optimized `DISTINCT ON` SQL query via the global `/api/v1/tickers` endpoint, stripping away irrelevant columns (like Source) which reduces both server compute and browser memory payload.
+- **Frontend Container Dependency Management:** Forced `npm ci` within the multi-stage Alpine Docker build explicitly to bypass host-OS specific engine leakages (e.g. macOS Node bindings bleeding into the Linux container state).
 
 ## Remaining Gaps
 
@@ -120,8 +124,6 @@ Next likely steps:
 
 ## Deferred TODOs
 
-- implement a global `/tickers` endpoint in the Go backend to optimize the frontend Market dashboard state loading (replace mapping loop).
-- establish robust proper testing in the frontend (e.g. Vitest, React Testing Library, Playwright).
 - Evaluate Go Testcontainers for isolated per-test Kafka/Timescale integration tests.
   - keep Docker Compose as the main local stack and smoke/deployment-shape verification path
   - revisit Testcontainers only after the current Compose-backed verification path stops being the main bottleneck

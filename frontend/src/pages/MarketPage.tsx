@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { fetchPairs } from "../api/pairs";
 import { fetchTicker } from "../api/system";
 import { fetchHistorical } from "../api/historical";
@@ -13,6 +13,13 @@ export function MarketPage() {
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
   const [candles, setCandles] = useState<Record<string, Candle[]>>({});
   const [loadingExtras, setLoadingExtras] = useState(false);
+  const [flashState, setFlashState] = useState<Record<string, 'up' | 'down'>>({});
+  
+  // Track previous tickers to compute flashes
+  const tickersRef = useRef(tickers);
+  useEffect(() => {
+    tickersRef.current = tickers;
+  }, [tickers]);
 
   useEffect(() => {
     if (!pairsData?.data) return;
@@ -21,19 +28,26 @@ export function MarketPage() {
     setLoadingExtras(true);
 
     const loadExtras = async () => {
-      // Filter pairs matching the selected quote currency
       const items = pairsData.data.filter((p: Pair) => p.quote === quoteCurrency);
-      const newTickers: Record<string, Ticker> = {};
       const newCandles: Record<string, Candle[]> = {};
 
-      for (const pair of items) {
-        try {
-          const tickerRes = await fetchTicker(pair.symbol);
-          newTickers[pair.symbol] = tickerRes;
-        } catch (e) {
-          console.warn("Failed to fetch ticker for", pair.symbol, e);
+      // 1. Fetch initial global state
+      try {
+        const res = await fetch(import.meta.env.VITE_API_BASE_URL + "/tickers");
+        if (res.ok) {
+          const json = await res.json();
+          const tMap: Record<string, Ticker> = {};
+          if (json.data) {
+            json.data.forEach((t: Ticker) => tMap[t.pair] = t);
+          }
+          if (active) setTickers(tMap);
         }
+      } catch (e) {
+        console.error("Failed to fetch initial tickers", e);
+      }
 
+      // 2. Fetch historical candles for sparklines
+      for (const pair of items) {
         try {
           const histRes = await fetchHistorical(pair.symbol, "1h");
           if (histRes?.data) {
@@ -45,7 +59,6 @@ export function MarketPage() {
       }
 
       if (active) {
-        setTickers(newTickers);
         setCandles(newCandles);
         setLoadingExtras(false);
       }
@@ -53,8 +66,47 @@ export function MarketPage() {
 
     loadExtras();
 
-    return () => { active = false; };
-  }, [pairsData]);
+    // 3. Establish SSE Stream for realtime reactive webhooks
+    const es = new EventSource(import.meta.env.VITE_API_BASE_URL + "/tickers/stream");
+    es.onmessage = (event) => {
+      try {
+        const incoming: Ticker[] = JSON.parse(event.data) || [];
+        const prev = tickersRef.current;
+        const next = { ...prev };
+        const updates: Record<string, 'up' | 'down'> = {};
+
+        incoming.forEach(t => {
+          if (prev[t.pair] && prev[t.pair].price !== t.price) {
+            updates[t.pair] = t.price > prev[t.pair].price ? 'up' : 'down';
+          }
+          next[t.pair] = t;
+        });
+
+        if (active) {
+          setTickers(next);
+          if (Object.keys(updates).length > 0) {
+            setFlashState(f => ({ ...f, ...updates }));
+            setTimeout(() => {
+              if (active) {
+                setFlashState(f => {
+                  const sf = { ...f };
+                  Object.keys(updates).forEach(k => delete sf[k]);
+                  return sf;
+                });
+              }
+            }, 1000);
+          }
+        }
+      } catch (e) {
+        console.error("SSE parse error:", e);
+      }
+    };
+
+    return () => { 
+      active = false;
+      es.close();
+    };
+  }, [pairsData, quoteCurrency]);
 
   return (
     <section id="market" className="panel">
@@ -74,7 +126,6 @@ export function MarketPage() {
                 <th>Asset</th>
                 <th>Price ({quoteCurrency})</th>
                 <th>24h Chg</th>
-                <th>Source</th>
                 <th>Updated</th>
                 <th>Trend (12h)</th>
               </tr>
@@ -88,7 +139,7 @@ export function MarketPage() {
                   const var24h = tk?.variation_24h || 0;
                   
                   return (
-                    <tr key={pair.symbol}>
+                    <tr key={pair.symbol} className={flashState[pair.symbol] ? `flash-${flashState[pair.symbol]}` : ""}>
                       <td className="symbol">{pair.base}</td>
                       <td className="price">
                       {tk ? formatNumber(tk.price) : "-"}
@@ -96,7 +147,6 @@ export function MarketPage() {
                     <td className={var24h >= 0 ? "text-up" : "text-down"}>
                       {tk ? `${var24h >= 0 ? "+" : ""}${formatNumber(var24h)}%` : "-"}
                     </td>
-                    <td className="text-muted">{tk ? tk.source : "-"}</td>
                     <td className="text-muted">
                       {tk ? formatUnix(tk.last_update_unix).split(", ")[1] : "-"}
                     </td>

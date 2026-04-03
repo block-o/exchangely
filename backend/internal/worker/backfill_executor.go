@@ -31,10 +31,11 @@ type SyncProgressWriter interface {
 
 // BackfillExecutor materializes task windows into persisted candles and sync progress updates.
 type BackfillExecutor struct {
-	candles CandleStore
-	sync    SyncProgressWriter
-	sources MarketSource
-	events  MarketEventPublisher
+	candles  CandleStore
+	sync     SyncProgressWriter
+	sources  MarketSource
+	events   MarketEventPublisher
+	notifier MarketNotifier
 }
 
 type MarketSource interface {
@@ -45,13 +46,19 @@ type MarketEventPublisher interface {
 	PublishCandles(ctx context.Context, candles []candle.Candle) error
 }
 
+type MarketNotifier interface {
+	NotifyUpdate()
+}
+
+
 // NewBackfillExecutor returns the worker-side executor for backfill, daily consolidation, and realtime tasks.
-func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources MarketSource, events MarketEventPublisher) *BackfillExecutor {
+func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources MarketSource, events MarketEventPublisher, notifier MarketNotifier) *BackfillExecutor {
 	return &BackfillExecutor{
-		candles: candles,
-		sync:    sync,
-		sources: sources,
-		events:  events,
+		candles:  candles,
+		sync:     sync,
+		sources:  sources,
+		events:   events,
+		notifier: notifier,
 	}
 }
 
@@ -122,6 +129,10 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 			"error", err,
 		)
 		return err
+	}
+
+	if e.notifier != nil {
+		e.notifier.NotifyUpdate()
 	}
 
 	return nil

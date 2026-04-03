@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -82,6 +83,52 @@ func New(svcs Services, opts Options) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, item)
+	})
+
+	mux.HandleFunc("/api/v1/tickers", func(w http.ResponseWriter, r *http.Request) {
+		items, err := svcs.Market.Tickers(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, dto.ListResponse[any]{Data: toAnySlice(items)})
+	})
+
+	mux.HandleFunc("/api/v1/tickers/stream", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "SSE not supported", http.StatusInternalServerError)
+			return
+		}
+
+		ctx := r.Context()
+		updates := svcs.Market.Subscribe()
+		defer svcs.Market.Unsubscribe(updates)
+
+		items, err := svcs.Market.Tickers(ctx)
+		if err == nil {
+			data, _ := json.Marshal(items)
+			fmt.Fprintf(w, "data: %s\n\n", string(data))
+			flusher.Flush()
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-updates:
+				items, err := svcs.Market.Tickers(ctx)
+				if err == nil {
+					data, _ := json.Marshal(items)
+					fmt.Fprintf(w, "data: %s\n\n", string(data))
+					flusher.Flush()
+				}
+			}
+		}
 	})
 
 	mux.HandleFunc("/api/v1/system/sync-status", func(w http.ResponseWriter, r *http.Request) {

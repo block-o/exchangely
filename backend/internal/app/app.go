@@ -109,7 +109,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	workerProcessor := worker.NewProcessor(
 		taskRepo,
 		pairLocker,
-		worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry, marketPublisher),
+		worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry, marketPublisher, marketService),
 	)
 	taskConsumer := kafka.NewTaskConsumer(
 		cfg.KafkaBrokers,

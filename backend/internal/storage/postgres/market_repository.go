@@ -284,6 +284,47 @@ func (r *MarketRepository) Ticker(ctx context.Context, pairSymbol string) (ticke
 	return latest, nil
 }
 
+func (r *MarketRepository) Tickers(ctx context.Context) ([]ticker.Ticker, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		WITH latest AS (
+			SELECT DISTINCT ON (pair_symbol)
+			       pair_symbol, close::DOUBLE PRECISION as price, EXTRACT(EPOCH FROM bucket_start)::BIGINT as last_unix
+			FROM candles_1h
+			ORDER BY pair_symbol, bucket_start DESC
+		),
+		past AS (
+			SELECT DISTINCT ON (c.pair_symbol)
+			       c.pair_symbol, c.close::DOUBLE PRECISION as old_price
+			FROM candles_1h c
+			JOIN latest l ON c.pair_symbol = l.pair_symbol
+			WHERE c.bucket_start <= to_timestamp(l.last_unix) - INTERVAL '24 hours'
+			ORDER BY c.pair_symbol, c.bucket_start DESC
+		)
+		SELECT l.pair_symbol, l.price, l.last_unix, COALESCE(p.old_price, l.price) as old_price
+		FROM latest l
+		LEFT JOIN past p ON l.pair_symbol = p.pair_symbol;
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []ticker.Ticker
+	for rows.Next() {
+		var t ticker.Ticker
+		var oldPrice float64
+		if err := rows.Scan(&t.Pair, &t.Price, &t.LastUpdateUnix, &oldPrice); err != nil {
+			return nil, err
+		}
+		if oldPrice != 0 {
+			t.Variation24H = ((t.Price - oldPrice) / oldPrice) * 100
+		}
+		items = append(items, t)
+	}
+
+	return items, rows.Err()
+}
+
 func candleTable(interval string) (string, error) {
 	switch interval {
 	case "1h":

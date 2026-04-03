@@ -14,7 +14,6 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@rolldown/binding-darwin-arm64": "^1.0.0-rc.13",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

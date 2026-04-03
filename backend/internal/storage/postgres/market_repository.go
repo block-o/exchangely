@@ -284,14 +284,28 @@ func (r *MarketRepository) Ticker(ctx context.Context, pairSymbol string) (ticke
 	return latest, nil
 }
 
+// Tickers returns the latest price, 24h variation, 24h high, and 24h low for every traded pair.
+// The query uses three CTEs to compute all analytics in a single round-trip to Postgres:
+//
+//   - "latest":     DISTINCT ON (pair_symbol) picks the most recent hourly candle per pair.
+//   - "past":       DISTINCT ON (pair_symbol) picks the candle closest to (but not after) 24h ago,
+//                   used as the baseline for percentage-change calculation.
+//   - "window_24h": GROUP BY pair_symbol aggregates MAX(high) and MIN(low) over all candles
+//                   within the trailing 24-hour window, powering the 24h High/Low columns.
+//
+// The final SELECT LEFT JOINs all three CTEs so that pairs with fewer than 24h of data
+// still appear (old_price falls back to the current price, high/low may be NULL).
 func (r *MarketRepository) Tickers(ctx context.Context) ([]ticker.Ticker, error) {
 	rows, err := r.db.QueryContext(ctx, `
+		-- CTE 1: Pick the single most-recent hourly candle per pair.
 		WITH latest AS (
 			SELECT DISTINCT ON (pair_symbol)
 			       pair_symbol, close::DOUBLE PRECISION as price, EXTRACT(EPOCH FROM bucket_start)::BIGINT as last_unix
 			FROM candles_1h
 			ORDER BY pair_symbol, bucket_start DESC
 		),
+		-- CTE 2: Find the closing price ~24h ago for percentage-change calculation.
+		-- Uses the latest candle's timestamp as the anchor so the lookback is always relative.
 		past AS (
 			SELECT DISTINCT ON (c.pair_symbol)
 			       c.pair_symbol, c.close::DOUBLE PRECISION as old_price
@@ -299,10 +313,21 @@ func (r *MarketRepository) Tickers(ctx context.Context) ([]ticker.Ticker, error)
 			JOIN latest l ON c.pair_symbol = l.pair_symbol
 			WHERE c.bucket_start <= to_timestamp(l.last_unix) - INTERVAL '24 hours'
 			ORDER BY c.pair_symbol, c.bucket_start DESC
+		),
+		-- CTE 3: Aggregate the highest high and lowest low within the trailing 24h window.
+		window_24h AS (
+			SELECT c.pair_symbol,
+			       MAX(c.high) as max_24h,
+			       MIN(c.low) as min_24h
+			FROM candles_1h c
+			JOIN latest l ON c.pair_symbol = l.pair_symbol
+			WHERE c.bucket_start > to_timestamp(l.last_unix) - INTERVAL '24 hours'
+			GROUP BY c.pair_symbol
 		)
-		SELECT l.pair_symbol, l.price, l.last_unix, COALESCE(p.old_price, l.price) as old_price
+		SELECT l.pair_symbol, l.price, l.last_unix, COALESCE(p.old_price, l.price) as old_price, w.max_24h, w.min_24h
 		FROM latest l
-		LEFT JOIN past p ON l.pair_symbol = p.pair_symbol;
+		LEFT JOIN past p ON l.pair_symbol = p.pair_symbol
+		LEFT JOIN window_24h w ON l.pair_symbol = w.pair_symbol;
 	`)
 	if err != nil {
 		return nil, err
@@ -313,12 +338,17 @@ func (r *MarketRepository) Tickers(ctx context.Context) ([]ticker.Ticker, error)
 	for rows.Next() {
 		var t ticker.Ticker
 		var oldPrice float64
-		if err := rows.Scan(&t.Pair, &t.Price, &t.LastUpdateUnix, &oldPrice); err != nil {
+		var max24, min24 sql.NullFloat64 // nullable because pairs with <24h of data won't have a window_24h row
+		if err := rows.Scan(&t.Pair, &t.Price, &t.LastUpdateUnix, &oldPrice, &max24, &min24); err != nil {
 			return nil, err
 		}
+		// Compute 24h percentage change: ((current - old) / old) * 100.
+		// If there is no 24h-old candle, old_price equals current price (via COALESCE), so variation is 0.
 		if oldPrice != 0 {
 			t.Variation24H = ((t.Price - oldPrice) / oldPrice) * 100
 		}
+		t.High24H = max24.Float64
+		t.Low24H = min24.Float64
 		items = append(items, t)
 	}
 

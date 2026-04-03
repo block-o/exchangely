@@ -42,10 +42,14 @@ type MarketSource interface {
 	FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error)
 }
 
+// MarketEventPublisher sends candle data to Kafka for downstream consumption (realtime flow).
 type MarketEventPublisher interface {
 	PublishCandles(ctx context.Context, candles []candle.Candle) error
 }
 
+// MarketNotifier pushes a signal to the SSE EventBus when new data is committed to Postgres.
+// This is the worker-side counterpart to MarketService.NotifyUpdate().
+// The backfill executor calls it after every successful candle + sync-progress upsert.
 type MarketNotifier interface {
 	NotifyUpdate()
 }

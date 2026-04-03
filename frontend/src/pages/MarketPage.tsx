@@ -1,10 +1,10 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { fetchPairs } from "../api/pairs";
 import { fetchTicker } from "../api/system";
 import { fetchHistorical } from "../api/historical";
 import { useApi } from "../hooks/useApi";
 import { useSettings } from "../app/settings";
-import { formatNumber, formatUnix } from "../lib/format";
+import { formatNumber, formatUnix, getBrowserTimezone } from "../lib/format";
 import type { Ticker, Candle, Pair } from "../types/api";
 
 export function MarketPage() {
@@ -51,7 +51,7 @@ export function MarketPage() {
         try {
           const histRes = await fetchHistorical(pair.symbol, "1h");
           if (histRes?.data) {
-            newCandles[pair.symbol] = histRes.data.slice(0, 12).reverse();
+            newCandles[pair.symbol] = histRes.data.slice(0, 24).reverse();
           }
         } catch (e) {
           console.warn("Failed to fetch historical for", pair.symbol, e);
@@ -108,6 +108,14 @@ export function MarketPage() {
     };
   }, [pairsData, quoteCurrency]);
 
+  const maxUpdatedUnix = useMemo(() => {
+    let max = 0;
+    Object.values(tickers).forEach(t => {
+      if (t.last_update_unix > max) max = t.last_update_unix;
+    });
+    return max;
+  }, [tickers]);
+
   return (
     <section id="market" className="panel">
       <div className="panel-header">
@@ -126,8 +134,9 @@ export function MarketPage() {
                 <th>Asset</th>
                 <th>Price ({quoteCurrency})</th>
                 <th>24h Chg</th>
-                <th>Updated</th>
-                <th>Trend (12h)</th>
+                <th>24h High</th>
+                <th>24h Low</th>
+                <th>Trend (24h)</th>
               </tr>
             </thead>
             <tbody style={{ opacity: loadingExtras ? 0.5 : 1 }}>
@@ -148,7 +157,10 @@ export function MarketPage() {
                       {tk ? `${var24h >= 0 ? "+" : ""}${formatNumber(var24h)}%` : "-"}
                     </td>
                     <td className="text-muted">
-                      {tk ? formatUnix(tk.last_update_unix).split(", ")[1] : "-"}
+                      {tk?.high_24h ? formatNumber(tk.high_24h) : "-"}
+                    </td>
+                    <td className="text-muted">
+                      {tk?.low_24h ? formatNumber(tk.low_24h) : "-"}
                     </td>
                     <td>
                       <div className="chart-placeholder" style={{ width: '60px' }}>
@@ -173,6 +185,12 @@ export function MarketPage() {
               })}
             </tbody>
           </table>
+          
+          {maxUpdatedUnix > 0 && (
+            <div className="text-muted" style={{ padding: '16px 20px', fontSize: '0.8em', textAlign: 'right', opacity: 0.7 }}>
+              Last updated: {formatUnix(maxUpdatedUnix)} · All times shown in {getBrowserTimezone()}
+            </div>
+          )}
         </div>
       ) : null}
     </section>

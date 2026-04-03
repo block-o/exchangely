@@ -92,7 +92,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		kraken.NewClient("", nil),
 		binance.NewClient("", nil),
 	)
-	realtimeIngest := service.NewRealtimeIngestService(marketRepo)
+	realtimeIngest := service.NewRealtimeIngestService(marketRepo, marketService)
 	plannerRunner := planner.NewRunner(
 		instanceID,
 		cfg.PlannerLeaseName,

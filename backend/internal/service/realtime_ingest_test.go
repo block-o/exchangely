@@ -10,7 +10,7 @@ import (
 
 func TestRealtimeIngestServiceStoresRawAndMaterializesHourly(t *testing.T) {
 	store := &fakeRealtimeStore{}
-	service := NewRealtimeIngestService(store)
+	service := NewRealtimeIngestService(store, nil)
 
 	err := service.IngestRealtimeCandles(context.Background(), []candle.Candle{
 		{Pair: "BTCUSDT", Interval: "1h", Timestamp: time.Date(2024, 4, 1, 10, 0, 0, 0, time.UTC).Unix(), Open: 100, High: 102, Low: 99, Close: 101, Volume: 3, Source: "binance"},

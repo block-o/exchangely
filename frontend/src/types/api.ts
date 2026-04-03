@@ -29,10 +29,12 @@ export type Candle = {
   finalized: boolean;
 };
 
-export type Ticker = {
+export interface Ticker {
   pair: string;
   price: number;
   variation_24h: number;
+  high_24h?: number;
+  low_24h?: number;
   last_update_unix: number;
   source: string;
 };

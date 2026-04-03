@@ -85,6 +85,7 @@ func New(svcs Services, opts Options) http.Handler {
 		writeJSON(w, http.StatusOK, item)
 	})
 
+	// GET /api/v1/tickers — returns the latest price, 24h change, 24h high/low for all pairs.
 	mux.HandleFunc("/api/v1/tickers", func(w http.ResponseWriter, r *http.Request) {
 		items, err := svcs.Market.Tickers(r.Context())
 		if err != nil {
@@ -94,6 +95,16 @@ func New(svcs Services, opts Options) http.Handler {
 		writeJSON(w, http.StatusOK, dto.ListResponse[any]{Data: toAnySlice(items)})
 	})
 
+	// GET /api/v1/tickers/stream — Server-Sent Events (SSE) endpoint.
+	// The connection stays open and pushes a full ticker snapshot each time the
+	// backend's EventBus fires (triggered by BackfillExecutor or RealtimeIngestService
+	// after a successful Postgres write). This eliminates frontend polling entirely.
+	//
+	// Lifecycle:
+	//   1. Subscribe to MarketService's EventBus channel.
+	//   2. Immediately send the current ticker state as the first SSE event.
+	//   3. Block on the channel; on each signal, re-query and push fresh state.
+	//   4. On client disconnect (ctx.Done), unsubscribe and close.
 	mux.HandleFunc("/api/v1/tickers/stream", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -109,6 +120,7 @@ func New(svcs Services, opts Options) http.Handler {
 		updates := svcs.Market.Subscribe()
 		defer svcs.Market.Unsubscribe(updates)
 
+		// Send initial snapshot so the client has data immediately on connect.
 		items, err := svcs.Market.Tickers(ctx)
 		if err == nil {
 			data, _ := json.Marshal(items)
@@ -116,6 +128,7 @@ func New(svcs Services, opts Options) http.Handler {
 			flusher.Flush()
 		}
 
+		// Block until either the client disconnects or new data arrives.
 		for {
 			select {
 			case <-ctx.Done():

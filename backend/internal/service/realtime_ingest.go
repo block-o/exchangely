@@ -9,20 +9,28 @@ import (
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 )
 
+// RealtimeMarketStore abstracts the candle persistence layer used during realtime Kafka ingestion.
 type RealtimeMarketStore interface {
 	UpsertRawCandles(ctx context.Context, interval string, candles []candle.Candle) error
 	RawCandles(ctx context.Context, pairSymbol, interval string, start, end time.Time) ([]candle.Candle, error)
 	UpsertCandles(ctx context.Context, interval string, candles []candle.Candle) error
 }
 
+// MarketNotifier is satisfied by MarketService. It pushes a signal to the SSE EventBus
+// so that connected browser clients are notified immediately when new data is persisted.
+type MarketNotifier interface {
+	NotifyUpdate()
+}
+
 // RealtimeIngestService consumes market events and rolls them into the latest hourly candle state.
 type RealtimeIngestService struct {
-	store RealtimeMarketStore
+	store    RealtimeMarketStore
+	notifier MarketNotifier
 }
 
 // NewRealtimeIngestService returns the market-event consumer service for realtime hourly consolidation.
-func NewRealtimeIngestService(store RealtimeMarketStore) *RealtimeIngestService {
-	return &RealtimeIngestService{store: store}
+func NewRealtimeIngestService(store RealtimeMarketStore, notifier MarketNotifier) *RealtimeIngestService {
+	return &RealtimeIngestService{store: store, notifier: notifier}
 }
 
 // IngestRealtimeCandles persists raw market events, rebuilds the affected hour, and upserts the result.
@@ -107,5 +115,13 @@ func (s *RealtimeIngestService) IngestRealtimeCandles(ctx context.Context, candl
 		"duration_ms", time.Since(startedAt).Milliseconds(),
 		"status", "ok",
 	)
+
+	// Signal connected SSE clients that new data is available.
+	// This is the critical bridge between the Kafka consumer pipeline and the frontend:
+	// Kafka event → IngestRealtimeCandles → Postgres upsert → NotifyUpdate → SSE push.
+	if s.notifier != nil {
+		s.notifier.NotifyUpdate()
+	}
+
 	return nil
 }

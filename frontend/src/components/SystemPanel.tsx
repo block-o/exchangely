@@ -16,6 +16,13 @@ interface SystemData {
   recent: Task[];
 }
 
+function formatShortDate(isoString?: string) {
+  if (!isoString) return "";
+  const d = new Date(isoString);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+}
+
+
 export function SystemPanel() {
   const [data, setData] = useState<SystemData>({ upcoming: [], recent: [] });
   const [apiVersion, setApiVersion] = useState<string>("Unknown");
@@ -76,7 +83,13 @@ export function SystemPanel() {
                     <td style={{ textAlign: 'left' }}>{t.type}</td>
                     <td>{t.pair}</td>
                     <td>{t.interval}</td>
-                    <td style={{ opacity: 0.8 }}>{t.status || 'pending'}</td>
+                    <td style={{ opacity: 0.8 }}>
+                      {t.status === 'scheduled' 
+                        ? (t.type === 'backfill' 
+                           ? `Backfill: ${formatShortDate(t.window_start)} to ${formatShortDate(t.window_end)}` 
+                           : `Scheduled: ${formatShortDate(t.window_start)}`) 
+                        : (t.status || 'pending')}
+                    </td>
                   </tr>
                 ))}
               </tbody>

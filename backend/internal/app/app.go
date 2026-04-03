@@ -75,6 +75,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		taskRepo,
 		leaseRepo,
 		cfg.PlannerLeaseName,
+		cfg.RealtimePollInterval,
 	)
 	taskRepo.SetNotifier(systemService)
 	marketService := service.NewMarketService(marketRepo)

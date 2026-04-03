@@ -15,7 +15,7 @@ import (
 
 func TestHourlyBackfillTaskExecutesAndUpdatesProgress(t *testing.T) {
 	now := time.Date(2024, 1, 3, 12, 0, 0, 0, time.UTC)
-	scheduler := planner.NewScheduler()
+	scheduler := planner.NewScheduler(2 * time.Minute)
 
 	tasks := scheduler.BuildInitialBackfillTasks([]pair.Pair{
 		{Symbol: "BTCEUR"},
@@ -52,7 +52,7 @@ func TestHourlyBackfillTaskExecutesAndUpdatesProgress(t *testing.T) {
 			},
 		},
 	}
-	executor := worker.NewBackfillExecutor(store, sync, source, nil)
+	executor := worker.NewBackfillExecutor(store, sync, source, nil, nil)
 
 	if err := executor.Execute(context.Background(), tasks[0]); err != nil {
 		t.Fatalf("execute failed: %v", err)
@@ -74,7 +74,7 @@ func TestHourlyBackfillTaskExecutesAndUpdatesProgress(t *testing.T) {
 
 func TestDailyPromotionMakesPairRealtimeEligible(t *testing.T) {
 	now := time.Date(2024, 1, 3, 12, 0, 0, 0, time.UTC)
-	scheduler := planner.NewScheduler()
+	scheduler := planner.NewScheduler(2 * time.Minute)
 
 	state := map[string]planner.SyncState{
 		"BTCEUR": {
@@ -121,7 +121,7 @@ func TestDailyPromotionMakesPairRealtimeEligible(t *testing.T) {
 		},
 	}
 	sync := &integrationSyncWriter{}
-	executor := worker.NewBackfillExecutor(store, sync, nil, nil)
+	executor := worker.NewBackfillExecutor(store, sync, nil, nil, nil)
 
 	if err := executor.Execute(context.Background(), tasks[0]); err != nil {
 		t.Fatalf("daily execute failed: %v", err)

@@ -98,7 +98,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		cfg.PlannerLeaseName,
 		cfg.PlannerLeaseTTL,
 		cfg.PlannerTick,
-		planner.NewScheduler(),
+		planner.NewScheduler(cfg.RealtimePollInterval),
 		catalogRepo,
 		syncRepo,
 		leaseRepo,

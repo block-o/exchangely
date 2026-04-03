@@ -227,7 +227,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .data-table th {
-  text-align: left;
+  text-align: center;
   padding: 16px;
   color: var(--color-text-secondary);
   font-weight: 500;
@@ -239,9 +239,16 @@ h1, h2, h3, h4, h5, h6 {
 
 .data-table td {
   padding: 20px 16px;
+  text-align: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
   font-variant-numeric: tabular-nums;
   transition: background 0.2s ease;
+}
+
+/* Keep the first column (Asset) left-aligned for better readability */
+.data-table th:first-child,
+.data-table td:first-child {
+  text-align: left;
 }
 
 .data-table tbody tr {

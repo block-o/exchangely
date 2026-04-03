@@ -16,16 +16,25 @@ type SyncState struct {
 }
 
 // Scheduler converts per-pair sync state into independent backfill and realtime tasks.
+// The realtimePollInterval controls how frequently fresh realtime polling tasks are
+// emitted for caught-up pairs. A shorter interval yields fresher ticker prices.
 type Scheduler struct {
-	backfillWindow1H time.Duration
-	backfillWindow1D time.Duration
+	backfillWindow1H    time.Duration
+	backfillWindow1D    time.Duration
+	realtimePollInterval time.Duration
 }
 
-// NewScheduler returns the default planner scheduler tuned for coarse-grained backfill windows.
-func NewScheduler() *Scheduler {
+// NewScheduler returns the planner scheduler tuned for coarse-grained backfill windows
+// and the given realtime poll cadence. The pollInterval determines how often the planner
+// generates a fresh realtime task per pair — e.g. 2m means prices update every ~2 minutes.
+func NewScheduler(pollInterval time.Duration) *Scheduler {
+	if pollInterval <= 0 {
+		pollInterval = 2 * time.Minute
+	}
 	return &Scheduler{
-		backfillWindow1H: 24 * time.Hour,
-		backfillWindow1D: 7 * 24 * time.Hour,
+		backfillWindow1H:    24 * time.Hour,
+		backfillWindow1D:    7 * 24 * time.Hour,
+		realtimePollInterval: pollInterval,
 	}
 }
 
@@ -59,20 +68,31 @@ func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[strin
 	return tasks
 }
 
-// BuildRealtimeTasks emits one open-hour polling task per fully caught-up pair.
+// BuildRealtimeTasks emits one polling task per fully caught-up pair for the current
+// poll window. The task ID includes the poll-window start timestamp (truncated to
+// realtimePollInterval), so the planner's idempotent Enqueue recognizes each window
+// as a distinct task. This ensures prices refresh every pollInterval instead of once per hour.
+//
+// WindowStart/WindowEnd still span the full current hour so the exchange API returns
+// enough context for consolidation, but the unique ID prevents de-duplication starvation.
 func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncState, now time.Time) []task.Task {
 	currentHour := now.UTC().Truncate(time.Hour)
 	nextHour := currentHour.Add(time.Hour)
+	pollWindow := now.UTC().Truncate(s.realtimePollInterval)
 	tasks := make([]task.Task, 0)
 
 	for _, trackedPair := range pairs {
 		pairState, ok := state[trackedPair.Symbol]
-		if !ok || !pairState.HourlyBackfillCompleted || !pairState.DailyBackfillCompleted {
+		// We only require hourly backfill to be caught up so we don't clobber historical writes.
+		// Daily backfill can continue in the background while realtime dashboard data flows.
+		if !ok || !pairState.HourlyBackfillCompleted {
 			continue
 		}
 
+		// Use pollWindow in the ID so each poll interval generates a unique task.
+		// The actual fetch window remains the full current hour for API compatibility.
 		tasks = append(tasks, task.Task{
-			ID:          taskID(task.TypeRealtime, trackedPair.Symbol, "1h", currentHour, nextHour),
+			ID:          taskID(task.TypeRealtime, trackedPair.Symbol, "1h", pollWindow, nextHour),
 			Type:        task.TypeRealtime,
 			Pair:        trackedPair.Symbol,
 			Interval:    "1h",

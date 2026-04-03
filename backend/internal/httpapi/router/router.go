@@ -242,6 +242,8 @@ func withAccessLog(next http.Handler) http.Handler {
 	})
 }
 
+// statusRecorder wraps ResponseWriter to capture the HTTP status code for access logging.
+// It also implements http.Flusher so that SSE streaming works through the logging middleware.
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
@@ -250,6 +252,15 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
+}
+
+// Flush delegates to the underlying ResponseWriter's Flush if supported.
+// This is required for Server-Sent Events — without it, the SSE handler's
+// w.(http.Flusher) type assertion fails and returns 500.
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func matchAllowedOrigin(origin string, allowedOrigins []string) (string, bool) {

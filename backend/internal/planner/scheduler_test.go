@@ -8,7 +8,7 @@ import (
 )
 
 func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
-	scheduler := NewScheduler()
+	scheduler := NewScheduler(2 * time.Minute)
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildInitialBackfillTasks([]pair.Pair{
@@ -49,7 +49,7 @@ func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
 }
 
 func TestBuildRealtimeTasksIncludesOnlyCaughtUpPairs(t *testing.T) {
-	scheduler := NewScheduler()
+	scheduler := NewScheduler(2 * time.Minute)
 	now := time.Date(2026, 4, 2, 12, 34, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildRealtimeTasks([]pair.Pair{
@@ -69,10 +69,72 @@ func TestBuildRealtimeTasksIncludesOnlyCaughtUpPairs(t *testing.T) {
 		},
 	}, now)
 
-	if len(tasks) != 1 {
-		t.Fatalf("expected 1 realtime task, got %d", len(tasks))
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 realtime tasks, got %d", len(tasks))
 	}
-	if tasks[0].Type != "realtime_poll" || tasks[0].Pair != "BTCEUR" || tasks[0].Interval != "1h" {
-		t.Fatalf("unexpected realtime task: %+v", tasks[0])
+	foundETH := false
+	for _, task := range tasks {
+		if task.Pair == "ETHUSDT" {
+			foundETH = true
+		}
+	}
+	if !foundETH {
+		t.Fatalf("expected realtime task for ETHUSDT since hourly backfill is complete")
+	}
+}
+
+// TestRealtimeTasksGenerateDistinctIDsPerPollWindow verifies that calling
+// BuildRealtimeTasks at two different times within the same hour produces
+// tasks with different IDs. Before the sub-hour polling fix, both calls
+// would generate the same ID (truncated to the hour), causing the planner's
+// Enqueue to silently drop the second one—leaving prices stale for up to 1 hour.
+func TestRealtimeTasksGenerateDistinctIDsPerPollWindow(t *testing.T) {
+	scheduler := NewScheduler(2 * time.Minute)
+
+	caughtUp := map[string]SyncState{
+		"BTCEUR": {
+			HourlyLastSynced:        time.Now().UTC(),
+			DailyLastSynced:         time.Now().UTC().Truncate(24 * time.Hour),
+			HourlyBackfillCompleted: true,
+			DailyBackfillCompleted:  true,
+		},
+	}
+	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
+
+	// Two times within the same hour but in different 2-minute windows.
+	t1 := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 4, 2, 12, 2, 0, 0, time.UTC)
+
+	tasks1 := scheduler.BuildRealtimeTasks(pairs, caughtUp, t1)
+	tasks2 := scheduler.BuildRealtimeTasks(pairs, caughtUp, t2)
+
+	if len(tasks1) != 1 || len(tasks2) != 1 {
+		t.Fatalf("expected 1 task each, got %d and %d", len(tasks1), len(tasks2))
+	}
+	if tasks1[0].ID == tasks2[0].ID {
+		t.Fatalf("expected distinct task IDs across poll windows, both got %q", tasks1[0].ID)
+	}
+
+	// But two calls within the SAME 2-minute window should produce the same ID.
+	t3 := time.Date(2026, 4, 2, 12, 0, 30, 0, time.UTC) // 30s into the same window as t1
+	tasks3 := scheduler.BuildRealtimeTasks(pairs, caughtUp, t3)
+	if len(tasks3) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks3))
+	}
+	if tasks1[0].ID != tasks3[0].ID {
+		t.Fatalf("expected same task ID within same poll window, got %q vs %q", tasks1[0].ID, tasks3[0].ID)
+	}
+}
+
+// TestNewSchedulerDefaultsPollInterval verifies that a zero or negative
+// pollInterval falls back to the 2-minute default.
+func TestNewSchedulerDefaultsPollInterval(t *testing.T) {
+	s := NewScheduler(0)
+	if s.realtimePollInterval != 2*time.Minute {
+		t.Fatalf("expected 2m default, got %v", s.realtimePollInterval)
+	}
+	s2 := NewScheduler(-1 * time.Second)
+	if s2.realtimePollInterval != 2*time.Minute {
+		t.Fatalf("expected 2m default for negative, got %v", s2.realtimePollInterval)
 	}
 }

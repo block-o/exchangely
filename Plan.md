@@ -43,6 +43,8 @@ Ingestion sources:
 - Binance Vision for historical archive-backed backfill
 - Binance live API for recent USDT windows
 - Kraken live API for EUR windows
+- `GET /api/v1/tickers/stream` SSE wrapper correctly delegates `Flush()` via `statusRecorder` middleware to avoid 500
+- Planner now generates realtime polling tasks every 2 minutes (configurable `RealtimePollInterval`) so live data prices stay sub-2-minute fresh rather than up to an hour stale.
 - source cooldown handling for Binance and Kraken
 - gap detection for historical hourly backfill
 - source fallthrough when a supported source returns no candles

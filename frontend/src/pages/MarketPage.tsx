@@ -163,21 +163,43 @@ export function MarketPage() {
                       {tk?.low_24h ? formatNumber(tk.low_24h) : "-"}
                     </td>
                     <td>
-                      <div className="chart-placeholder" style={{ width: '60px' }}>
-                        {hist.map((c, i) => {
-                          const isUp = c.close >= c.open;
-                          const minLow = Math.min(...hist.map((x) => x.low));
-                          const maxHigh = Math.max(...hist.map((x) => x.high));
-                          const heightPct = maxHigh === minLow ? 50 : ((c.close - minLow) / (maxHigh - minLow)) * 100;
-                          return (
-                            <div 
-                              key={i} 
-                              className={`chart-bar ${isUp ? 'up' : 'down'}`}
-                              style={{ height: `${Math.max(10, heightPct)}%` }}
-                              title={`C: ${c.close}`}
-                            />
-                          );
-                        })}
+                      <div className="chart-placeholder" style={{ width: '120px', margin: '0 auto', display: 'flex', alignItems: 'flex-end', gap: '2px' }}>
+                        {(() => {
+                          const latestCandleUnix = hist.length > 0 ? hist[hist.length - 1].timestamp : Math.floor(Date.now() / 1000);
+                          const currentHourUnix = Math.floor(latestCandleUnix / 3600) * 3600;
+                          const plotted = Array.from({ length: 24 }).map((_, i) => {
+                            const bucketUnix = currentHourUnix - (23 - i) * 3600;
+                            return hist.find(x => x.timestamp >= bucketUnix && x.timestamp < bucketUnix + 3600);
+                          });
+                          
+                          const validCandles = plotted.filter(c => !!c) as typeof hist;
+                          const minLow = validCandles.length > 0 ? Math.min(...validCandles.map((x) => x.low)) : 0;
+                          const maxHigh = validCandles.length > 0 ? Math.max(...validCandles.map((x) => x.high)) : 0;
+
+                          return plotted.map((c, i) => {
+                            if (!c) {
+                              return (
+                                <div 
+                                  key={`missing-${i}`} 
+                                  className="chart-bar empty"
+                                  style={{ height: '30%', backgroundColor: '#374151', opacity: 1 }}
+                                  title="Data unavailable"
+                                />
+                              );
+                            }
+
+                            const isUp = c.close >= c.open;
+                            const heightPct = maxHigh === minLow ? 50 : ((c.close - minLow) / (maxHigh - minLow)) * 100;
+                            return (
+                              <div 
+                                key={`val-${i}`} 
+                                className={`chart-bar ${isUp ? 'up' : 'down'}`}
+                                style={{ height: `${Math.max(10, heightPct)}%` }}
+                                title={`C: ${c.close}`}
+                              />
+                            );
+                          });
+                        })()}
                       </div>
                     </td>
                   </tr>

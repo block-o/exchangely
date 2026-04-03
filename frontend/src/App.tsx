@@ -1,18 +1,14 @@
 import { AppProviders } from "./app/providers";
 import { AppShell } from "./components/layout/AppShell";
-import { DashboardPage } from "./pages/DashboardPage";
-import { PairDetailPage } from "./pages/PairDetailPage";
-import { PairsPage } from "./pages/PairsPage";
-import { SystemStatusPage } from "./pages/SystemStatusPage";
+import { MarketPage } from "./pages/MarketPage";
+import { SystemPage } from "./pages/SystemPage";
 
 export default function App() {
   return (
     <AppProviders>
       <AppShell>
-        <DashboardPage />
-        <PairsPage />
-        <PairDetailPage />
-        <SystemStatusPage />
+        <MarketPage />
+        <SystemPage />
       </AppShell>
     </AppProviders>
   );

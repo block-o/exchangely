@@ -29,7 +29,8 @@ Implemented:
 - Docker Compose stack with Kafka KRaft, TimescaleDB, backend, frontend, and Kafka topic init
 - README architecture diagram and updated runtime notes
 - initial codebase documentation/test coverage for operational behavior
-
+- GitHub Actions CI workflow (linting, test suite, and Compose e2e test validation)
+- premium React frontend layout matching a CoinMarketCap-style Market dashboard and System Operations dashboard
 Ingestion sources:
 - Binance Vision for historical archive-backed backfill
 - Binance live API for recent USDT windows
@@ -73,6 +74,9 @@ Operational notes:
 - local backend rebuilds may require `DOCKER_DEFAULT_PLATFORM=linux/arm64` if the shell environment is polluted
 - immediately after container recreation there can be a brief HTTP reset window before the backend is reachable
 
+Architectural Decisions:
+- **Frontend Ticker Fetching:** The frontend Market board currently utilizes a "multi-fetch map-reduce" pattern to dynamically construct its table row by row. This was elected for expediency over waiting for backend support.
+
 ## Remaining Gaps
 
 1. Backfill/source strategy still needs hardening.
@@ -109,17 +113,15 @@ Active workstream:
 Next likely steps:
 1. keep hardening source behavior around rate limits, fallbacks, and status reporting
 2. extend Compose coverage where it checks failure recovery, especially stale/retried task paths
-3. design and scaffold the first real frontend dashboard:
-   - market overview tab with pair cards/table, latest values, and mini charts
-   - system tab with health, sync progress, and recent task status
-4. continue adding documentation to critical backend flows:
+3. continue adding documentation to critical backend flows:
    - scheduler and task generation
    - registry source selection and fallback rules
    - worker execution lifecycle and realtime ingest path
-5. configure GitHub Actions to lint, validate the project (including frontend and backend), and run e2e tests
 
 ## Deferred TODOs
 
+- implement a global `/tickers` endpoint in the Go backend to optimize the frontend Market dashboard state loading (replace mapping loop).
+- establish robust proper testing in the frontend (e.g. Vitest, React Testing Library, Playwright).
 - Evaluate Go Testcontainers for isolated per-test Kafka/Timescale integration tests.
   - keep Docker Compose as the main local stack and smoke/deployment-shape verification path
   - revisit Testcontainers only after the current Compose-backed verification path stops being the main bottleneck

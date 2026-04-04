@@ -26,6 +26,7 @@ type Config struct {
 	RealtimePollInterval      time.Duration
 	WorkerPollInterval        time.Duration
 	WorkerBatchSize           int
+	CoinGeckoAPIKey           string
 	IntegrityMinSources       int
 	IntegrityMaxDivergencePct float64
 	DefaultQuoteAssets        []string
@@ -51,6 +52,7 @@ func Load() Config {
 		RealtimePollInterval:      parseDuration(getenv("BACKEND_REALTIME_POLL_INTERVAL", "2m")),
 		WorkerPollInterval:        parseDuration(getenv("BACKEND_WORKER_POLL_INTERVAL", "5s")),
 		WorkerBatchSize:           parseInt(getenv("BACKEND_WORKER_BATCH_SIZE", "8"), 8),
+		CoinGeckoAPIKey:           getenv("BACKEND_COINGECKO_API_KEY", ""),
 		IntegrityMinSources:       parseInt(getenv("BACKEND_INTEGRITY_MIN_SOURCES", "2"), 2),
 		IntegrityMaxDivergencePct: parseFloat(getenv("BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT", "0.5"), 0.5),
 		DefaultQuoteAssets:        splitCSV(getenv("BACKEND_DEFAULT_QUOTE_ASSETS", "EUR,USDT")),

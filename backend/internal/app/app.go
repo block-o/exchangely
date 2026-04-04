@@ -17,6 +17,8 @@ import (
 	"github.com/block-o/exchangely/backend/internal/ingest"
 	"github.com/block-o/exchangely/backend/internal/ingest/binance"
 	"github.com/block-o/exchangely/backend/internal/ingest/binancevision"
+	"github.com/block-o/exchangely/backend/internal/ingest/coingecko"
+	"github.com/block-o/exchangely/backend/internal/ingest/cryptodatadownload"
 	"github.com/block-o/exchangely/backend/internal/ingest/kraken"
 	ingestregistry "github.com/block-o/exchangely/backend/internal/ingest/registry"
 	kafka "github.com/block-o/exchangely/backend/internal/messaging/kafka"
@@ -95,8 +97,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	binanceSrc := binance.NewClient("", nil)
 	krakenSrc := kraken.NewClient("", nil)
 	bvSrc := binancevision.NewClient("", nil)
+	cddSrc := cryptodatadownload.NewClient("", nil)
+	cgSrc := coingecko.NewClient("", cfg.CoinGeckoAPIKey, nil)
 
-	sourceRegistry := ingestregistry.New(bvSrc, krakenSrc, binanceSrc)
+	sourceRegistry := ingestregistry.New(bvSrc, cddSrc, krakenSrc, cgSrc, binanceSrc)
 	realtimeIngest := service.NewRealtimeIngestService(marketRepo, marketService)
 	plannerRunner := planner.NewRunner(
 		instanceID,

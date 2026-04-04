@@ -44,9 +44,13 @@ func TestLoadUsesConfiguredCORSOrigins(t *testing.T) {
 func TestLoadUsesConfiguredIntegrityValidatorSettings(t *testing.T) {
 	t.Setenv("BACKEND_INTEGRITY_MIN_SOURCES", "3")
 	t.Setenv("BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT", "1.25")
+	t.Setenv("BACKEND_COINGECKO_API_KEY", "demo-key")
 
 	cfg := Load()
 
+	if cfg.CoinGeckoAPIKey != "demo-key" {
+		t.Fatalf("expected CoinGecko API key to load, got %q", cfg.CoinGeckoAPIKey)
+	}
 	if cfg.IntegrityMinSources != 3 {
 		t.Fatalf("expected integrity min sources 3, got %d", cfg.IntegrityMinSources)
 	}

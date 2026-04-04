@@ -15,6 +15,9 @@ planner:
 worker:
   poll_interval: 5s
   batch_size: 8
+providers:
+  coingecko:
+    api_key: ""
 integrity:
   min_sources: 2
   max_divergence_pct: 0.5

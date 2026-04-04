@@ -6,7 +6,7 @@ Exchangely is an event-driven crypto market data platform focused on historical 
 
 ## Disclaimer
 
-This project is being built for educational purposes only. It is not intended for use in any production environment. 
+This project is being built for educational purposes only. It is not intended for use in any production environment.
 
 ## Architecture
 
@@ -24,19 +24,19 @@ flowchart LR
 
     UI -->|REST| API
     API -.->|SSE: Tickers & Tasks| UI
-    
+
     Planner -->|lease + sync state| TS
     Planner -->|enqueue tasks| TS
     Planner -->|publish task refs| Kafka
-    
+
     Worker -->|claim tasks + locks| TS
     Worker -->|consume tasks| Kafka
     Worker -->|write raw + consolidated candles| TS
     Worker -->|publish realtime market events| Kafka
-    
+
     API -->|consume market events| Kafka
     API -->|read historical| TS
-    
+
     Worker -->|historical backfill| BinanceVision
     Worker -->|recent USDT windows| Binance
     Worker -->|EUR windows| Kraken
@@ -49,10 +49,3 @@ flowchart LR
 3. Open the frontend at `http://localhost:5173`.
 4. Open the backend API at `http://localhost:8080/api/v1/health`.
 
-## Development
-
-- `make fmt` formats Go sources.
-- `make test` runs backend tests.
-- `make e2e` starts the Compose backend stack and runs the smoke e2e suite.
-- `make up` starts local infrastructure.
-- `make down` stops local infrastructure.

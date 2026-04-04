@@ -5,13 +5,14 @@ WORKDIR /app
 ARG VITE_API_BASE_URL=http://localhost:8080/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY Makefile ./
+COPY package.json package-lock.json ./frontend/
+RUN make frontend-deps
 
-COPY . .
-RUN npm run build
+COPY frontend ./frontend
+RUN make frontend-build
 
-FROM nginx:1.27-alpine
+FROM nginx:1.29-alpine
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html

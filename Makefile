@@ -1,33 +1,23 @@
 SHELL := /bin/sh
 
 .PHONY: \
-	fmt fmt-check \
-	backend-build backend-fmt backend-fmt-check backend-test backend-vet backend-lint \
-	frontend-build frontend-check frontend-install frontend-test frontend-typecheck \
+	backend-fmt backend-fmt-fix backend-lint backend-vet backend-build backend-test backend-check  \
+	frontend-deps frontend-typecheck frontend-build  frontend-test frontend-check \
 	check test e2e up down install-hooks
 
-fmt:
-	$(MAKE) backend-fmt
 
-fmt-check:
-	$(MAKE) backend-fmt-check
 
-backend-build:
-	cd backend && go build ./cmd/server
 
 backend-fmt:
-	cd backend && gofmt -w $$(find . -name '*.go' -print)
-
-backend-fmt-check:
 	cd backend && test -z "$$(gofmt -l .)" || { \
 		echo "The following backend files are not formatted properly:"; \
 		gofmt -l .; \
-		echo "Run 'make fmt' and commit the result."; \
+		echo "Run 'make backend-fmt-fix' and commit the result."; \
 		exit 1; \
 	}
 
-backend-test:
-	cd backend && go test ./...
+backend-fmt-fix:
+	cd backend && gofmt -w $$(find . -name '*.go' -print)
 
 backend-vet:
 	cd backend && go vet ./...
@@ -35,29 +25,35 @@ backend-vet:
 backend-lint:
 	cd backend && golangci-lint run ./...
 
+backend-build:
+	cd backend && go build ./cmd/server
+
+backend-test:
+	cd backend && go test -v -race ./...
+
 backend-check:
-	$(MAKE) backend-fmt-check
+	$(MAKE) backend-fmt
 	$(MAKE) backend-vet
-	$(MAKE) backend-build
 	$(MAKE) backend-lint
+	$(MAKE) backend-build
 	$(MAKE) backend-test
 
-frontend-install:
+frontend-deps:
 	cd frontend && npm ci
 
 frontend-typecheck:
 	cd frontend && npm run typecheck
 
-frontend-test:
-	cd frontend && npm test
-
 frontend-build:
 	cd frontend && npm run build
 
+frontend-test:
+	cd frontend && npm test
+
 frontend-check:
 	$(MAKE) frontend-typecheck
-	$(MAKE) frontend-test
 	$(MAKE) frontend-build
+	$(MAKE) frontend-test
 
 check:
 	$(MAKE) backend-check

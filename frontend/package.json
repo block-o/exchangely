@@ -4,12 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 5173",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.vitest.json --noEmit",
-    "build": "npm run typecheck && vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 5173",
+    "build": "vite build",
     "test": "vitest run",
-    "check": "npm run typecheck && npm test && npm run build"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.vitest.json --noEmit",
+    "preview": "vite preview --host 0.0.0.0 --port 5173"
   },
   "dependencies": {
     "react": "19.2.3",

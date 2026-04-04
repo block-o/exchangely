@@ -1,7 +1,9 @@
 package router
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -298,6 +300,10 @@ func writeSSEData(w http.ResponseWriter, data []byte) error {
 
 func writeError(w http.ResponseWriter, err error) {
 	slog.Error("request failed", "error", err)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "resource not found", http.StatusNotFound)
+		return
+	}
 	http.Error(w, err.Error(), http.StatusInternalServerError)
 }
 

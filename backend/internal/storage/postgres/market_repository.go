@@ -272,8 +272,8 @@ func (r *MarketRepository) Ticker(ctx context.Context, pairSymbol string) (ticke
 		       c.source,
 		       COALESCE(a.circulating_supply, 0)::DOUBLE PRECISION
 		FROM candles_1h c
-		JOIN pairs p ON p.symbol = c.pair_symbol
-		JOIN assets a ON a.symbol = p.base_asset
+		LEFT JOIN pairs p ON p.symbol = c.pair_symbol
+		LEFT JOIN assets a ON a.symbol = p.base_asset
 		WHERE c.pair_symbol = $1
 		ORDER BY c.bucket_start DESC
 		LIMIT 1

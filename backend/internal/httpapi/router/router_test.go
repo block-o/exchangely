@@ -1,6 +1,7 @@
 package router
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -40,5 +41,15 @@ func TestWithCORSRejectsUnknownOriginOnPreflight(t *testing.T) {
 
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", response.Code)
+	}
+}
+
+func TestWriteErrorMapsNoRowsToNotFound(t *testing.T) {
+	response := httptest.NewRecorder()
+
+	writeError(response, sql.ErrNoRows)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", response.Code)
 	}
 }

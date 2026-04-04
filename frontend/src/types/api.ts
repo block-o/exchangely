@@ -45,6 +45,7 @@ export type Candle = {
 export interface Ticker {
   pair: string;
   price: number;
+  market_cap: number;
   variation_24h: number;
   high_24h?: number;
   low_24h?: number;

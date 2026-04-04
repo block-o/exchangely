@@ -33,11 +33,20 @@ describe("App", () => {
             data: [{ symbol: "BTCEUR", base: "BTC", quote: "EUR" }],
           });
         }
+        if (url.includes("/assets")) {
+          return mockResponse({
+            data: [
+              { symbol: "BTC", name: "Bitcoin", type: "crypto" },
+              { symbol: "EUR", name: "Euro", type: "fiat" },
+            ],
+          });
+        }
         if (url.includes("/tickers")) {
           return mockResponse({
             data: [{
               pair: "BTCEUR",
               price: 50000,
+              market_cap: 992500000000,
               variation_24h: 1.5,
               high_24h: 51000,
               low_24h: 49000,

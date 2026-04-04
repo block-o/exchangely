@@ -3,7 +3,7 @@ import { fetchPairs } from "../api/pairs";
 import { fetchHistorical } from "../api/historical";
 import { useApi } from "../hooks/useApi";
 import { useSettings } from "../app/settings";
-import { formatNumber, formatUnix, getBrowserTimezone } from "../lib/format";
+import { formatCompactNumber, formatNumber, formatUnix, getBrowserTimezone } from "../lib/format";
 import type { Ticker, Candle, Pair } from "../types/api";
 
 function parseTickerStreamPayload(payload: string): Ticker[] {
@@ -128,6 +128,20 @@ export function MarketPage() {
     return max;
   }, [tickers]);
 
+  const visiblePairs = useMemo(() => {
+    const items = pairsData?.data ?? [];
+    return items
+      .filter((pair: Pair) => pair.quote === quoteCurrency)
+      .sort((left, right) => {
+        const leftCap = tickers[left.symbol]?.market_cap ?? 0;
+        const rightCap = tickers[right.symbol]?.market_cap ?? 0;
+        if (rightCap !== leftCap) {
+          return rightCap - leftCap;
+        }
+        return left.base.localeCompare(right.base);
+      });
+  }, [pairsData, quoteCurrency, tickers]);
+
   return (
     <section id="market" className="panel">
       <div className="panel-header">
@@ -144,6 +158,7 @@ export function MarketPage() {
             <thead>
               <tr>
                 <th>Asset</th>
+                <th>Market Cap ({quoteCurrency})</th>
                 <th>Price ({quoteCurrency})</th>
                 <th>24h Chg</th>
                 <th>24h High</th>
@@ -152,9 +167,7 @@ export function MarketPage() {
               </tr>
             </thead>
             <tbody style={{ opacity: loadingExtras ? 0.5 : 1 }}>
-              {pairsData.data
-                .filter((p: Pair) => p.quote === quoteCurrency)
-                .map((pair) => {
+              {visiblePairs.map((pair) => {
                   const tk = tickers[pair.symbol];
                   const hist = candles[pair.symbol] || [];
                   const var24h = tk?.variation_24h || 0;
@@ -162,6 +175,7 @@ export function MarketPage() {
                   return (
                     <tr key={pair.symbol} className={flashState[pair.symbol] ? `flash-${flashState[pair.symbol]}` : ""}>
                       <td className="symbol">{pair.base}</td>
+                      <td className="text-muted">{formatCompactNumber(tk?.market_cap)}</td>
                       <td className="price">
                       {tk ? formatNumber(tk.price) : "-"}
                     </td>

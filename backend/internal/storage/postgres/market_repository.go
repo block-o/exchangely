@@ -254,19 +254,24 @@ func (r *MarketRepository) Historical(ctx context.Context, pairSymbol, interval 
 
 func (r *MarketRepository) Ticker(ctx context.Context, pairSymbol string) (ticker.Ticker, error) {
 	var latest ticker.Ticker
+	var circulatingSupply sql.NullFloat64
 	err := r.db.QueryRowContext(ctx, `
-		SELECT pair_symbol,
-		       close::DOUBLE PRECISION,
-		       EXTRACT(EPOCH FROM bucket_start)::BIGINT,
-		       source
-		FROM candles_1h
-		WHERE pair_symbol = $1
-		ORDER BY bucket_start DESC
+		SELECT c.pair_symbol,
+		       c.close::DOUBLE PRECISION,
+		       EXTRACT(EPOCH FROM c.bucket_start)::BIGINT,
+		       c.source,
+		       COALESCE(a.circulating_supply, 0)::DOUBLE PRECISION
+		FROM candles_1h c
+		JOIN pairs p ON p.symbol = c.pair_symbol
+		JOIN assets a ON a.symbol = p.base_asset
+		WHERE c.pair_symbol = $1
+		ORDER BY c.bucket_start DESC
 		LIMIT 1
-	`, pairSymbol).Scan(&latest.Pair, &latest.Price, &latest.LastUpdateUnix, &latest.Source)
+	`, pairSymbol).Scan(&latest.Pair, &latest.Price, &latest.LastUpdateUnix, &latest.Source, &circulatingSupply)
 	if err != nil {
 		return ticker.Ticker{}, err
 	}
+	latest.MarketCap = latest.Price * circulatingSupply.Float64
 
 	var previousPrice float64
 	err = r.db.QueryRowContext(ctx, `
@@ -324,10 +329,18 @@ func (r *MarketRepository) Tickers(ctx context.Context) ([]ticker.Ticker, error)
 			WHERE c.bucket_start > to_timestamp(l.last_unix) - INTERVAL '24 hours'
 			GROUP BY c.pair_symbol
 		)
-		SELECT l.pair_symbol, l.price, l.last_unix, COALESCE(p.old_price, l.price) as old_price, w.max_24h, w.min_24h
+		SELECT l.pair_symbol,
+		       l.price,
+		       l.last_unix,
+		       COALESCE(p.old_price, l.price) as old_price,
+		       w.max_24h,
+		       w.min_24h,
+		       COALESCE(asset.circulating_supply, 0)::DOUBLE PRECISION
 		FROM latest l
 		LEFT JOIN past p ON l.pair_symbol = p.pair_symbol
-		LEFT JOIN window_24h w ON l.pair_symbol = w.pair_symbol;
+		LEFT JOIN window_24h w ON l.pair_symbol = w.pair_symbol
+		LEFT JOIN pairs pair ON pair.symbol = l.pair_symbol
+		LEFT JOIN assets asset ON asset.symbol = pair.base_asset;
 	`)
 	if err != nil {
 		return nil, err
@@ -338,8 +351,9 @@ func (r *MarketRepository) Tickers(ctx context.Context) ([]ticker.Ticker, error)
 	for rows.Next() {
 		var t ticker.Ticker
 		var oldPrice float64
+		var circulatingSupply sql.NullFloat64
 		var max24, min24 sql.NullFloat64 // nullable because pairs with <24h of data won't have a window_24h row
-		if err := rows.Scan(&t.Pair, &t.Price, &t.LastUpdateUnix, &oldPrice, &max24, &min24); err != nil {
+		if err := rows.Scan(&t.Pair, &t.Price, &t.LastUpdateUnix, &oldPrice, &max24, &min24, &circulatingSupply); err != nil {
 			return nil, err
 		}
 		// Compute 24h percentage change: ((current - old) / old) * 100.
@@ -347,6 +361,7 @@ func (r *MarketRepository) Tickers(ctx context.Context) ([]ticker.Ticker, error)
 		if oldPrice != 0 {
 			t.Variation24H = ((t.Price - oldPrice) / oldPrice) * 100
 		}
+		t.MarketCap = t.Price * circulatingSupply.Float64
 		t.High24H = max24.Float64
 		t.Low24H = min24.Float64
 		items = append(items, t)

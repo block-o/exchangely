@@ -45,14 +45,14 @@ func (s *CatalogService) Pairs(ctx context.Context) ([]pair.Pair, error) {
 
 func bootstrapAssets(quotes []string) []asset.Asset {
 	baseAssets := []asset.Asset{
-		{Symbol: "BTC", Name: "Bitcoin", Type: "crypto"},
-		{Symbol: "ETH", Name: "Ethereum", Type: "crypto"},
-		{Symbol: "SOL", Name: "Solana", Type: "crypto"},
-		{Symbol: "XRP", Name: "XRP", Type: "crypto"},
-		{Symbol: "ADA", Name: "Cardano", Type: "crypto"},
-		{Symbol: "LINK", Name: "Chainlink", Type: "crypto"},
-		{Symbol: "AVAX", Name: "Avalanche", Type: "crypto"},
-		{Symbol: "DOGE", Name: "Dogecoin", Type: "crypto"},
+		{Symbol: "BTC", Name: "Bitcoin", Type: "crypto", CirculatingSupply: 19_850_000},
+		{Symbol: "ETH", Name: "Ethereum", Type: "crypto", CirculatingSupply: 120_700_000},
+		{Symbol: "XRP", Name: "XRP", Type: "crypto", CirculatingSupply: 58_400_000_000},
+		{Symbol: "SOL", Name: "Solana", Type: "crypto", CirculatingSupply: 510_000_000},
+		{Symbol: "DOGE", Name: "Dogecoin", Type: "crypto", CirculatingSupply: 148_000_000_000},
+		{Symbol: "ADA", Name: "Cardano", Type: "crypto", CirculatingSupply: 35_300_000_000},
+		{Symbol: "AVAX", Name: "Avalanche", Type: "crypto", CirculatingSupply: 410_000_000},
+		{Symbol: "LINK", Name: "Chainlink", Type: "crypto", CirculatingSupply: 638_000_000},
 	}
 
 	items := append([]asset.Asset{}, baseAssets...)

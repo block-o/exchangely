@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MarketPage } from "./MarketPage";
 import { SettingsProvider } from "../app/settings";
 import * as pairsApi from "../api/pairs";
-import * as systemApi from "../api/system";
 import * as historicalApi from "../api/historical";
 
 vi.mock("../api/pairs");
@@ -43,14 +42,41 @@ describe("MarketPage", () => {
   it("filters pairs by quote currency and displays base", async () => {
     vi.mocked(pairsApi.fetchPairs).mockResolvedValue({
       data: [
+        { symbol: "ETHEUR", base: "ETH", quote: "EUR" },
         { symbol: "BTCEUR", base: "BTC", quote: "EUR" },
         { symbol: "BTCUSDT", base: "BTC", quote: "USDT" },
-        { symbol: "ETHEUR", base: "ETH", quote: "EUR" },
       ]
     });
-    vi.mocked(systemApi.fetchTicker).mockResolvedValue({
-      pair: "BTCEUR", price: 50000, variation_24h: 1.5, source: "mock", last_update_unix: Date.now() / 1000
-    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              pair: "ETHEUR",
+              price: 2500,
+              market_cap: 301_750_000_000,
+              variation_24h: 0.8,
+              high_24h: 2550,
+              low_24h: 2450,
+              source: "mock",
+              last_update_unix: 1711929600,
+            },
+            {
+              pair: "BTCEUR",
+              price: 50000,
+              market_cap: 992_500_000_000,
+              variation_24h: 1.5,
+              high_24h: 51000,
+              low_24h: 49000,
+              source: "mock",
+              last_update_unix: 1711929600,
+            },
+          ],
+        }),
+      })
+    );
 
     const { container } = render(
       <SettingsProvider>
@@ -60,10 +86,16 @@ describe("MarketPage", () => {
 
     // Assert EUR headers and base symbols output
     await waitFor(() => {
+      expect(screen.getByText("Market Cap (EUR)")).toBeInTheDocument();
       expect(screen.getByText("Price (EUR)")).toBeInTheDocument();
       expect(screen.getByText("BTC")).toBeInTheDocument();
       expect(screen.getByText("ETH")).toBeInTheDocument();
+      expect(screen.getByText("992.5B")).toBeInTheDocument();
+      expect(screen.getByText("301.8B")).toBeInTheDocument();
     });
+
+    const assetCells = Array.from(container.querySelectorAll("tbody tr td.symbol")).map((cell) => cell.textContent);
+    expect(assetCells).toEqual(["BTC", "ETH"]);
 
     // USDT pair should not be displayed
     expect(screen.queryByText("BTCUSDT")).not.toBeInTheDocument();
@@ -114,6 +146,7 @@ describe("MarketPage", () => {
           data: [{
             pair: "BTCEUR",
             price: 50000,
+            market_cap: 992_500_000_000,
             variation_24h: 1.5,
             high_24h: 51000,
             low_24h: 49000,
@@ -145,6 +178,7 @@ describe("MarketPage", () => {
           tickers: [{
             pair: "BTCEUR",
             price: 50100,
+            market_cap: 994_485_000_000,
             variation_24h: 1.8,
             high_24h: 51100,
             low_24h: 49100,

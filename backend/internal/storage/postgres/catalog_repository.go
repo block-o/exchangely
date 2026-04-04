@@ -25,12 +25,13 @@ func (r *CatalogRepository) UpsertAssets(ctx context.Context, assets []asset.Ass
 
 	for _, item := range assets {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO assets (symbol, name, asset_type)
-			VALUES ($1, $2, $3)
+			INSERT INTO assets (symbol, name, asset_type, circulating_supply)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (symbol) DO UPDATE
 			SET name = EXCLUDED.name,
-			    asset_type = EXCLUDED.asset_type
-		`, item.Symbol, item.Name, item.Type); err != nil {
+			    asset_type = EXCLUDED.asset_type,
+			    circulating_supply = EXCLUDED.circulating_supply
+		`, item.Symbol, item.Name, item.Type, item.CirculatingSupply); err != nil {
 			return err
 		}
 	}
@@ -62,7 +63,7 @@ func (r *CatalogRepository) UpsertPairs(ctx context.Context, pairs []pair.Pair) 
 
 func (r *CatalogRepository) ListAssets(ctx context.Context) ([]asset.Asset, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT symbol, name, asset_type
+		SELECT symbol, name, asset_type, circulating_supply
 		FROM assets
 		ORDER BY asset_type, symbol
 	`)
@@ -74,7 +75,7 @@ func (r *CatalogRepository) ListAssets(ctx context.Context) ([]asset.Asset, erro
 	var items []asset.Asset
 	for rows.Next() {
 		var item asset.Asset
-		if err := rows.Scan(&item.Symbol, &item.Name, &item.Type); err != nil {
+		if err := rows.Scan(&item.Symbol, &item.Name, &item.Type, &item.CirculatingSupply); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

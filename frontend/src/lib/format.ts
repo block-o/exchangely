@@ -27,3 +27,15 @@ export function formatNumber(value: number) {
     maximumFractionDigits: 2,
   }).format(value);
 }
+
+export function formatCompactNumber(value?: number) {
+  if (!value || value <= 0) {
+    return "-";
+  }
+
+  return new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    compactDisplay: "short",
+    maximumFractionDigits: 1,
+  }).format(value);
+}

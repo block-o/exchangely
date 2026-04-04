@@ -8,19 +8,24 @@ import (
 )
 
 type Config struct {
-	Env                string
-	HTTPAddr           string
-	Role               string
-	LogLevel           string
-	CORSAllowedOrigins []string
-	DatabaseURL        string
-	KafkaBrokers       []string
-	KafkaTasksTopic    string
-	KafkaMarketTopic   string
-	KafkaConsumerGroup string
-	PlannerLeaseName   string
-	PlannerLeaseTTL    time.Duration
-	PlannerTick        time.Duration
+	Env                      string
+	HTTPAddr                 string
+	Role                     string
+	LogLevel                 string
+	CORSAllowedOrigins       []string
+	DatabaseURL              string
+	KafkaBrokers             []string
+	KafkaTasksTopic          string
+	KafkaMarketTopic         string
+	KafkaConsumerGroup       string
+	EnableBinance            bool
+	EnableKraken             bool
+	EnableBinanceVision      bool
+	EnableCryptoDataDownload bool
+	EnableCoinGecko          bool
+	PlannerLeaseName         string
+	PlannerLeaseTTL          time.Duration
+	PlannerTick              time.Duration
 	// RealtimePollInterval controls how frequently the planner emits fresh realtime
 	// tasks for caught-up pairs. Shorter intervals mean fresher ticker prices.
 	RealtimePollInterval      time.Duration
@@ -46,6 +51,11 @@ func Load() Config {
 		KafkaTasksTopic:           getenv("BACKEND_KAFKA_TOPIC_TASKS", "exchangely.tasks"),
 		KafkaMarketTopic:          getenv("BACKEND_KAFKA_TOPIC_MARKET_TICKS", "exchangely.market.ticks"),
 		KafkaConsumerGroup:        getenv("BACKEND_KAFKA_CONSUMER_GROUP", "exchangely-workers"),
+		EnableBinance:             parseBool(getenv("BACKEND_ENABLE_BINANCE", "true"), true),
+		EnableKraken:              parseBool(getenv("BACKEND_ENABLE_KRAKEN", "true"), true),
+		EnableBinanceVision:       parseBool(getenv("BACKEND_ENABLE_BINANCE_VISION", "true"), true),
+		EnableCryptoDataDownload:  parseBool(getenv("BACKEND_ENABLE_CRYPTODATADOWNLOAD", "true"), true),
+		EnableCoinGecko:           parseBool(getenv("BACKEND_ENABLE_COINGECKO", "true"), true),
 		PlannerLeaseName:          getenv("BACKEND_PLANNER_LEASE_NAME", "planner_leader"),
 		PlannerLeaseTTL:           parseDuration(getenv("BACKEND_PLANNER_LEASE_TTL", "15s")),
 		PlannerTick:               parseDuration(getenv("BACKEND_PLANNER_TICK", "10s")),
@@ -111,6 +121,15 @@ func parseInt(value string, fallback int) int {
 
 func parseFloat(value string, fallback float64) float64 {
 	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
+}
+
+func parseBool(value string, fallback bool) bool {
+	parsed, err := strconv.ParseBool(value)
 	if err != nil {
 		return fallback
 	}

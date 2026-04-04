@@ -1,10 +1,11 @@
-import { useState, type PropsWithChildren, useEffect } from "react";
+import { Children, useState, type PropsWithChildren, useEffect } from "react";
 import { sections } from "../../app/router";
 import { SettingsModal } from "./SettingsModal";
 
 export function AppShell({ children }: PropsWithChildren) {
   const [activeHash, setActiveHash] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const pages = Children.toArray(children);
 
   useEffect(() => {
     setActiveHash(window.location.hash || "#market");
@@ -51,11 +52,9 @@ export function AppShell({ children }: PropsWithChildren) {
         </nav>
       </header>
       <main className="content">
-        {/* Simple client-side hash router for the two views */}
+        {/* Route by configured section order so production minification cannot break page matching. */}
         <div key={activeHash} className="page-transition-wrapper">
-          {Array.isArray(children) 
-            ? children.find(child => `#${child.type.name.replace('Page', '').toLowerCase()}` === activeHash) || children[0]
-            : children}
+          {pages[sections.findIndex((section) => `#${section.id}` === activeHash)] ?? pages[0] ?? null}
         </div>
       </main>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />

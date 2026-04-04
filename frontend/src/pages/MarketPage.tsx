@@ -6,6 +6,17 @@ import { useSettings } from "../app/settings";
 import { formatNumber, formatUnix, getBrowserTimezone } from "../lib/format";
 import type { Ticker, Candle, Pair } from "../types/api";
 
+function parseTickerStreamPayload(payload: string): Ticker[] {
+  const parsed = JSON.parse(payload);
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+  if (Array.isArray(parsed?.tickers)) {
+    return parsed.tickers;
+  }
+  return [];
+}
+
 export function MarketPage() {
   const { quoteCurrency } = useSettings();
   const { data: pairsData, error: pairsError, loading: pairsLoading } = useApi(fetchPairs);
@@ -71,7 +82,7 @@ export function MarketPage() {
     const es = new EventSource(import.meta.env.VITE_API_BASE_URL + "/tickers/stream");
     es.onmessage = (event) => {
       try {
-        const incoming: Ticker[] = JSON.parse(event.data) || [];
+        const incoming = parseTickerStreamPayload(event.data);
         const prev = tickersRef.current;
         const next = { ...prev };
         const updates: Record<string, 'up' | 'down'> = {};

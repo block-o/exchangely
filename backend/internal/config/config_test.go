@@ -45,6 +45,11 @@ func TestLoadUsesConfiguredIntegrityValidatorSettings(t *testing.T) {
 	t.Setenv("BACKEND_INTEGRITY_MIN_SOURCES", "3")
 	t.Setenv("BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT", "1.25")
 	t.Setenv("BACKEND_COINGECKO_API_KEY", "demo-key")
+	t.Setenv("BACKEND_ENABLE_BINANCE", "false")
+	t.Setenv("BACKEND_ENABLE_KRAKEN", "false")
+	t.Setenv("BACKEND_ENABLE_BINANCE_VISION", "true")
+	t.Setenv("BACKEND_ENABLE_CRYPTODATADOWNLOAD", "false")
+	t.Setenv("BACKEND_ENABLE_COINGECKO", "true")
 
 	cfg := Load()
 
@@ -56,5 +61,20 @@ func TestLoadUsesConfiguredIntegrityValidatorSettings(t *testing.T) {
 	}
 	if cfg.IntegrityMaxDivergencePct != 1.25 {
 		t.Fatalf("expected integrity divergence pct 1.25, got %v", cfg.IntegrityMaxDivergencePct)
+	}
+	if cfg.EnableBinance {
+		t.Fatal("expected binance provider to be disabled")
+	}
+	if cfg.EnableKraken {
+		t.Fatal("expected kraken provider to be disabled")
+	}
+	if !cfg.EnableBinanceVision {
+		t.Fatal("expected binance vision provider to remain enabled")
+	}
+	if cfg.EnableCryptoDataDownload {
+		t.Fatal("expected cryptodatadownload provider to be disabled")
+	}
+	if !cfg.EnableCoinGecko {
+		t.Fatal("expected coingecko provider to be enabled")
 	}
 }

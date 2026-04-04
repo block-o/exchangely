@@ -16,7 +16,16 @@ worker:
   poll_interval: 5s
   batch_size: 8
 providers:
+  binance:
+    enabled: true
+  binancevision:
+    enabled: true
+  kraken:
+    enabled: true
+  cryptodatadownload:
+    enabled: true
   coingecko:
+    enabled: true
     api_key: ""
 integrity:
   min_sources: 2

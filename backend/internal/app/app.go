@@ -41,6 +41,13 @@ type App struct {
 	instanceID      string
 	corsOriginCount int
 	role            string
+	enabledSources  []string
+}
+
+type sourceSet struct {
+	registrySources  []ingest.Source
+	validatorSources []ingest.Source
+	enabledNames     []string
 }
 
 func New(ctx context.Context, cfg config.Config) (*App, error) {
@@ -94,13 +101,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	taskPublisher := kafka.NewTaskPublisher(cfg.KafkaBrokers, cfg.KafkaTasksTopic)
 	marketPublisher := kafka.NewMarketEventPublisher(cfg.KafkaBrokers, cfg.KafkaMarketTopic)
-	binanceSrc := binance.NewClient("", nil)
-	krakenSrc := kraken.NewClient("", nil)
-	bvSrc := binancevision.NewClient("", nil)
-	cddSrc := cryptodatadownload.NewClient("", nil)
-	cgSrc := coingecko.NewClient("", cfg.CoinGeckoAPIKey, nil)
-
-	sourceRegistry := ingestregistry.New(bvSrc, cddSrc, krakenSrc, cgSrc, binanceSrc)
+	sources := buildSources(cfg)
+	sourceRegistry := ingestregistry.New(sources.registrySources...)
 	realtimeIngest := service.NewRealtimeIngestService(marketRepo, marketService)
 	plannerRunner := planner.NewRunner(
 		instanceID,
@@ -116,7 +118,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	)
 
 	backfillExe := worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry, marketPublisher, marketService)
-	validatorExe := worker.NewValidatorExecutor([]ingest.Source{binanceSrc, krakenSrc, bvSrc}, worker.ValidatorOptions{
+	validatorExe := worker.NewValidatorExecutor(sources.validatorSources, worker.ValidatorOptions{
 		MinSources:       cfg.IntegrityMinSources,
 		MaxDivergencePct: cfg.IntegrityMaxDivergencePct,
 	})
@@ -165,7 +167,47 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		instanceID:      instanceID,
 		corsOriginCount: len(cfg.CORSAllowedOrigins),
 		role:            cfg.Role,
+		enabledSources:  append([]string(nil), sources.enabledNames...),
 	}, nil
+}
+
+func buildSources(cfg config.Config) sourceSet {
+	sources := sourceSet{
+		registrySources:  make([]ingest.Source, 0, 5),
+		validatorSources: make([]ingest.Source, 0, 3),
+		enabledNames:     make([]string, 0, 5),
+	}
+
+	if cfg.EnableBinanceVision {
+		source := binancevision.NewClient("", nil)
+		sources.registrySources = append(sources.registrySources, source)
+		sources.validatorSources = append(sources.validatorSources, source)
+		sources.enabledNames = append(sources.enabledNames, source.Name())
+	}
+	if cfg.EnableCryptoDataDownload {
+		source := cryptodatadownload.NewClient("", nil)
+		sources.registrySources = append(sources.registrySources, source)
+		sources.enabledNames = append(sources.enabledNames, source.Name())
+	}
+	if cfg.EnableKraken {
+		source := kraken.NewClient("", nil)
+		sources.registrySources = append(sources.registrySources, source)
+		sources.validatorSources = append(sources.validatorSources, source)
+		sources.enabledNames = append(sources.enabledNames, source.Name())
+	}
+	if cfg.EnableCoinGecko {
+		source := coingecko.NewClient("", cfg.CoinGeckoAPIKey, nil)
+		sources.registrySources = append(sources.registrySources, source)
+		sources.enabledNames = append(sources.enabledNames, source.Name())
+	}
+	if cfg.EnableBinance {
+		source := binance.NewClient("", nil)
+		sources.registrySources = append(sources.registrySources, source)
+		sources.validatorSources = append(sources.validatorSources, source)
+		sources.enabledNames = append(sources.enabledNames, source.Name())
+	}
+
+	return sources
 }
 
 func (a *App) Run(ctx context.Context) error {
@@ -176,6 +218,7 @@ func (a *App) Run(ctx context.Context) error {
 		"planner_enabled", hasRole(a.role, "planner"),
 		"worker_enabled", hasRole(a.role, "worker"),
 		"cors_allowed_origins", a.corsOriginCount,
+		"enabled_sources", a.enabledSources,
 	)
 
 	errCh := make(chan error, 5)

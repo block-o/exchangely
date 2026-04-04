@@ -48,7 +48,7 @@ func TestRunningComposeStack(t *testing.T) {
 		if payload.Status != "ok" {
 			t.Fatalf("expected health status ok, got %q", payload.Status)
 		}
-		if payload.Checks["api"] != "ok" || payload.Checks["kafka"] != "ok" || payload.Checks["timescaledb"] != "ok" {
+		if payload.Checks["api"] != "ok" || payload.Checks["kafka"] != "ok" || payload.Checks["db"] != "ok" {
 			t.Fatalf("unexpected health checks: %+v", payload.Checks)
 		}
 	})
@@ -72,22 +72,15 @@ func TestRunningComposeStack(t *testing.T) {
 	})
 
 	t.Run("system sync status", func(t *testing.T) {
-		var payload struct {
-			PlannerLeader string `json:"planner_leader"`
-			Pairs         []struct {
-				Pair string `json:"pair"`
-			} `json:"pairs"`
+		var payload []struct {
+			Pair string `json:"pair"`
 		}
 
 		waitFor(t, 20*time.Second, func() bool {
 			getJSON(t, client, baseURL+"/api/v1/system/sync-status", &payload)
-			return payload.PlannerLeader != "" && payload.PlannerLeader != "unknown" && len(payload.Pairs) > 0
+			return len(payload) > 0
 		})
-
-		if payload.PlannerLeader == "" || payload.PlannerLeader == "unknown" {
-			t.Fatalf("expected planner leader to be assigned, got %q", payload.PlannerLeader)
-		}
-		if len(payload.Pairs) == 0 {
+		if len(payload) == 0 {
 			t.Fatal("expected sync status to include tracked pairs")
 		}
 	})

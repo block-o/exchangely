@@ -4,22 +4,32 @@ import { MarketPage } from "./MarketPage";
 import { SettingsProvider } from "../app/settings";
 import * as pairsApi from "../api/pairs";
 import * as systemApi from "../api/system";
+import * as historicalApi from "../api/historical";
 
 vi.mock("../api/pairs");
 vi.mock("../api/system");
-vi.mock("../api/historical", () => ({ fetchHistorical: vi.fn().mockReturnValue(new Promise(() => {})) }));
+vi.mock("../api/historical", () => ({ fetchHistorical: vi.fn() }));
 
 describe("MarketPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    vi.mocked(historicalApi.fetchHistorical).mockResolvedValue({ data: [] });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [] }),
+      })
+    );
     
     // Mock EventSource to avoid real HTTP requests and unhandled message loops which cause unmounted act() errors
-    global.EventSource = vi.fn().mockImplementation(() => ({
-      close: vi.fn(),
-      onmessage: null,
-      onerror: null
-    })) as any;
+    class MockEventSource {
+      close = vi.fn();
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+    }
+    globalThis.EventSource = MockEventSource as any;
   });
 
   it("filters pairs by quote currency and displays base", async () => {

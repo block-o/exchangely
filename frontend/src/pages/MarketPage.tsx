@@ -29,6 +29,8 @@ export function MarketPage() {
     const loadExtras = async () => {
       const items = pairsData.data.filter((p: Pair) => p.quote === quoteCurrency);
       const newCandles: Record<string, Candle[]> = {};
+      const sparklineEnd = Math.floor(Date.now() / 1000);
+      const sparklineStart = sparklineEnd - 24 * 3600;
 
       // 1. Fetch initial global state
       try {
@@ -48,9 +50,9 @@ export function MarketPage() {
       // 2. Fetch historical candles for sparklines
       for (const pair of items) {
         try {
-          const histRes = await fetchHistorical(pair.symbol, "1h");
+          const histRes = await fetchHistorical(pair.symbol, "1h", sparklineStart, sparklineEnd);
           if (histRes?.data) {
-            newCandles[pair.symbol] = histRes.data.slice(0, 24).reverse();
+            newCandles[pair.symbol] = histRes.data.slice(-24);
           }
         } catch (e) {
           console.warn("Failed to fetch historical for", pair.symbol, e);

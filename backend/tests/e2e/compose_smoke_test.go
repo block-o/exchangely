@@ -36,7 +36,9 @@ func TestRunningComposeStack(t *testing.T) {
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	db := openDB(t, databaseURL)
-	defer db.Close()
+	defer func() {
+		_ = db.Close()
+	}()
 	seededPair := seedMarketFixture(t, db)
 
 	t.Run("health", func(t *testing.T) {
@@ -284,7 +286,9 @@ func getJSON(t *testing.T, client *http.Client, url string, target any) {
 	if err != nil {
 		t.Fatalf("request %s failed: %v", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("request %s returned status %d", url, resp.StatusCode)
@@ -320,7 +324,7 @@ func openDB(t *testing.T, dsn string) *sql.DB {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		t.Fatalf("ping database failed: %v", err)
 	}
 

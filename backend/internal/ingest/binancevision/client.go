@@ -121,7 +121,9 @@ func (c *Client) fetchArchive(ctx context.Context, path string, request ingest.R
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, errArchiveNotFound
@@ -147,7 +149,9 @@ func (c *Client) fetchArchive(ctx context.Context, path string, request ingest.R
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	csvReader := csv.NewReader(file)
 	csvReader.FieldsPerRecord = -1
@@ -227,11 +231,4 @@ func normalizeBinanceTimestamp(value int64) int64 {
 func dayStart(value time.Time) time.Time {
 	value = value.UTC()
 	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
-}
-
-func minTime(a, b time.Time) time.Time {
-	if a.Before(b) {
-		return a
-	}
-	return b
 }

@@ -112,7 +112,10 @@ func New(svcs Services, opts Options) http.Handler {
 		// Initial push
 		items, _ := svcs.Market.Tickers(ctx)
 		data, _ := json.Marshal(map[string]any{"tickers": items})
-		fmt.Fprintf(w, "data: %s\n\n", string(data))
+		if err := writeSSEData(w, data); err != nil {
+			slog.Warn("initial ticker stream write failed", "error", err)
+			return
+		}
 		flusher.Flush()
 
 		for {
@@ -122,7 +125,10 @@ func New(svcs Services, opts Options) http.Handler {
 			case <-updates:
 				items, _ := svcs.Market.Tickers(ctx)
 				data, _ := json.Marshal(map[string]any{"tickers": items})
-				fmt.Fprintf(w, "data: %s\n\n", string(data))
+				if err := writeSSEData(w, data); err != nil {
+					slog.Warn("ticker stream write failed", "error", err)
+					return
+				}
 				flusher.Flush()
 			}
 		}
@@ -230,7 +236,10 @@ func New(svcs Services, opts Options) http.Handler {
 				return
 			case snapshot := <-ch:
 				data, _ := json.Marshal(snapshot)
-				fmt.Fprintf(w, "data: %s\n\n", string(data))
+				if err := writeSSEData(w, data); err != nil {
+					slog.Warn("task stream write failed", "error", err)
+					return
+				}
 				flusher.Flush()
 			}
 		}
@@ -277,7 +286,14 @@ func parseUnix(val string) time.Time {
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		slog.Warn("response encode failed", "status", status, "error", err)
+	}
+}
+
+func writeSSEData(w http.ResponseWriter, data []byte) error {
+	_, err := fmt.Fprintf(w, "data: %s\n\n", string(data))
+	return err
 }
 
 func writeError(w http.ResponseWriter, err error) {

@@ -93,7 +93,9 @@ func ensureTopicsOnceWithDialer(ctx context.Context, brokers []string, topics []
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	controller, err := conn.Controller()
 	if err != nil {
@@ -105,7 +107,9 @@ func ensureTopicsOnceWithDialer(ctx context.Context, brokers []string, topics []
 	if err != nil {
 		return err
 	}
-	defer controllerConn.Close()
+	defer func() {
+		_ = controllerConn.Close()
+	}()
 
 	configs := make([]kafkago.TopicConfig, 0, len(topics))
 	for _, topic := range topics {

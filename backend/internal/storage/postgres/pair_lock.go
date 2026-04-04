@@ -23,12 +23,14 @@ func (l *AdvisoryPairLocker) Lock(ctx context.Context, pairSymbol string) (func(
 
 	key := advisoryKey(pairSymbol)
 	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, key); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 
 	return func() error {
-		defer conn.Close()
+		defer func() {
+			_ = conn.Close()
+		}()
 		if _, err := conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, key); err != nil {
 			return fmt.Errorf("unlock %s: %w", pairSymbol, err)
 		}

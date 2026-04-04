@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 .PHONY: \
 	fmt fmt-check \
-	backend-build backend-fmt backend-fmt-check backend-test backend-vet \
+	backend-build backend-fmt backend-fmt-check backend-test backend-vet backend-lint \
 	frontend-build frontend-check frontend-install frontend-test frontend-typecheck \
 	check test e2e up down install-hooks
 
@@ -32,6 +32,16 @@ backend-test:
 backend-vet:
 	cd backend && go vet ./...
 
+backend-lint:
+	cd backend && golangci-lint run ./...
+
+backend-check:
+	$(MAKE) backend-fmt-check
+	$(MAKE) backend-vet
+	$(MAKE) backend-build
+	$(MAKE) backend-lint
+	$(MAKE) backend-test
+
 frontend-install:
 	cd frontend && npm ci
 
@@ -50,10 +60,7 @@ frontend-check:
 	$(MAKE) frontend-build
 
 check:
-	$(MAKE) backend-fmt-check
-	$(MAKE) backend-vet
-	$(MAKE) backend-build
-	$(MAKE) backend-test
+	$(MAKE) backend-check
 	$(MAKE) frontend-check
 
 test:

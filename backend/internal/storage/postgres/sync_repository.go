@@ -47,7 +47,9 @@ func (r *SyncRepository) States(ctx context.Context) (map[string]SyncState, erro
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	result := map[string]SyncState{}
 	for rows.Next() {
@@ -159,7 +161,9 @@ func (r *SyncRepository) SnapshotRows(ctx context.Context) ([]SyncRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []SyncRow
 	for rows.Next() {

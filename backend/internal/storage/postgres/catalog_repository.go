@@ -21,7 +21,9 @@ func (r *CatalogRepository) UpsertAssets(ctx context.Context, assets []asset.Ass
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	for _, item := range assets {
 		if _, err := tx.ExecContext(ctx, `
@@ -44,7 +46,9 @@ func (r *CatalogRepository) UpsertPairs(ctx context.Context, pairs []pair.Pair) 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	for _, item := range pairs {
 		if _, err := tx.ExecContext(ctx, `
@@ -70,7 +74,9 @@ func (r *CatalogRepository) ListAssets(ctx context.Context) ([]asset.Asset, erro
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []asset.Asset
 	for rows.Next() {
@@ -93,7 +99,9 @@ func (r *CatalogRepository) ListPairs(ctx context.Context) ([]pair.Pair, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []pair.Pair
 	for rows.Next() {

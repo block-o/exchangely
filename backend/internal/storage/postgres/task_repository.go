@@ -10,9 +10,6 @@ import (
 	"github.com/block-o/exchangely/backend/internal/domain/task"
 )
 
-const failedRetryDelay = "5 minutes"
-const staleRunningTimeout = "30 minutes"
-
 type TaskNotifier interface {
 	NotifyUpdate()
 }
@@ -45,7 +42,9 @@ func (r *TaskRepository) Enqueue(ctx context.Context, tasks []task.Task) ([]task
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	enqueued := make([]task.Task, 0, len(tasks))
 	for _, item := range tasks {
@@ -135,7 +134,9 @@ func (r *TaskRepository) Pending(ctx context.Context, limit int) ([]task.Task, e
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []task.Task
 	for rows.Next() {
@@ -167,7 +168,9 @@ func (r *TaskRepository) UpcomingTasks(ctx context.Context, limit, offset int) (
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []task.Task
 	for rows.Next() {
@@ -228,7 +231,9 @@ func (r *TaskRepository) RecentTasks(ctx context.Context, limit, offset int, typ
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []task.Task
 	for rows.Next() {

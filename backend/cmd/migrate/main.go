@@ -22,7 +22,9 @@ func main() {
 		logger.Error("database open failed", "error", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() {
+		_ = db.Close()
+	}()
 
 	if err := postgresrepo.Migrate(context.Background(), db, "migrations"); err != nil {
 		logger.Error("migration failed", "error", err)

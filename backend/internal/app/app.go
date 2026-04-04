@@ -24,7 +24,6 @@ import (
 	kafka "github.com/block-o/exchangely/backend/internal/messaging/kafka"
 	"github.com/block-o/exchangely/backend/internal/planner"
 	"github.com/block-o/exchangely/backend/internal/service"
-	healthpostgres "github.com/block-o/exchangely/backend/internal/storage/postgres"
 	postgresrepo "github.com/block-o/exchangely/backend/internal/storage/postgres"
 	"github.com/block-o/exchangely/backend/internal/worker"
 )
@@ -62,14 +61,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	if err := postgresrepo.Migrate(ctx, db, migrationsDir()); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}
 
 	catalogRepo := postgresrepo.NewCatalogRepository(db)
 	catalogService := service.NewCatalogService(catalogRepo, cfg.DefaultQuoteAssets)
 	if err := catalogService.Seed(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("seed catalog: %w", err)
 	}
 
@@ -80,7 +79,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	pairLocker := postgresrepo.NewAdvisoryPairLocker(db)
 
 	systemService := service.NewSystemService(
-		healthpostgres.NewHealthChecker(cfg.DatabaseURL),
+		postgresrepo.NewHealthChecker(cfg.DatabaseURL),
 		kafka.NewHealthChecker(cfg.KafkaBrokers),
 		syncRepo,
 		taskRepo,

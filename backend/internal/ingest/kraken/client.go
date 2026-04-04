@@ -93,7 +93,9 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
 		c.setCooldown()
@@ -223,7 +225,9 @@ func (c *Client) loadPairMap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
 		c.setCooldown()

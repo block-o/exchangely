@@ -28,7 +28,9 @@ func (r *MarketRepository) UpsertCandles(ctx context.Context, interval string, c
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	query := fmt.Sprintf(`
 		INSERT INTO %s (pair_symbol, bucket_start, open, high, low, close, volume, source, finalized)
@@ -67,7 +69,9 @@ func (r *MarketRepository) UpsertRawCandles(ctx context.Context, interval string
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	for _, item := range candles {
 		if _, err := tx.ExecContext(ctx, `
@@ -121,7 +125,9 @@ func (r *MarketRepository) RawCandles(ctx context.Context, pairSymbol, interval 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []candle.Candle
 	for rows.Next() {
@@ -166,7 +172,9 @@ func (r *MarketRepository) HourlyCandles(ctx context.Context, pairSymbol string,
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []candle.Candle
 	for rows.Next() {
@@ -227,7 +235,9 @@ func (r *MarketRepository) Historical(ctx context.Context, pairSymbol, interval 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []candle.Candle
 	for rows.Next() {
@@ -345,7 +355,9 @@ func (r *MarketRepository) Tickers(ctx context.Context) ([]ticker.Ticker, error)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []ticker.Ticker
 	for rows.Next() {

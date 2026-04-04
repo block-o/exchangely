@@ -66,7 +66,9 @@ func (p *Processor) Process(ctx context.Context, item task.Task) error {
 	if err != nil {
 		return err
 	}
-	defer unlock()
+	defer func() {
+		_ = unlock()
+	}()
 
 	slog.Info("worker task started",
 		"task_id", item.ID,

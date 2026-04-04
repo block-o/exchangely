@@ -26,7 +26,9 @@ func (h *HealthChecker) Ping(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	return conn.SetDeadline(time.Now().Add(2 * time.Second))
 }

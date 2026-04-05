@@ -128,7 +128,14 @@ func (r *TaskRepository) Pending(ctx context.Context, limit int) ([]task.Task, e
 		SELECT id, task_type, pair_symbol, interval, window_start, window_end
 		FROM tasks
 		WHERE status = 'pending'
-		ORDER BY window_start ASC, created_at ASC
+		ORDER BY CASE task_type
+		             WHEN 'live_ticker' THEN 0
+		             WHEN 'integrity_check' THEN 1
+		             WHEN 'consolidation' THEN 2
+		             ELSE 3
+		         END,
+		         window_start ASC,
+		         created_at ASC
 		LIMIT $1
 	`, limit)
 	if err != nil {
@@ -162,7 +169,15 @@ func (r *TaskRepository) UpcomingTasks(ctx context.Context, limit, offset int) (
 		SELECT id, task_type, pair_symbol, interval, window_start, window_end, status, created_at
 		FROM tasks
 		WHERE status IN ('pending', 'running')
-		ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END, window_start ASC, created_at ASC
+		ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END,
+		         CASE task_type
+		             WHEN 'live_ticker' THEN 0
+		             WHEN 'integrity_check' THEN 1
+		             WHEN 'consolidation' THEN 2
+		             ELSE 3
+		         END,
+		         window_start ASC,
+		         created_at ASC
 		LIMIT $1 OFFSET $2
 	`, limit, offset)
 	if err != nil {

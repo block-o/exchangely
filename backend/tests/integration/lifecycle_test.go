@@ -182,6 +182,7 @@ type integrationSyncWriter struct {
 	lastInterval      string
 	lastSynced        time.Time
 	backfillCompleted bool
+	realtimeStartedAt time.Time
 }
 
 func (s *integrationSyncWriter) UpsertProgress(_ context.Context, pairSymbol, interval string, lastSynced time.Time, backfillCompleted bool) error {
@@ -189,6 +190,11 @@ func (s *integrationSyncWriter) UpsertProgress(_ context.Context, pairSymbol, in
 	s.lastInterval = interval
 	s.lastSynced = lastSynced.UTC()
 	s.backfillCompleted = backfillCompleted
+	return nil
+}
+
+func (s *integrationSyncWriter) MarkRealtimeStarted(_ context.Context, _ string, startedAt time.Time) error {
+	s.realtimeStartedAt = startedAt.UTC()
 	return nil
 }
 

@@ -48,7 +48,7 @@ func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
 	}
 }
 
-func TestBuildRealtimeTasksIncludesOnlyCaughtUpPairs(t *testing.T) {
+func TestBuildRealtimeTasksStartBeforeBackfillCompletion(t *testing.T) {
 	scheduler := NewScheduler(2 * time.Minute)
 	now := time.Date(2026, 4, 2, 12, 34, 0, 0, time.UTC)
 
@@ -64,22 +64,52 @@ func TestBuildRealtimeTasksIncludesOnlyCaughtUpPairs(t *testing.T) {
 		},
 		"ETHUSD": {
 			HourlyLastSynced:        now,
-			HourlyBackfillCompleted: true,
+			HourlyBackfillCompleted: false,
 			DailyBackfillCompleted:  false,
 		},
 	}, now)
 
-	if len(tasks) != 4 {
-		t.Fatalf("expected 4 tasks (2 realtime, 2 sanity), got %d", len(tasks))
+	if len(tasks) != 3 {
+		t.Fatalf("expected 3 tasks (2 realtime, 1 sanity), got %d", len(tasks))
 	}
-	foundETH := false
+	foundETHRealtime := false
+	foundETHIntegrity := false
 	for _, task := range tasks {
-		if task.Pair == "ETHUSD" {
-			foundETH = true
+		if task.Pair == "ETHUSD" && task.Type == "live_ticker" {
+			foundETHRealtime = true
+		}
+		if task.Pair == "ETHUSD" && task.Type == "integrity_check" {
+			foundETHIntegrity = true
 		}
 	}
-	if !foundETH {
-		t.Fatalf("expected realtime task for ETHUSD since hourly backfill is complete")
+	if !foundETHRealtime {
+		t.Fatalf("expected realtime task for ETHUSD before hourly backfill completion")
+	}
+	if foundETHIntegrity {
+		t.Fatalf("did not expect integrity task for ETHUSD before live coverage matures")
+	}
+}
+
+func TestBuildInitialBackfillTasksStopsAtRealtimeCutover(t *testing.T) {
+	scheduler := NewScheduler(2 * time.Minute)
+	now := time.Date(2026, 4, 2, 12, 34, 0, 0, time.UTC)
+	realtimeStarted := time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC)
+
+	tasks := scheduler.BuildInitialBackfillTasks([]pair.Pair{
+		{Symbol: "BTCEUR"},
+	}, map[string]SyncState{
+		"BTCEUR": {
+			HourlyLastSynced:        time.Date(2026, 4, 2, 8, 0, 0, 0, time.UTC),
+			HourlyRealtimeStartedAt: realtimeStarted,
+			HourlyBackfillCompleted: false,
+		},
+	}, now)
+
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 capped backfill task, got %d", len(tasks))
+	}
+	if !tasks[0].WindowEnd.Equal(realtimeStarted) {
+		t.Fatalf("expected backfill to stop at realtime cutover %s, got %s", realtimeStarted, tasks[0].WindowEnd)
 	}
 }
 

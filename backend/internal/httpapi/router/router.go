@@ -52,6 +52,8 @@ func New(svcs Services, opts Options) http.Handler {
 		writeJSON(w, http.StatusOK, dto.ListResponse[any]{Data: toAnySlice(items)})
 	})
 
+	// GET /api/v1/historical/{pair} — returns canonical stored OHLCV data for the requested interval.
+	// This endpoint is resolution-driven (`1h`, `1d`) and is intentionally separate from live ticker reads.
 	mux.HandleFunc("/api/v1/historical/", func(w http.ResponseWriter, r *http.Request) {
 		pairSymbol := strings.TrimPrefix(r.URL.Path, "/api/v1/historical/")
 		interval := r.URL.Query().Get("interval")
@@ -70,6 +72,8 @@ func New(svcs Services, opts Options) http.Handler {
 		writeJSON(w, http.StatusOK, dto.ListResponse[any]{Data: toAnySlice(items)})
 	})
 
+	// GET /api/v1/ticker/{pair} — returns the freshest persisted ticker point for one pair.
+	// Price/last_update prefer the newest realtime raw sample over the current hourly aggregate.
 	mux.HandleFunc("/api/v1/ticker/", func(w http.ResponseWriter, r *http.Request) {
 		pairSymbol := strings.TrimPrefix(r.URL.Path, "/api/v1/ticker/")
 		if pairSymbol == "" {
@@ -85,7 +89,8 @@ func New(svcs Services, opts Options) http.Handler {
 		writeJSON(w, http.StatusOK, item)
 	})
 
-	// GET /api/v1/tickers — returns the latest price, 24h change, 24h high/low for all pairs.
+	// GET /api/v1/tickers — returns the freshest persisted ticker point plus 24h stats for all pairs.
+	// Price/last_update prefer the newest realtime raw sample over the current hourly aggregate.
 	mux.HandleFunc("/api/v1/tickers", func(w http.ResponseWriter, r *http.Request) {
 		items, err := svcs.Market.Tickers(r.Context())
 		if err != nil {
@@ -341,6 +346,7 @@ paths:
   /api/v1/historical/{pair}:
     get:
       summary: Historical OHLCV data
+      description: Returns canonical stored candles for the requested interval. Use this endpoint for historical charts and backfilled series, not for the freshest live price.
       parameters:
         - in: path
           name: pair
@@ -368,7 +374,8 @@ paths:
           description: Historical candle data
   /api/v1/ticker/{pair}:
     get:
-      summary: Latest ticker view
+      summary: Latest realtime ticker view
+      description: Returns the freshest persisted ticker point for a pair. Price and last_update_unix prefer the newest realtime raw sample when it is newer than the current hourly candle; 24h stats remain derived from stored hourly candles.
       parameters:
         - in: path
           name: pair
@@ -380,13 +387,15 @@ paths:
           description: Latest ticker
   /api/v1/tickers:
     get:
-      summary: Latest ticker views
+      summary: Latest realtime ticker views
+      description: Returns the freshest persisted ticker point for every pair. Price and last_update_unix prefer the newest realtime raw sample when it is newer than the current hourly candle; 24h stats remain derived from stored hourly candles.
       responses:
         "200":
           description: Latest tickers
   /api/v1/tickers/stream:
     get:
       summary: Realtime ticker SSE stream
+      description: Streams the same ticker read model as /api/v1/tickers, including freshest persisted realtime prices plus 24h stats.
       responses:
         "200":
           description: Server-Sent Events stream

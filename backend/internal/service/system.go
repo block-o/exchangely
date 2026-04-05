@@ -133,78 +133,77 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 		}
 
 		for _, row := range rows {
+			nextGapStart := row.HourlySyncedUnix
+			if nextGapStart == 0 {
+				nextGapStart = time.Now().UTC().AddDate(0, 0, -30).Truncate(time.Hour).Unix()
+			}
+			hourlyCutover := time.Now().UTC().Truncate(time.Hour).Unix()
+			if row.HourlyRealtimeStartedUnix > 0 && row.HourlyRealtimeStartedUnix < hourlyCutover {
+				hourlyCutover = row.HourlyRealtimeStartedUnix
+			}
+
 			if !row.HourlyBackfillCompleted {
-				// Skip projection if a real pending backfill already exists for this pair.
-				if pendingIndex[pairType{row.Pair, task.TypeBackfill}] {
-					continue
-				}
-
-				// Backfill projection.
-				nextGapStart := row.HourlySyncedUnix
-				if nextGapStart == 0 {
-					nextGapStart = time.Now().UTC().AddDate(0, 0, -30).Truncate(time.Hour).Unix()
-				}
-				nextGapEnd := nextGapStart + 3600
-
-				dbTasks = append(dbTasks, task.Task{
-					ID:          "proj-backfill-" + row.Pair,
-					Type:        task.TypeBackfill,
-					Pair:        row.Pair,
-					Interval:    "1h",
-					Status:      "scheduled",
-					WindowStart: time.Unix(nextGapStart, 0).UTC(),
-					WindowEnd:   time.Unix(nextGapEnd, 0).UTC(),
-				})
-				projectedCount++
-			} else {
-				// Skip projection if a real pending realtime task already exists for this pair.
-				if pendingIndex[pairType{row.Pair, task.TypeRealtime}] {
-				} else {
-					// Realtime projection: next poll boundary.
-					pollBound := time.Now().UTC().Truncate(s.pollInterval).Add(s.pollInterval)
-					windowEnd := pollBound.Add(time.Hour)
-
+				if !pendingIndex[pairType{row.Pair, task.TypeBackfill}] && nextGapStart < hourlyCutover {
+					nextGapEnd := minInt64(nextGapStart+3600, hourlyCutover)
 					dbTasks = append(dbTasks, task.Task{
-						ID:          "proj-realtime-" + row.Pair,
-						Type:        task.TypeRealtime,
-						Pair:        row.Pair,
-						Interval:    pollIntervalStr,
-						Status:      "scheduled",
-						WindowStart: pollBound,
-						WindowEnd:   windowEnd,
-					})
-					projectedCount++
-				}
-
-				if !pendingIndex[pairType{row.Pair, task.TypeDataSanity}] {
-					currentHour := time.Now().UTC().Truncate(time.Hour)
-					prevHour := currentHour.Add(-time.Hour)
-					dbTasks = append(dbTasks, task.Task{
-						ID:          "proj-integrity-" + row.Pair,
-						Type:        task.TypeDataSanity,
+						ID:          "proj-backfill-" + row.Pair,
+						Type:        task.TypeBackfill,
 						Pair:        row.Pair,
 						Interval:    "1h",
 						Status:      "scheduled",
-						WindowStart: prevHour,
-						WindowEnd:   currentHour,
+						WindowStart: time.Unix(nextGapStart, 0).UTC(),
+						WindowEnd:   time.Unix(nextGapEnd, 0).UTC(),
 					})
 					projectedCount++
 				}
+			}
 
-				if row.DailyBackfillCompleted && !pendingIndex[pairType{row.Pair, task.TypeConsolidate}] {
-					currentDay := time.Now().UTC().Truncate(24 * time.Hour)
-					prevDay := currentDay.Add(-24 * time.Hour)
-					dbTasks = append(dbTasks, task.Task{
-						ID:          "proj-consolidation-" + row.Pair,
-						Type:        task.TypeConsolidate,
-						Pair:        row.Pair,
-						Interval:    "1d",
-						Status:      "scheduled",
-						WindowStart: prevDay,
-						WindowEnd:   currentDay,
-					})
-					projectedCount++
-				}
+			// Realtime projection: next poll boundary.
+			if !pendingIndex[pairType{row.Pair, task.TypeRealtime}] {
+				pollBound := time.Now().UTC().Truncate(s.pollInterval).Add(s.pollInterval)
+				windowEnd := pollBound.Add(time.Hour)
+
+				dbTasks = append(dbTasks, task.Task{
+					ID:          "proj-realtime-" + row.Pair,
+					Type:        task.TypeRealtime,
+					Pair:        row.Pair,
+					Interval:    pollIntervalStr,
+					Status:      "scheduled",
+					WindowStart: pollBound,
+					WindowEnd:   windowEnd,
+				})
+				projectedCount++
+			}
+
+			currentHour := time.Now().UTC().Truncate(time.Hour)
+			prevHour := currentHour.Add(-time.Hour)
+			if !pendingIndex[pairType{row.Pair, task.TypeDataSanity}] &&
+				(row.HourlyBackfillCompleted || (row.HourlyRealtimeStartedUnix > 0 && prevHour.Unix() >= row.HourlyRealtimeStartedUnix)) {
+				dbTasks = append(dbTasks, task.Task{
+					ID:          "proj-integrity-" + row.Pair,
+					Type:        task.TypeDataSanity,
+					Pair:        row.Pair,
+					Interval:    "1h",
+					Status:      "scheduled",
+					WindowStart: prevHour,
+					WindowEnd:   currentHour,
+				})
+				projectedCount++
+			}
+
+			if row.DailyBackfillCompleted && !pendingIndex[pairType{row.Pair, task.TypeConsolidate}] {
+				currentDay := time.Now().UTC().Truncate(24 * time.Hour)
+				prevDay := currentDay.Add(-24 * time.Hour)
+				dbTasks = append(dbTasks, task.Task{
+					ID:          "proj-consolidation-" + row.Pair,
+					Type:        task.TypeConsolidate,
+					Pair:        row.Pair,
+					Interval:    "1d",
+					Status:      "scheduled",
+					WindowStart: prevDay,
+					WindowEnd:   currentDay,
+				})
+				projectedCount++
 			}
 		}
 
@@ -240,6 +239,13 @@ func formatDuration(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%ds", s)
 	}
+}
+
+func minInt64(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (s *SystemService) RecentTasks(ctx context.Context, limit, offset int, types, statuses []string) ([]task.Task, int, error) {

@@ -13,6 +13,7 @@ class MockEventSource {
   static instances: MockEventSource[] = [];
 
   close = vi.fn();
+  onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
 
@@ -210,12 +211,16 @@ describe("MarketPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("€50,000")).toBeInTheDocument();
+      expect(screen.getByText(/Live/i)).toBeInTheDocument();
+      expect(screen.getByText(/Last Updated: -/i)).toBeInTheDocument();
     });
 
     const stream = MockEventSource.instances[0];
     if (!stream?.onmessage) {
       throw new Error("expected EventSource onmessage handler to be registered");
     }
+
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1711933200000);
 
     await act(async () => {
       stream.onmessage!(
@@ -238,6 +243,89 @@ describe("MarketPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("€50,100")).toBeInTheDocument();
+      expect(screen.getByText(/Last Updated:/i)).toBeInTheDocument();
+      expect(screen.queryByText(/Last Updated: -/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Source Updated:/i)).not.toBeInTheDocument();
+    });
+
+    nowSpy.mockRestore();
+  });
+
+  it("updates footer stream status across connect, disconnect, and reconnect events", async () => {
+    vi.mocked(pairsApi.fetchPairs).mockResolvedValue({
+      data: [{ symbol: "BTCEUR", base: "BTC", quote: "EUR" }]
+    });
+    vi.mocked(historicalApi.fetchHistorical).mockResolvedValue({ data: [] });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/assets")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              data: [{ symbol: "BTC", name: "Bitcoin", type: "crypto" }],
+            }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [{
+              pair: "BTCEUR",
+              price: 50000,
+              market_cap: 992_500_000_000,
+              variation_24h: 1.5,
+              high_24h: 51000,
+              low_24h: 49000,
+              source: "mock",
+              last_update_unix: 1711929600,
+            }],
+          }),
+        });
+      })
+    );
+
+    const { container } = render(
+      <SettingsProvider>
+        <MarketPage />
+      </SettingsProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("€50,000")).toBeInTheDocument();
+    });
+
+    const stream = MockEventSource.instances[0];
+    const status = () => container.querySelector(".market-stream-status");
+    if (!stream?.onopen || !stream.onerror) {
+      throw new Error("expected EventSource handlers to be registered");
+    }
+
+    expect(status()).toHaveClass("is-offline");
+
+    await act(async () => {
+      stream.onopen!(new Event("open"));
+    });
+
+    await waitFor(() => {
+      expect(status()).toHaveClass("is-live");
+    });
+
+    await act(async () => {
+      stream.onerror!(new Event("error"));
+    });
+
+    await waitFor(() => {
+      expect(status()).toHaveClass("is-offline");
+    });
+
+    await act(async () => {
+      stream.onopen!(new Event("open"));
+    });
+
+    await waitFor(() => {
+      expect(status()).toHaveClass("is-live");
     });
   });
 });

@@ -34,6 +34,8 @@ export function MarketPage() {
   const [candles, setCandles] = useState<Record<string, Candle[]>>({});
   const [loadingExtras, setLoadingExtras] = useState(false);
   const [flashState, setFlashState] = useState<Record<string, 'up' | 'down'>>({});
+  const [streamConnected, setStreamConnected] = useState(false);
+  const [lastStreamUpdateUnix, setLastStreamUpdateUnix] = useState(0);
   
   // Track previous tickers to compute flashes
   const tickersRef = useRef(tickers);
@@ -46,6 +48,7 @@ export function MarketPage() {
 
     let active = true;
     setLoadingExtras(true);
+    setStreamConnected(false);
 
     const loadExtras = async () => {
       const items = pairsData.data.filter((p: Pair) => p.quote === quoteCurrency);
@@ -90,6 +93,11 @@ export function MarketPage() {
 
     // 3. Establish SSE Stream for realtime reactive webhooks
     const es = new EventSource(import.meta.env.VITE_API_BASE_URL + "/tickers/stream");
+    es.onopen = () => {
+      if (active) {
+        setStreamConnected(true);
+      }
+    };
     es.onmessage = (event) => {
       try {
         const incoming = parseTickerStreamPayload(event.data);
@@ -105,6 +113,8 @@ export function MarketPage() {
         });
 
         if (active) {
+          setStreamConnected(true);
+          setLastStreamUpdateUnix(Math.floor(Date.now() / 1000));
           setTickers(next);
           if (Object.keys(updates).length > 0) {
             setFlashState(f => ({ ...f, ...updates }));
@@ -123,20 +133,17 @@ export function MarketPage() {
         console.error("SSE parse error:", e);
       }
     };
+    es.onerror = () => {
+      if (active) {
+        setStreamConnected(false);
+      }
+    };
 
     return () => { 
       active = false;
       es.close();
     };
   }, [pairsData, quoteCurrency]);
-
-  const maxUpdatedUnix = useMemo(() => {
-    let max = 0;
-    Object.values(tickers).forEach(t => {
-      if (t.last_update_unix > max) max = t.last_update_unix;
-    });
-    return max;
-  }, [tickers]);
 
   const visiblePairs = useMemo(() => {
     const items = pairsData?.data ?? [];
@@ -255,11 +262,16 @@ export function MarketPage() {
             </tbody>
           </table>
           
-          {maxUpdatedUnix > 0 && (
-            <div className="text-muted" style={{ padding: '16px 20px', fontSize: '0.8em', textAlign: 'right', opacity: 0.7 }}>
-              Last updated: {formatUnix(maxUpdatedUnix)} · All times shown in {getBrowserTimezone()}
-            </div>
-          )}
+          <div className="market-footer">
+            <span className={`market-stream-status ${streamConnected ? "is-live" : "is-offline"}`}>
+              <span className="market-stream-dot" aria-hidden="true" />
+              Live
+            </span>
+            <span>
+              Last Updated: {lastStreamUpdateUnix > 0 ? formatUnix(lastStreamUpdateUnix) : "-"}
+            </span>
+            <span>All times shown in {getBrowserTimezone()}</span>
+          </div>
         </div>
       ) : null}
     </section>

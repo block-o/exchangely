@@ -369,6 +369,41 @@ h1, h2, h3, h4, h5, h6 {
 .chart-bar.up { background: var(--color-up); opacity: 0.7; }
 .chart-bar.down { background: var(--color-down); opacity: 0.7; }
 
+.market-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px;
+  color: var(--color-text-secondary);
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+
+.market-footer > span:not(:last-child)::after {
+  content: "\00b7";
+  margin-left: 8px;
+}
+
+.market-stream-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.market-stream-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-down);
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.14);
+}
+
+.market-stream-status.is-live .market-stream-dot {
+  background: var(--color-up);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
+}
+
 .error {
   padding: 16px;
   border-radius: 12px;
@@ -388,6 +423,7 @@ h1, h2, h3, h4, h5, h6 {
   .top-links { flex-wrap: wrap; }
   .top-links { margin-left: 0; }
   .asset-cell { gap: 8px; }
+  .market-footer { justify-content: flex-start; }
 }
 
 /* --- Flash Animations --- */

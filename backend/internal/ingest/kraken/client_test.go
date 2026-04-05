@@ -245,7 +245,7 @@ func TestFetchCandlesUsesCorrectIntervalParameters(t *testing.T) {
 				if val != tt.expected {
 					t.Errorf("expected interval=%s, got %s", tt.expected, val)
 				}
-				_, _ = w.Write([]byte(fmt.Sprintf(`{"error": [], "result": {"XXBTZEUR": [[%d, "1", "1", "1", "1", "1", "1", 1]]}}`, time.Now().Unix())))
+				_, _ = fmt.Fprintf(w, `{"error": [], "result": {"XXBTZEUR": [[%d, "1", "1", "1", "1", "1", "1", 1]]}}`, time.Now().Unix())
 			}))
 			defer server.Close()
 

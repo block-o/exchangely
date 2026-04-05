@@ -206,6 +206,12 @@ func TestBackfillExecutorPublishesRealtimeCandlesToEvents(t *testing.T) {
 	if len(candleRepo.rawItems) != 0 {
 		t.Fatalf("expected realtime path to rely on event publishing, got raw items %+v", candleRepo.rawItems)
 	}
+	if syncRepo.lastPair != "" || syncRepo.interval != "" {
+		t.Fatalf("expected realtime path not to advance historical sync cursor, got pair=%s interval=%s", syncRepo.lastPair, syncRepo.interval)
+	}
+	if syncRepo.realtimeStartedPair != "BTCUSD" {
+		t.Fatalf("expected realtime cutover to be recorded for BTCUSD, got %s", syncRepo.realtimeStartedPair)
+	}
 }
 
 type fakeCandleStore struct {
@@ -236,13 +242,21 @@ func (f *fakeCandleStore) HourlyCandles(_ context.Context, _ string, _ time.Time
 }
 
 type fakeSyncWriter struct {
-	lastPair string
-	interval string
+	lastPair            string
+	interval            string
+	realtimeStartedPair string
+	realtimeStartedAt   time.Time
 }
 
 func (f *fakeSyncWriter) UpsertProgress(_ context.Context, pairSymbol, interval string, _ time.Time, _ bool) error {
 	f.lastPair = pairSymbol
 	f.interval = interval
+	return nil
+}
+
+func (f *fakeSyncWriter) MarkRealtimeStarted(_ context.Context, pairSymbol string, startedAt time.Time) error {
+	f.realtimeStartedPair = pairSymbol
+	f.realtimeStartedAt = startedAt.UTC()
 	return nil
 }
 

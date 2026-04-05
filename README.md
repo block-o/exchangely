@@ -10,35 +10,51 @@ This project is being built for educational purposes only. It is not intended fo
 
 ## Architecture
 
+Historical series and live ticker are now intentionally decoupled. Historical backfill remains
+canonical and gap-focused, while live ticker starts immediately per pair and establishes a live
+cutover hour; hourly backfill then catches up only up to that cutover, and newer windows are
+owned by the realtime feed plus consolidation.
+
 ```mermaid
 flowchart LR
-    UI[React Frontend]
-    API[Go API]
-    Planner[Planner Role]
-    Worker[Worker Role]
-    Kafka[(Kafka)]
-    TS[(TimescaleDB)]
-    BinanceVision[Binance Vision]
-    Binance[Binance API]
-    Kraken[Kraken API]
 
+    UI[UI]
     UI -->|REST| API
+
+    API[API]
+    API -->|read historical candles + latest ticker| TS
     API -.->|SSE: Tickers & Tasks| UI
 
+    Planner[Planner Role]
     Planner -->|lease + sync state| TS
-    Planner -->|enqueue tasks| TS
-    Planner -->|publish task refs| Kafka
+    Planner -->|store tasks| TS
+    Planner -->|publish tasks refs| Kafka
 
+    Worker[Worker Role]
     Worker -->|claim tasks + locks| TS
-    Worker -->|consume tasks| Kafka
-    Worker -->|write raw + consolidated candles| TS
-    Worker -->|publish realtime market events| Kafka
+    Worker -->|downsample resolution for historical data| TS
+    Worker -->|notifies task completion| Kafka
+    Worker -->|realtime ticker polling| Kraken & CoinGecko & Binance
+    Worker -->|historical backfill| BinanceData & CryptoDataDownload
 
-    API -->|consume market events| Kafka
-    API -->|read historical| TS
+    CryptoDataDownload[[CryptoDataDownload CSV]]
+    CryptoDataDownload --> TS
 
-    Worker -->|historical EUR/USD backfill| Binance Vision & CryptoDataDownload
-    Worker -->|recent EUR/USD windows| Kraken & CoinGecko
+    BinanceData[[Binance Data API]]
+    BinanceData --> TS
+    Binance[[Binance API]]
+    Binance --> TS
+    Kraken[[Kraken API]]
+    Kraken --> TS
+    CoinGecko[[CoinGecko API]]
+    CoinGecko --> TS
+
+
+    Kafka[(Kafka)]
+    Kafka -->|consume tasks| Worker
+
+    TS[(TimescaleDB)]
+
 ```
 
 ## Quick Start

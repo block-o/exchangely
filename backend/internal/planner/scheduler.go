@@ -10,6 +10,7 @@ import (
 
 type SyncState struct {
 	HourlyLastSynced        time.Time
+	HourlyRealtimeStartedAt time.Time
 	DailyLastSynced         time.Time
 	HourlyBackfillCompleted bool
 	DailyBackfillCompleted  bool
@@ -17,7 +18,7 @@ type SyncState struct {
 
 // Scheduler converts per-pair sync state into independent backfill and realtime tasks.
 // The realtimePollInterval controls how frequently fresh realtime polling tasks are
-// emitted for caught-up pairs. A shorter interval yields fresher ticker prices.
+// emitted per pair. A shorter interval yields fresher ticker prices.
 type Scheduler struct {
 	backfillWindow1H     time.Duration
 	backfillWindow1D     time.Duration
@@ -39,6 +40,8 @@ func NewScheduler(pollInterval time.Duration) *Scheduler {
 }
 
 // BuildInitialBackfillTasks emits hourly work first and only advances to daily backfill after hourly catch-up.
+// Once live realtime starts for a pair, hourly historical work is capped at that cutover so backfill
+// does not continue into the live-managed window.
 func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[string]SyncState, now time.Time) []task.Task {
 	currentHour := now.UTC().Truncate(time.Hour)
 	currentDay := currentHour.Truncate(24 * time.Hour)
@@ -50,9 +53,13 @@ func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[strin
 		if hourlyCursor.IsZero() {
 			hourlyCursor = currentHour.AddDate(0, 0, -30)
 		}
+		hourlyCutover := currentHour
+		if !pairState.HourlyRealtimeStartedAt.IsZero() && pairState.HourlyRealtimeStartedAt.UTC().Before(hourlyCutover) {
+			hourlyCutover = pairState.HourlyRealtimeStartedAt.UTC()
+		}
 
 		if !pairState.HourlyBackfillCompleted {
-			tasks = append(tasks, s.windowedTasks(trackedPair.Symbol, "1h", hourlyCursor, currentHour, s.backfillWindow1H)...)
+			tasks = append(tasks, s.windowedTasks(trackedPair.Symbol, "1h", hourlyCursor, hourlyCutover, s.backfillWindow1H)...)
 			continue
 		}
 
@@ -109,13 +116,15 @@ func (s *Scheduler) BuildConsolidationTasks(pairs []pair.Pair, state map[string]
 	return tasks
 }
 
-// BuildRealtimeTasks emits one polling task per fully caught-up pair for the current
-// poll window. The task ID includes the poll-window start timestamp (truncated to
+// BuildRealtimeTasks emits one polling task per pair for the current poll window, even if
+// historical backfill is still in progress. The task ID includes the poll-window start timestamp (truncated to
 // realtimePollInterval), so the planner's idempotent Enqueue recognizes each window
 // as a distinct task. This ensures prices refresh every pollInterval instead of once per hour.
 //
 // WindowStart/WindowEnd still span the full current hour so the exchange API returns
 // enough context for consolidation, but the unique ID prevents de-duplication starvation.
+// Integrity checks only start once the preceding hour is expected to be covered either
+// by completed backfill or by the live cutover.
 func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncState, now time.Time) []task.Task {
 	currentHour := now.UTC().Truncate(time.Hour)
 	nextHour := currentHour.Add(time.Hour)
@@ -124,7 +133,7 @@ func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncS
 
 	for _, trackedPair := range pairs {
 		pairState, ok := state[trackedPair.Symbol]
-		if !ok || !pairState.HourlyBackfillCompleted {
+		if !ok {
 			continue
 		}
 
@@ -138,16 +147,19 @@ func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncS
 			WindowEnd:   nextHour,
 		})
 
-		// Integrity Check extraction (for the immediately preceding fully-matured hour)
 		prevHour := currentHour.Add(-time.Hour)
-		tasks = append(tasks, task.Task{
-			ID:          taskID(task.TypeDataSanity, trackedPair.Symbol, "1h", prevHour, currentHour),
-			Type:        task.TypeDataSanity,
-			Pair:        trackedPair.Symbol,
-			Interval:    "1h",
-			WindowStart: prevHour,
-			WindowEnd:   currentHour,
-		})
+		if pairState.HourlyBackfillCompleted || (!pairState.HourlyRealtimeStartedAt.IsZero() && !prevHour.Before(pairState.HourlyRealtimeStartedAt.UTC())) {
+			// Integrity checks only run once the preceding hour is expected to be covered either
+			// by completed backfill or by the live cutover.
+			tasks = append(tasks, task.Task{
+				ID:          taskID(task.TypeDataSanity, trackedPair.Symbol, "1h", prevHour, currentHour),
+				Type:        task.TypeDataSanity,
+				Pair:        trackedPair.Symbol,
+				Interval:    "1h",
+				WindowStart: prevHour,
+				WindowEnd:   currentHour,
+			})
+		}
 	}
 
 	return tasks

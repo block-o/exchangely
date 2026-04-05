@@ -13,6 +13,7 @@ export function dismissWarning(id: string, fingerprint: string) {
   return apiPost("/system/warnings", { id, fingerprint });
 }
 
+// Ticker endpoints expose the freshest persisted realtime point for a pair.
 export function fetchTicker(pair: string) {
   return apiGet<Ticker>(`/ticker/${pair}`);
 }

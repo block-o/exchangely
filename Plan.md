@@ -12,6 +12,9 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - **Backend**: Single Go binary (API + planner + worker), DB-backed task & lease lifecycle, 24h/1h consolidated candles, realtime Kafka task flow, structured logging (`slog`).
 - **Frontend**: Premium interface, SSE-driven realtime Market updates (bypassing heavy polling), Vitest testing stack, dynamic `__APP_VERSION__` injection, SVG settings gear.
 - **Data Querying**: Zero-polling SSE updates at `/api/v1/tickers/stream`; optimized 3-CTE SQL endpoint for 24h variation stats.
+- **Ticker Read Model**: `/api/v1/ticker/{pair}` and `/api/v1/tickers` now prefer the newest persisted realtime raw sample for price/last-update metadata instead of the current hour aggregate, while still exposing 24h stats.
+- **Realtime Cutover**: live ticker scheduling now starts before hourly historical backfill completes; backfill stops at the per-pair live cutover hour and no longer shares the historical sync cursor with realtime execution.
+- **Realtime Streaming**: Kafka market-event consumption now batches candles by pair/hour before ingesting them so SSE ticker pushes track realtime poll batches instead of noisy per-candle fanout.
 - **DevOps**: GitHub Actions CI workflow, strict Node.js 24 + Go 1.24 build limits via Docker configurations.
 - **Operations Dashboard**: SSE-powered `SystemPanel` accurately tracking and predicting future backfill and realtime poll gaps.
 - **Documentation**: Substantial inline godoc standard for SSE/SQL methods mapping.

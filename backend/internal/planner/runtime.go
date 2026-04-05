@@ -121,6 +121,7 @@ func (r *Runner) runTick(ctx context.Context) error {
 	for symbol, state := range states {
 		adapted[symbol] = SyncState{
 			HourlyLastSynced:        state.HourlyLastSynced,
+			HourlyRealtimeStartedAt: state.HourlyRealtimeStartedAt,
 			DailyLastSynced:         state.DailyLastSynced,
 			HourlyBackfillCompleted: state.HourlyBackfillCompleted,
 			DailyBackfillCompleted:  state.DailyBackfillCompleted,
@@ -132,13 +133,14 @@ func (r *Runner) runTick(ctx context.Context) error {
 			if err := r.sync.MarkBackfillSeeded(ctx, trackedPair.Symbol, time.Time{}); err != nil {
 				return err
 			}
+			adapted[trackedPair.Symbol] = SyncState{}
 		}
 	}
 
 	now := time.Now().UTC()
-	tasks := r.scheduler.BuildInitialBackfillTasks(pairs, adapted, now)
+	tasks := r.scheduler.BuildRealtimeTasks(pairs, adapted, now)
+	tasks = append(tasks, r.scheduler.BuildInitialBackfillTasks(pairs, adapted, now)...)
 	tasks = append(tasks, r.scheduler.BuildConsolidationTasks(pairs, adapted, now)...)
-	tasks = append(tasks, r.scheduler.BuildRealtimeTasks(pairs, adapted, now)...)
 	tasks = append(tasks, r.scheduler.BuildCleanupTask(now)) // daily task log pruning
 	if len(tasks) == 0 {
 		slog.Debug("planner tick complete", "instance_id", r.instanceID, "pair_count", len(pairs), "task_count", 0)

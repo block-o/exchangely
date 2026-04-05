@@ -27,6 +27,7 @@ type CandleStore interface {
 
 type SyncProgressWriter interface {
 	UpsertProgress(ctx context.Context, pairSymbol, interval string, lastSynced time.Time, backfillCompleted bool) error
+	MarkRealtimeStarted(ctx context.Context, pairSymbol string, startedAt time.Time) error
 }
 
 // BackfillExecutor materializes task windows into persisted candles and sync progress updates.
@@ -49,7 +50,7 @@ type MarketEventPublisher interface {
 
 // MarketNotifier pushes a signal to the SSE EventBus when new data is committed to Postgres.
 // This is the worker-side counterpart to MarketService.NotifyUpdate().
-// The backfill executor calls it after every successful candle + sync-progress upsert.
+// The backfill executor calls it after every successful candle write or realtime cutover update.
 type MarketNotifier interface {
 	NotifyUpdate()
 }
@@ -65,7 +66,9 @@ func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources M
 	}
 }
 
-// Execute routes the task into hourly, daily, or realtime materialization and advances sync state on success.
+// Execute routes the task into hourly, daily, or realtime materialization and updates the
+// appropriate sync state on success. Historical tasks advance backfill progress; realtime
+// tasks record the live cutover without mutating the historical cursor.
 func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 	startedAt := time.Now()
 	switch item.Type {
@@ -89,14 +92,7 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 		return err
 	}
 	if len(candles) == 0 {
-		if err := e.sync.UpsertProgress(ctx, item.Pair, item.Interval, item.WindowEnd.UTC(), backfillComplete(item)); err != nil {
-			slog.Warn("task sync progress update failed",
-				"task_id", item.ID,
-				"type", item.Type,
-				"pair", item.Pair,
-				"interval", item.Interval,
-				"error", err,
-			)
+		if err := e.updateSyncProgress(ctx, item); err != nil {
 			return err
 		}
 		slog.Info("task execution produced no candles",
@@ -123,6 +119,32 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 		return err
 	}
 
+	if err := e.updateSyncProgress(ctx, item); err != nil {
+		return err
+	}
+
+	if e.notifier != nil {
+		e.notifier.NotifyUpdate()
+	}
+
+	return nil
+}
+
+func (e *BackfillExecutor) updateSyncProgress(ctx context.Context, item task.Task) error {
+	if item.Type == task.TypeRealtime {
+		if err := e.sync.MarkRealtimeStarted(ctx, item.Pair, item.WindowStart.UTC()); err != nil {
+			slog.Warn("task realtime cutover update failed",
+				"task_id", item.ID,
+				"type", item.Type,
+				"pair", item.Pair,
+				"interval", item.Interval,
+				"error", err,
+			)
+			return err
+		}
+		return nil
+	}
+
 	if err := e.sync.UpsertProgress(ctx, item.Pair, item.Interval, item.WindowEnd.UTC(), backfillComplete(item)); err != nil {
 		slog.Warn("task sync progress update failed",
 			"task_id", item.ID,
@@ -133,11 +155,6 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 		)
 		return err
 	}
-
-	if e.notifier != nil {
-		e.notifier.NotifyUpdate()
-	}
-
 	return nil
 }
 

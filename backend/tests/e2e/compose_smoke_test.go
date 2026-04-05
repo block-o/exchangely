@@ -184,7 +184,7 @@ func TestRunningComposeStack(t *testing.T) {
 
 	t.Run("realtime market events", func(t *testing.T) {
 		realtimePair := "E2EREALTIMEUSD"
-		realtimeTime := time.Date(2026, 4, 3, 11, 0, 0, 0, time.UTC)
+		realtimeTime := time.Now().UTC().Truncate(time.Hour)
 		realtimeCandle := candle.Candle{
 			Pair:      realtimePair,
 			Interval:  "1h",

@@ -5,12 +5,11 @@ WORKDIR /app
 ARG VITE_API_BASE_URL=http://localhost:8080/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
-COPY Makefile ./
-COPY package.json package-lock.json ./frontend/
-RUN make frontend-deps
+COPY package.json package-lock.json ./
+RUN npm ci
 
-COPY frontend ./frontend
-RUN make frontend-build
+COPY . .
+RUN npm run build
 
 FROM nginx:1.29-alpine
 

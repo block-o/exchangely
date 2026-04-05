@@ -10,7 +10,7 @@ function SettingsConsumer() {
       <span data-testid="theme">{theme}</span>
       <span data-testid="currency">{quoteCurrency}</span>
       <button onClick={() => setTheme("light")}>Set Light Theme</button>
-      <button onClick={() => setQuoteCurrency("USDT")}>Set USDT</button>
+      <button onClick={() => setQuoteCurrency("USD")}>Set USD</button>
     </div>
   );
 }
@@ -37,7 +37,7 @@ describe("SettingsContext", () => {
 
   it("loads values from localStorage", () => {
     localStorage.setItem("exchangely_theme", "light");
-    localStorage.setItem("exchangely_quote_currency", "USDT");
+    localStorage.setItem("exchangely_quote_currency", "USD");
 
     render(
       <SettingsProvider>
@@ -46,8 +46,20 @@ describe("SettingsContext", () => {
     );
 
     expect(screen.getByTestId("theme")).toHaveTextContent("light");
-    expect(screen.getByTestId("currency")).toHaveTextContent("USDT");
+    expect(screen.getByTestId("currency")).toHaveTextContent("USD");
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+  });
+
+  it("ignores unsupported stored quote currencies", () => {
+    localStorage.setItem("exchangely_quote_currency", "USDT");
+
+    render(
+      <SettingsProvider>
+        <SettingsConsumer />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByTestId("currency")).toHaveTextContent("EUR");
   });
 
   it("updates and persists theme", () => {
@@ -74,10 +86,10 @@ describe("SettingsContext", () => {
     );
 
     act(() => {
-      screen.getByText("Set USDT").click();
+      screen.getByText("Set USD").click();
     });
 
-    expect(screen.getByTestId("currency")).toHaveTextContent("USDT");
-    expect(localStorage.getItem("exchangely_quote_currency")).toBe("USDT");
+    expect(screen.getByTestId("currency")).toHaveTextContent("USD");
+    expect(localStorage.getItem("exchangely_quote_currency")).toBe("USD");
   });
 });

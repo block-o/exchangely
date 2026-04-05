@@ -29,9 +29,25 @@ describe("MarketPage", () => {
     vi.mocked(historicalApi.fetchHistorical).mockResolvedValue({ data: [] });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ data: [] }),
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/assets")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              data: [
+                { symbol: "BTC", name: "Bitcoin", type: "crypto" },
+                { symbol: "ETH", name: "Ethereum", type: "crypto" },
+                { symbol: "EUR", name: "Euro", type: "fiat" },
+                { symbol: "USDT", name: "Tether", type: "stablecoin" },
+              ],
+            }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ data: [] }),
+        });
       })
     );
     
@@ -39,7 +55,7 @@ describe("MarketPage", () => {
     globalThis.EventSource = MockEventSource as any;
   });
 
-  it("filters pairs by quote currency and displays base", async () => {
+  it("filters pairs by quote currency and displays asset names with currency symbols", async () => {
     vi.mocked(pairsApi.fetchPairs).mockResolvedValue({
       data: [
         { symbol: "ETHEUR", base: "ETH", quote: "EUR" },
@@ -49,32 +65,47 @@ describe("MarketPage", () => {
     });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          data: [
-            {
-              pair: "ETHEUR",
-              price: 2500,
-              market_cap: 301_750_000_000,
-              variation_24h: 0.8,
-              high_24h: 2550,
-              low_24h: 2450,
-              source: "mock",
-              last_update_unix: 1711929600,
-            },
-            {
-              pair: "BTCEUR",
-              price: 50000,
-              market_cap: 992_500_000_000,
-              variation_24h: 1.5,
-              high_24h: 51000,
-              low_24h: 49000,
-              source: "mock",
-              last_update_unix: 1711929600,
-            },
-          ],
-        }),
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/assets")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              data: [
+                { symbol: "BTC", name: "Bitcoin", type: "crypto" },
+                { symbol: "ETH", name: "Ethereum", type: "crypto" },
+                { symbol: "EUR", name: "Euro", type: "fiat" },
+              ],
+            }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                pair: "ETHEUR",
+                price: 2500,
+                market_cap: 301_750_000_000,
+                variation_24h: 0.8,
+                high_24h: 2550,
+                low_24h: 2450,
+                source: "mock",
+                last_update_unix: 1711929600,
+              },
+              {
+                pair: "BTCEUR",
+                price: 50000,
+                market_cap: 992_500_000_000,
+                variation_24h: 1.5,
+                high_24h: 51000,
+                low_24h: 49000,
+                source: "mock",
+                last_update_unix: 1711929600,
+              },
+            ],
+          }),
+        });
       })
     );
 
@@ -86,16 +117,19 @@ describe("MarketPage", () => {
 
     // Assert EUR headers and base symbols output
     await waitFor(() => {
-      expect(screen.getByText("Market Cap (EUR)")).toBeInTheDocument();
-      expect(screen.getByText("Price (EUR)")).toBeInTheDocument();
+      expect(screen.getByText("Market Cap")).toBeInTheDocument();
+      expect(screen.getByText("Price")).toBeInTheDocument();
+      expect(screen.getByText("Bitcoin")).toBeInTheDocument();
+      expect(screen.getByText("Ethereum")).toBeInTheDocument();
       expect(screen.getByText("BTC")).toBeInTheDocument();
       expect(screen.getByText("ETH")).toBeInTheDocument();
-      expect(screen.getByText("992.5B")).toBeInTheDocument();
-      expect(screen.getByText("301.8B")).toBeInTheDocument();
+      expect(screen.getByText("€992.5B")).toBeInTheDocument();
+      expect(screen.getByText("€301.8B")).toBeInTheDocument();
+      expect(screen.getByText("€50,000")).toBeInTheDocument();
     });
 
     const assetCells = Array.from(container.querySelectorAll("tbody tr td.symbol")).map((cell) => cell.textContent);
-    expect(assetCells).toEqual(["BTC", "ETH"]);
+    expect(assetCells).toEqual(["BitcoinBTC", "EthereumETH"]);
 
     // USDT pair should not be displayed
     expect(screen.queryByText("BTCUSDT")).not.toBeInTheDocument();
@@ -120,7 +154,7 @@ describe("MarketPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("BTC")).toBeInTheDocument();
+      expect(screen.getByText("Bitcoin")).toBeInTheDocument();
     });
 
     const chartPlaceholder = container.querySelector('.chart-placeholder');
@@ -140,20 +174,31 @@ describe("MarketPage", () => {
     vi.mocked(historicalApi.fetchHistorical).mockResolvedValue({ data: [] });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          data: [{
-            pair: "BTCEUR",
-            price: 50000,
-            market_cap: 992_500_000_000,
-            variation_24h: 1.5,
-            high_24h: 51000,
-            low_24h: 49000,
-            source: "mock",
-            last_update_unix: 1711929600,
-          }],
-        }),
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/assets")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              data: [{ symbol: "BTC", name: "Bitcoin", type: "crypto" }],
+            }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [{
+              pair: "BTCEUR",
+              price: 50000,
+              market_cap: 992_500_000_000,
+              variation_24h: 1.5,
+              high_24h: 51000,
+              low_24h: 49000,
+              source: "mock",
+              last_update_unix: 1711929600,
+            }],
+          }),
+        });
       })
     );
 
@@ -164,7 +209,7 @@ describe("MarketPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("50,000")).toBeInTheDocument();
+      expect(screen.getByText("€50,000")).toBeInTheDocument();
     });
 
     const stream = MockEventSource.instances[0];
@@ -190,7 +235,7 @@ describe("MarketPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("50,100")).toBeInTheDocument();
+      expect(screen.getByText("€50,100")).toBeInTheDocument();
     });
   });
 });

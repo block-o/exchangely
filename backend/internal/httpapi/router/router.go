@@ -247,15 +247,373 @@ func New(svcs Services, opts Options) http.Handler {
 		}
 	})
 
+	mux.HandleFunc("/swagger", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/swagger" {
+			http.NotFound(w, r)
+			return
+		}
+		serveSwaggerPage(w)
+	})
+
 	mux.HandleFunc("/swagger/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 		path := filepath.Join("..", "docs", "openapi", "openapi.yaml")
-		if _, err := os.Stat(path); err != nil {
-			path = filepath.Join("docs", "openapi", "openapi.yaml")
+		if _, err := os.Stat(path); err == nil {
+			http.ServeFile(w, r, path)
+			return
 		}
-		http.ServeFile(w, r, path)
+		path = filepath.Join("docs", "openapi", "openapi.yaml")
+		if _, err := os.Stat(path); err == nil {
+			http.ServeFile(w, r, path)
+			return
+		}
+		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+		_, _ = w.Write([]byte(defaultOpenAPIYAML()))
 	})
 
 	return withAccessLog(withCORS(mux, opts.AllowedOrigins))
+}
+
+func serveSwaggerPage(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(swaggerPageHTML()))
+}
+
+func defaultOpenAPIYAML() string {
+	return `openapi: 3.0.3
+info:
+  title: Exchangely API
+  version: 0.1.0
+  description: REST API for Exchangely market data and sync state.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/health:
+    get:
+      summary: Health status
+      responses:
+        "200":
+          description: Service health
+  /api/v1/assets:
+    get:
+      summary: List supported assets
+      responses:
+        "200":
+          description: Asset catalog
+  /api/v1/pairs:
+    get:
+      summary: List supported pairs
+      responses:
+        "200":
+          description: Pair catalog
+  /api/v1/historical/{pair}:
+    get:
+      summary: Historical OHLCV data
+      parameters:
+        - in: path
+          name: pair
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: interval
+          required: true
+          schema:
+            type: string
+            enum: [1h, 1d]
+        - in: query
+          name: start_time
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: end_time
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: Historical candle data
+  /api/v1/ticker/{pair}:
+    get:
+      summary: Latest ticker view
+      parameters:
+        - in: path
+          name: pair
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest ticker
+  /api/v1/tickers:
+    get:
+      summary: Latest ticker views
+      responses:
+        "200":
+          description: Latest tickers
+  /api/v1/tickers/stream:
+    get:
+      summary: Realtime ticker SSE stream
+      responses:
+        "200":
+          description: Server-Sent Events stream
+  /api/v1/system/sync-status:
+    get:
+      summary: Backfill progress
+      responses:
+        "200":
+          description: Sync status snapshot
+  /api/v1/system/version:
+    get:
+      summary: Runtime version metadata
+      responses:
+        "200":
+          description: Version snapshot
+  /api/v1/system/tasks:
+    get:
+      summary: Task queue snapshot
+      responses:
+        "200":
+          description: Upcoming and recent tasks
+  /api/v1/system/tasks/stream:
+    get:
+      summary: Realtime task SSE stream
+      responses:
+        "200":
+          description: Server-Sent Events stream
+`
+}
+
+func swaggerPageHTML() string {
+	return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Exchangely API Docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+  <style>
+    :root {
+      --color-bg-base: #06090e;
+      --color-bg-panel: rgba(14, 21, 30, 0.82);
+      --color-text-primary: #f0f4f8;
+      --color-text-secondary: #94a3b8;
+      --color-text-accent: #00f0ff;
+      --color-border: rgba(255, 255, 255, 0.08);
+      --shadow-panel: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      color: var(--color-text-primary);
+      font-family: Inter, system-ui, sans-serif;
+      background-color: var(--color-bg-base);
+      background-image:
+        radial-gradient(circle at top left, rgba(8, 51, 68, 0.8), transparent 40%),
+        radial-gradient(circle at bottom right, rgba(15, 23, 42, 1), transparent 60%);
+      background-attachment: fixed;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+    .shell {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+    .hero,
+    .panel {
+      border: 1px solid var(--color-border);
+      border-radius: 24px;
+      background: var(--color-bg-panel);
+      backdrop-filter: blur(16px);
+      box-shadow: var(--shadow-panel);
+    }
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 24px;
+      margin-bottom: 24px;
+      padding: 32px;
+    }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--color-text-accent);
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(2rem, 4vw, 3rem);
+      letter-spacing: -0.03em;
+    }
+    .hero p,
+    .muted {
+      color: var(--color-text-secondary);
+    }
+    .hero p {
+      max-width: 60ch;
+      margin: 12px 0 0;
+      line-height: 1.6;
+    }
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 42px;
+      padding: 0 16px;
+      border-radius: 999px;
+      border: 1px solid var(--color-border);
+      color: var(--color-text-secondary);
+      transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+    .pill.primary {
+      color: #02171a;
+      background: var(--color-text-accent);
+      border-color: transparent;
+      font-weight: 700;
+    }
+    .pill:hover {
+      color: var(--color-text-primary);
+      border-color: rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .pill.primary:hover {
+      color: #02171a;
+      background: #6af7ff;
+    }
+    .panel {
+      padding: 0;
+      overflow: hidden;
+    }
+    #swagger-ui {
+      padding: 24px;
+      background: transparent;
+    }
+    .swagger-ui {
+      color: var(--color-text-primary);
+      font-family: Inter, system-ui, sans-serif;
+    }
+    .swagger-ui .topbar {
+      display: none;
+    }
+    .swagger-ui .scheme-container {
+      background: rgba(255, 255, 255, 0.03);
+      box-shadow: none;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .swagger-ui .info .title,
+    .swagger-ui .info hgroup.main a,
+    .swagger-ui .opblock-tag,
+    .swagger-ui .opblock .opblock-summary-path,
+    .swagger-ui .opblock .opblock-summary-description,
+    .swagger-ui .parameter__name,
+    .swagger-ui .response-col_status,
+    .swagger-ui .responses-inner h4,
+    .swagger-ui .responses-inner h5,
+    .swagger-ui section.models h4,
+    .swagger-ui label,
+    .swagger-ui .tab li,
+    .swagger-ui .model-title,
+    .swagger-ui .model,
+    .swagger-ui .prop-name {
+      color: var(--color-text-primary);
+    }
+    .swagger-ui,
+    .swagger-ui .info p,
+    .swagger-ui .info li,
+    .swagger-ui .markdown p,
+    .swagger-ui .markdown li,
+    .swagger-ui .parameter__type,
+    .swagger-ui .parameter__deprecated,
+    .swagger-ui .response-col_description,
+    .swagger-ui .model-toggle:after,
+    .swagger-ui .opblock-description-wrapper p,
+    .swagger-ui .opblock-external-docs-wrapper p,
+    .swagger-ui .opblock-title_normal p {
+      color: var(--color-text-secondary);
+    }
+    .swagger-ui .opblock,
+    .swagger-ui .scheme-container,
+    .swagger-ui section.models,
+    .swagger-ui .model-box,
+    .swagger-ui .responses-table tbody tr td,
+    .swagger-ui table thead tr td,
+    .swagger-ui table thead tr th {
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+    .swagger-ui .opblock {
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 18px;
+    }
+    .swagger-ui .opblock.is-open .opblock-summary {
+      border-bottom-color: rgba(255, 255, 255, 0.08);
+    }
+    .swagger-ui input,
+    .swagger-ui select,
+    .swagger-ui textarea {
+      color: var(--color-text-primary);
+      background: rgba(6, 9, 14, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .swagger-ui .btn.execute {
+      background: #00b8c5;
+      border-color: #00b8c5;
+    }
+    .swagger-ui .btn.authorize,
+    .swagger-ui .btn.try-out__btn,
+    .swagger-ui .btn.cancel {
+      border-radius: 999px;
+    }
+    .swagger-ui .responses-wrapper,
+    .swagger-ui .opblock-body pre,
+    .swagger-ui .highlight-code {
+      background: transparent;
+    }
+    @media (max-width: 768px) {
+      .shell { padding: 16px 12px 32px; }
+      .hero, .panel { padding: 22px; }
+      #swagger-ui { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="panel">
+      <div id="swagger-ui"></div>
+    </section>
+  </main>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+  <script>
+    window.onload = () => {
+      window.ui = SwaggerUIBundle({
+        url: "/swagger/openapi.yaml",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        displayRequestDuration: true,
+        docExpansion: "list",
+        persistAuthorization: true,
+        tryItOutEnabled: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset
+        ],
+        layout: "BaseLayout"
+      });
+    };
+  </script>
+</body>
+</html>`
 }
 
 func getIntParam(r *http.Request, name string, defaultVal int) int {

@@ -2,6 +2,13 @@
  * Format a Unix timestamp (seconds) into a human-readable local date/time string.
  * Uses the browser's Intl API so the output always reflects the user's OS timezone.
  */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  EUR: "€",
+  GBP: "£",
+  USD: "$",
+  USDT: "$",
+};
+
 export function formatUnix(value: number) {
   return new Date(value * 1000).toLocaleString(undefined, {
     year: "numeric",
@@ -28,6 +35,10 @@ export function formatNumber(value: number) {
   }).format(value);
 }
 
+export function getCurrencySymbol(currency: string) {
+  return CURRENCY_SYMBOLS[currency.toUpperCase()] ?? `${currency.toUpperCase()} `;
+}
+
 export function formatCompactNumber(value?: number) {
   if (!value || value <= 0) {
     return "-";
@@ -38,4 +49,20 @@ export function formatCompactNumber(value?: number) {
     compactDisplay: "short",
     maximumFractionDigits: 1,
   }).format(value);
+}
+
+export function formatCurrencyNumber(value: number | undefined, currency: string) {
+  if (value === undefined || value === null) {
+    return "-";
+  }
+
+  return `${getCurrencySymbol(currency)}${formatNumber(value)}`;
+}
+
+export function formatCompactCurrencyNumber(value: number | undefined, currency: string) {
+  if (value === undefined || value === null || value <= 0) {
+    return "-";
+  }
+
+  return `${getCurrencySymbol(currency)}${formatCompactNumber(value)}`;
 }

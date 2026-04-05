@@ -71,6 +71,13 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: var(--shadow-panel);
 }
 
+.hero-text {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-height: 44px;
+}
+
 .hero-text h1 {
   font-size: 2.5rem;
   font-weight: 600;
@@ -82,9 +89,10 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .eyebrow {
-  margin: 0 0 8px;
+  margin: 0;
   font-family: var(--font-display);
   font-size: 0.85rem;
+  line-height: 1;
   text-transform: uppercase;
   letter-spacing: 0.15em;
   color: var(--color-text-accent);
@@ -95,9 +103,30 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
-/* Gear icon sitting inline with the nav pills — invisible chrome, icon only. */
+.hero-actions {
+  display: flex;
+  flex: 1 1 420px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.top-links {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.external-nav-item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.icon-link,
 .settings-trigger {
   display: inline-flex;
   align-items: center;
@@ -112,14 +141,21 @@ h1, h2, h3, h4, h5, h6 {
   opacity: 0.6;
 }
 
+.icon-link:hover,
 .settings-trigger:hover {
   color: var(--color-text-accent);
   background: rgba(255, 255, 255, 0.05);
   opacity: 1;
 }
 
+.icon-link svg,
 .settings-trigger svg {
   display: block;
+}
+
+/* Gear icon sitting inline with the nav pills — invisible chrome, icon only. */
+.settings-trigger {
+  flex-shrink: 0;
 }
 
 .nav-item {
@@ -265,6 +301,25 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 1.1rem;
 }
 
+.asset-cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.asset-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.asset-code {
+  color: var(--color-text-secondary);
+  font-size: 0.84rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
 .data-table .price {
   font-weight: 500;
   font-size: 1.1rem;
@@ -329,6 +384,10 @@ h1, h2, h3, h4, h5, h6 {
   .hero-text h1 { font-size: 2rem; }
   .panel { padding: 20px; }
   .data-table td { padding: 16px 12px; }
+  .hero-actions { flex-basis: 100%; }
+  .top-links { flex-wrap: wrap; }
+  .top-links { margin-left: 0; }
+  .asset-cell { gap: 8px; }
 }
 
 /* --- Flash Animations --- */

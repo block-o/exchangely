@@ -33,4 +33,32 @@ describe("AppShell", () => {
       expect(screen.getByText("Beta Page")).toBeInTheDocument();
     });
   });
+
+  it("renders api docs nav item and github icon link in the hero", () => {
+    function AlphaView() {
+      return <div>Alpha Page</div>;
+    }
+
+    function BetaView() {
+      return <div>Beta Page</div>;
+    }
+
+    render(
+      <SettingsProvider>
+        <AppShell>
+          <AlphaView />
+          <BetaView />
+        </AppShell>
+      </SettingsProvider>
+    );
+
+    expect(screen.getByRole("link", { name: "GitHub project" })).toHaveAttribute(
+      "href",
+      "https://github.com/block-o/exchangely"
+    );
+    expect(screen.getByRole("link", { name: "API Docs" })).toHaveAttribute(
+      "href",
+      "http://localhost:8080/swagger"
+    );
+  });
 });

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+	"strings"
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/domain/ticker"
@@ -24,6 +25,10 @@ func (r *MarketRepository) UpsertCandles(ctx context.Context, interval string, c
 		return err
 	}
 
+	if len(candles) == 0 {
+		return nil
+	}
+
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -32,21 +37,18 @@ func (r *MarketRepository) UpsertCandles(ctx context.Context, interval string, c
 		_ = tx.Rollback()
 	}()
 
-	query := fmt.Sprintf(`
-		INSERT INTO %s (pair_symbol, bucket_start, open, high, low, close, volume, source, finalized)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (pair_symbol, bucket_start) DO UPDATE
-		SET open = EXCLUDED.open,
-		    high = EXCLUDED.high,
-		    low = EXCLUDED.low,
-		    close = EXCLUDED.close,
-		    volume = EXCLUDED.volume,
-		    source = EXCLUDED.source,
-		    finalized = EXCLUDED.finalized
-	`, table)
+	// Build a multi-row INSERT with parameter placeholders for all candles.
+	const valuesPerRow = 9
+	valueStrings := make([]string, 0, len(candles))
+	args := make([]interface{}, 0, len(candles)*valuesPerRow)
 
-	for _, item := range candles {
-		if _, err := tx.ExecContext(ctx, query,
+	for i, item := range candles {
+		base := i*valuesPerRow + 1
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			base, base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8,
+		))
+
+		args = append(args,
 			item.Pair,
 			time.Unix(item.Timestamp, 0).UTC(),
 			item.Open,
@@ -56,9 +58,24 @@ func (r *MarketRepository) UpsertCandles(ctx context.Context, interval string, c
 			item.Volume,
 			item.Source,
 			item.Finalized,
-		); err != nil {
-			return err
-		}
+		)
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO %s (pair_symbol, bucket_start, open, high, low, close, volume, source, finalized)
+		VALUES %s
+		ON CONFLICT (pair_symbol, bucket_start) DO UPDATE
+		SET open = EXCLUDED.open,
+		    high = EXCLUDED.high,
+		    low = EXCLUDED.low,
+		    close = EXCLUDED.close,
+		    volume = EXCLUDED.volume,
+		    source = EXCLUDED.source,
+		    finalized = EXCLUDED.finalized
+	`, table, strings.Join(valueStrings, ","))
+
+	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+		return err
 	}
 
 	return tx.Commit()

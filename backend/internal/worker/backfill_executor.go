@@ -31,6 +31,11 @@ type SyncProgressWriter interface {
 }
 
 // BackfillExecutor materializes task windows into persisted candles and sync progress updates.
+// It handles binary separation of duties:
+//  1. Historical Backfill: Fetches source items, consolidates them, and saves to both raw and
+//     consolidated Postgres tables.
+//  2. Realtime Ticker: Fetches latest data and publishes directly to Kafka for live consumption,
+//     optionally bypassing or duplicating to the raw audit store.
 type BackfillExecutor struct {
 	candles  CandleStore
 	sync     SyncProgressWriter
@@ -66,9 +71,9 @@ func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources M
 	}
 }
 
-// Execute routes the task into hourly, daily, or realtime materialization and updates the
-// appropriate sync state on success. Historical tasks advance backfill progress; realtime
-// tasks record the live cutover without mutating the historical cursor.
+// Execute routes the task window to its specific materialization path (historical, daily,
+// or realtime) and updates the sync progress or realtime cutover marks on success.
+// Historical results are updated in both Postgres and the SSE notification bus.
 func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 	startedAt := time.Now()
 	switch item.Type {
@@ -158,6 +163,8 @@ func (e *BackfillExecutor) updateSyncProgress(ctx context.Context, item task.Tas
 	return nil
 }
 
+// materializeCandles determines the specific fetch/consolidation strategy based on
+// task type and interval (hourly, daily, or realtime).
 func (e *BackfillExecutor) materializeCandles(ctx context.Context, item task.Task) ([]candle.Candle, error) {
 	if item.Type == task.TypeRealtime {
 		return e.publishRealtime(ctx, item)
@@ -171,36 +178,35 @@ func (e *BackfillExecutor) materializeCandles(ctx context.Context, item task.Tas
 	}
 }
 
+// publishRealtime fetches latest snapshots for a live window, consolidates them (last snapshot wins),
+// and pushes them to the event bus for low-latency delivery. To avoid database pressure
+// during live ticker bursts, it typically skips the raw audit persistence if the event
+// bus is available.
 func (e *BackfillExecutor) publishRealtime(ctx context.Context, item task.Task) ([]candle.Candle, error) {
 	sourceCandles, err := e.fetchSourceCandles(ctx, item)
 	if err != nil {
 		return nil, err
 	}
-	for index := range sourceCandles {
-		sourceCandles[index].Finalized = false
+
+	consolidated, err := consolidate.FromRaw(item.Interval, sourceCandles)
+	if err != nil {
+		return nil, err
 	}
 
 	if e.events != nil {
-		if err := e.events.PublishCandles(ctx, sourceCandles); err != nil {
+		if err := e.events.PublishCandles(ctx, consolidated); err != nil {
 			return nil, err
 		}
 		slog.Info("realtime task published market events",
 			"task_id", item.ID,
 			"pair", item.Pair,
 			"interval", item.Interval,
-			"candle_count", len(sourceCandles),
+			"candle_count", len(consolidated),
 		)
 		return nil, nil
 	}
 
-	if err := e.candles.UpsertRawCandles(ctx, item.Interval, sourceCandles); err != nil {
-		return nil, err
-	}
-	rawCandles, err := e.candles.RawCandles(ctx, item.Pair, item.Interval, item.WindowStart, item.WindowEnd)
-	if err != nil {
-		return nil, err
-	}
-	return consolidate.FromRaw(item.Interval, rawCandles)
+	return consolidated, nil
 }
 
 func (e *BackfillExecutor) materializeHourly(ctx context.Context, item task.Task) ([]candle.Candle, error) {

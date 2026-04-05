@@ -76,6 +76,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	syncRepo := postgresrepo.NewSyncRepository(db)
 	leaseRepo := postgresrepo.NewLeaseRepository(db)
 	taskRepo := postgresrepo.NewTaskRepository(db, instanceID)
+	warningDismissalRepo := postgresrepo.NewWarningDismissalRepository(db)
 	pairLocker := postgresrepo.NewAdvisoryPairLocker(db)
 
 	systemService := service.NewSystemService(
@@ -83,6 +84,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		kafka.NewHealthChecker(cfg.KafkaBrokers),
 		syncRepo,
 		taskRepo,
+		warningDismissalRepo,
 		leaseRepo,
 		cfg.PlannerLeaseName,
 		cfg.RealtimePollInterval,

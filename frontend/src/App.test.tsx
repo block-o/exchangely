@@ -61,15 +61,8 @@ describe("App", () => {
         if (url.includes("/system/version")) {
           return mockResponse({ api_version: "v1.0.0" });
         }
-        if (url.includes("/system/sync-status")) {
+        if (url.includes("/system/warnings")) {
           return mockResponse([]);
-        }
-        if (url.includes("/health")) {
-          return mockResponse({
-            status: "ok",
-            checks: { api: "ok", db: "ok", kafka: "ok" },
-            timestamp: 1711929600,
-          });
         }
         if (url.includes("/system/tasks")) {
           return mockResponse({

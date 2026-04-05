@@ -17,6 +17,14 @@ export type SyncPairStatus = {
   next_daily_target_unix: number;
 };
 
+export type ActiveWarning = {
+  id: string;
+  level: "warning" | "error";
+  title: string;
+  detail: string;
+  fingerprint: string;
+};
+
 export type Asset = {
   symbol: string;
   name: string;

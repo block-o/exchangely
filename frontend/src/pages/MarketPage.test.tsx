@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MarketPage } from "./MarketPage";
 import { SettingsProvider } from "../app/settings";
@@ -217,22 +217,24 @@ describe("MarketPage", () => {
       throw new Error("expected EventSource onmessage handler to be registered");
     }
 
-    stream.onmessage(
-      new MessageEvent("message", {
-        data: JSON.stringify({
-          tickers: [{
-            pair: "BTCEUR",
-            price: 50100,
-            market_cap: 994_485_000_000,
-            variation_24h: 1.8,
-            high_24h: 51100,
-            low_24h: 49100,
-            source: "stream",
-            last_update_unix: 1711933200,
-          }],
-        }),
-      })
-    );
+    await act(async () => {
+      stream.onmessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            tickers: [{
+              pair: "BTCEUR",
+              price: 50100,
+              market_cap: 994_485_000_000,
+              variation_24h: 1.8,
+              high_24h: 51100,
+              low_24h: 49100,
+              source: "stream",
+              last_update_unix: 1711933200,
+            }],
+          }),
+        })
+      );
+    });
 
     await waitFor(() => {
       expect(screen.getByText("€50,100")).toBeInTheDocument();

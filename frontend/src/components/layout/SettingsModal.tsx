@@ -49,10 +49,10 @@ export function SettingsModal({ isOpen, onClose }: Props) {
                 EUR
               </button>
               <button 
-                className={quoteCurrency === "USDT" ? "active" : ""} 
-                onClick={() => setQuoteCurrency("USDT")}
+                className={quoteCurrency === "USD" ? "active" : ""} 
+                onClick={() => setQuoteCurrency("USD")}
               >
-                USDT
+                USD
               </button>
             </div>
           </div>

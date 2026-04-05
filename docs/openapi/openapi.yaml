@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Exchangely API
   version: 0.1.0
-  description: REST API for Exchangely market data and sync state.
+  description: REST API for Exchangely market data and sync state. Github (https://github.com/block-o/exchangely)
 servers:
   - url: http://localhost:8080
 paths:

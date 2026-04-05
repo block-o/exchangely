@@ -1,9 +1,16 @@
 import { useEffect, useState, useRef, useMemo } from "react";
+import { fetchAssets } from "../api/assets";
 import { fetchPairs } from "../api/pairs";
 import { fetchHistorical } from "../api/historical";
 import { useApi } from "../hooks/useApi";
 import { useSettings } from "../app/settings";
-import { formatCompactNumber, formatNumber, formatUnix, getBrowserTimezone } from "../lib/format";
+import {
+  formatCompactCurrencyNumber,
+  formatCurrencyNumber,
+  formatNumber,
+  formatUnix,
+  getBrowserTimezone,
+} from "../lib/format";
 import type { Ticker, Candle, Pair } from "../types/api";
 
 function parseTickerStreamPayload(payload: string): Ticker[] {
@@ -17,8 +24,11 @@ function parseTickerStreamPayload(payload: string): Ticker[] {
   return [];
 }
 
+const TREND_SCALE_PCT = 3;
+
 export function MarketPage() {
   const { quoteCurrency } = useSettings();
+  const { data: assetsData } = useApi(fetchAssets);
   const { data: pairsData, error: pairsError, loading: pairsLoading } = useApi(fetchPairs);
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
   const [candles, setCandles] = useState<Record<string, Candle[]>>({});
@@ -142,6 +152,11 @@ export function MarketPage() {
       });
   }, [pairsData, quoteCurrency, tickers]);
 
+  const assetNames = useMemo(() => {
+    const items = assetsData?.data ?? [];
+    return Object.fromEntries(items.map((asset) => [asset.symbol, asset.name]));
+  }, [assetsData]);
+
   return (
     <section id="market" className="panel">
       <div className="panel-header">
@@ -158,8 +173,8 @@ export function MarketPage() {
             <thead>
               <tr>
                 <th>Asset</th>
-                <th>Market Cap ({quoteCurrency})</th>
-                <th>Price ({quoteCurrency})</th>
+                <th>Market Cap</th>
+                <th>Price</th>
                 <th>24h Chg</th>
                 <th>24h High</th>
                 <th>24h Low</th>
@@ -168,25 +183,30 @@ export function MarketPage() {
             </thead>
             <tbody style={{ opacity: loadingExtras ? 0.5 : 1 }}>
               {visiblePairs.map((pair) => {
-                  const tk = tickers[pair.symbol];
-                  const hist = candles[pair.symbol] || [];
-                  const var24h = tk?.variation_24h || 0;
-                  
-                  return (
-                    <tr key={pair.symbol} className={flashState[pair.symbol] ? `flash-${flashState[pair.symbol]}` : ""}>
-                      <td className="symbol">{pair.base}</td>
-                      <td className="text-muted">{formatCompactNumber(tk?.market_cap)}</td>
-                      <td className="price">
-                      {tk ? formatNumber(tk.price) : "-"}
+                const tk = tickers[pair.symbol];
+                const hist = candles[pair.symbol] || [];
+                const var24h = tk?.variation_24h || 0;
+
+                return (
+                  <tr key={pair.symbol} className={flashState[pair.symbol] ? `flash-${flashState[pair.symbol]}` : ""}>
+                    <td className="symbol">
+                      <div className="asset-cell">
+                        <span className="asset-name">{assetNames[pair.base] ?? pair.base}</span>
+                        <span className="asset-code">{pair.base}</span>
+                      </div>
+                    </td>
+                    <td className="text-muted">{formatCompactCurrencyNumber(tk?.market_cap, quoteCurrency)}</td>
+                    <td className="price">
+                      {tk ? formatCurrencyNumber(tk.price, quoteCurrency) : "-"}
                     </td>
                     <td className={var24h >= 0 ? "text-up" : "text-down"}>
                       {tk ? `${var24h >= 0 ? "+" : ""}${formatNumber(var24h)}%` : "-"}
                     </td>
                     <td className="text-muted">
-                      {tk?.high_24h ? formatNumber(tk.high_24h) : "-"}
+                      {tk?.high_24h !== undefined ? formatCurrencyNumber(tk.high_24h, quoteCurrency) : "-"}
                     </td>
                     <td className="text-muted">
-                      {tk?.low_24h ? formatNumber(tk.low_24h) : "-"}
+                      {tk?.low_24h !== undefined ? formatCurrencyNumber(tk.low_24h, quoteCurrency) : "-"}
                     </td>
                     <td>
                       <div className="chart-placeholder" style={{ width: '120px', margin: '0 auto', display: 'flex', alignItems: 'flex-end', gap: '2px' }}>
@@ -199,8 +219,7 @@ export function MarketPage() {
                           });
                           
                           const validCandles = plotted.filter(c => !!c) as typeof hist;
-                          const minLow = validCandles.length > 0 ? Math.min(...validCandles.map((x) => x.low)) : 0;
-                          const maxHigh = validCandles.length > 0 ? Math.max(...validCandles.map((x) => x.high)) : 0;
+                          const referenceClose = validCandles.length > 0 ? validCandles[0].close : 0;
 
                           return plotted.map((c, i) => {
                             if (!c) {
@@ -215,13 +234,15 @@ export function MarketPage() {
                             }
 
                             const isUp = c.close >= c.open;
-                            const heightPct = maxHigh === minLow ? 50 : ((c.close - minLow) / (maxHigh - minLow)) * 100;
+                            const pctChange = referenceClose > 0 ? ((c.close - referenceClose) / referenceClose) * 100 : 0;
+                            const boundedPctChange = Math.max(-TREND_SCALE_PCT, Math.min(TREND_SCALE_PCT, pctChange));
+                            const heightPct = ((boundedPctChange + TREND_SCALE_PCT) / (TREND_SCALE_PCT * 2)) * 100;
                             return (
                               <div 
                                 key={`val-${i}`} 
                                 className={`chart-bar ${isUp ? 'up' : 'down'}`}
-                                style={{ height: `${Math.max(10, heightPct)}%` }}
-                                title={`C: ${c.close}`}
+                                style={{ height: `${Math.max(8, heightPct)}%` }}
+                                title={`C: ${formatNumber(c.close)} (${pctChange >= 0 ? "+" : ""}${formatNumber(pctChange)}%)`}
                               />
                             );
                           });

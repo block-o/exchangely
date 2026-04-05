@@ -93,7 +93,8 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Market Overview")).toBeInTheDocument();
-      expect(screen.getByText("Price (EUR)")).toBeInTheDocument();
+      expect(screen.getByText("Price")).toBeInTheDocument();
+      expect(screen.getByText("Bitcoin")).toBeInTheDocument();
     });
   });
 

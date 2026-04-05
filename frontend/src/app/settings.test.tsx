@@ -62,6 +62,19 @@ describe("SettingsContext", () => {
     expect(screen.getByTestId("currency")).toHaveTextContent("EUR");
   });
 
+  it("ignores unsupported stored themes", () => {
+    localStorage.setItem("exchangely_theme", "blue");
+
+    render(
+      <SettingsProvider>
+        <SettingsConsumer />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByTestId("theme")).toHaveTextContent("dark");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+  });
+
   it("updates and persists theme", () => {
     render(
       <SettingsProvider>

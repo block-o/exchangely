@@ -27,7 +27,8 @@ type Config struct {
 	PlannerLeaseTTL          time.Duration
 	PlannerTick              time.Duration
 	// RealtimePollInterval controls how frequently the planner emits fresh realtime
-	// tasks for caught-up pairs. Shorter intervals mean fresher ticker prices.
+	// tasks for caught-up pairs. Shorter intervals mean fresher ticker prices but
+	// also increase external API load and internal task volume.
 	RealtimePollInterval      time.Duration
 	WorkerPollInterval        time.Duration
 	WorkerBatchSize           int

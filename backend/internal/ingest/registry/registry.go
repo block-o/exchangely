@@ -102,7 +102,7 @@ func (r *Registry) FetchCandles(ctx context.Context, request ingest.Request) ([]
 // ParsePairSymbol splits a tracked pair symbol into base and quote assets for source adapters.
 func ParsePairSymbol(symbol string) (base string, quote string, err error) {
 	symbol = strings.ToUpper(strings.TrimSpace(symbol))
-	quotes := []string{"USDT", "EUR"}
+	quotes := []string{"USDT", "USD", "EUR"}
 
 	for _, candidate := range quotes {
 		if strings.HasSuffix(symbol, candidate) {

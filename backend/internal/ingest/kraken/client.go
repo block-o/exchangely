@@ -48,7 +48,7 @@ func (c *Client) Name() string {
 }
 
 func (c *Client) Supports(request ingest.Request) bool {
-	if request.Quote != "EUR" || (request.Interval != "1h" && request.Interval != "1d") {
+	if (request.Quote != "EUR" && request.Quote != "USD") || (request.Interval != "1h" && request.Interval != "1d") {
 		return false
 	}
 

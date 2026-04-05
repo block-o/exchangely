@@ -56,9 +56,9 @@ func TestBackfillExecutorFailsWhenSourceUnavailable(t *testing.T) {
 	executor := NewBackfillExecutor(candleRepo, syncRepo, &fakeMarketSource{err: context.DeadlineExceeded}, nil, nil)
 
 	item := task.Task{
-		ID:          "backfill:BTCUSDT:1",
+		ID:          "backfill:BTCUSD:1",
 		Type:        task.TypeBackfill,
-		Pair:        "BTCUSDT",
+		Pair:        "BTCUSD",
 		Interval:    "1h",
 		WindowStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 		WindowEnd:   time.Date(2026, 4, 1, 2, 0, 0, 0, time.UTC),
@@ -102,15 +102,15 @@ func TestBackfillExecutorFailsWhenSourceCoverageIsIncomplete(t *testing.T) {
 	syncRepo := &fakeSyncWriter{}
 	executor := NewBackfillExecutor(candleRepo, syncRepo, &fakeMarketSource{
 		items: []candle.Candle{
-			{Pair: "BTCUSDT", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC).Unix(), Open: 10, High: 11, Low: 9, Close: 10.5, Volume: 1, Source: "binance"},
-			{Pair: "BTCUSDT", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 2, 0, 0, 0, time.UTC).Unix(), Open: 11, High: 12, Low: 10, Close: 11.5, Volume: 1, Source: "binance"},
+			{Pair: "BTCUSD", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC).Unix(), Open: 10, High: 11, Low: 9, Close: 10.5, Volume: 1, Source: "coingecko"},
+			{Pair: "BTCUSD", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 2, 0, 0, 0, time.UTC).Unix(), Open: 11, High: 12, Low: 10, Close: 11.5, Volume: 1, Source: "coingecko"},
 		},
 	}, nil, nil)
 
 	err := executor.Execute(context.Background(), task.Task{
-		ID:          "backfill:BTCUSDT:coverage-gap",
+		ID:          "backfill:BTCUSD:coverage-gap",
 		Type:        task.TypeBackfill,
-		Pair:        "BTCUSDT",
+		Pair:        "BTCUSD",
 		Interval:    "1h",
 		WindowStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 		WindowEnd:   time.Date(2026, 4, 1, 3, 0, 0, 0, time.UTC),
@@ -180,16 +180,16 @@ func TestBackfillExecutorPublishesRealtimeCandlesToEvents(t *testing.T) {
 	syncRepo := &fakeSyncWriter{}
 	source := &fakeMarketSource{
 		items: []candle.Candle{
-			{Pair: "BTCUSDT", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 102, Low: 99, Close: 101, Volume: 4, Source: "binance", Finalized: true},
+			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 102, Low: 99, Close: 101, Volume: 4, Source: "coingecko", Finalized: true},
 		},
 	}
 	publisher := &fakeMarketPublisher{}
 	executor := NewBackfillExecutor(candleRepo, syncRepo, source, publisher, nil)
 
 	err := executor.Execute(context.Background(), task.Task{
-		ID:          "realtime:BTCUSDT",
+		ID:          "realtime:BTCUSD",
 		Type:        task.TypeRealtime,
-		Pair:        "BTCUSDT",
+		Pair:        "BTCUSD",
 		Interval:    "1h",
 		WindowStart: time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC),
 		WindowEnd:   time.Date(2024, 4, 1, 1, 0, 0, 0, time.UTC),

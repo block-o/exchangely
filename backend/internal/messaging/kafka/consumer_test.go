@@ -44,7 +44,7 @@ func TestMarketEventConsumerHandleMessageDecodesAndForwardsCandle(t *testing.T) 
 	sink := &fakeCandleSink{}
 	consumer := &MarketEventConsumer{sink: sink}
 
-	body := []byte(`{"pair":"BTCUSDT","interval":"1h","timestamp":1704067200,"open":10,"high":11,"low":9,"close":10.5,"volume":12,"source":"binance","finalized":false}`)
+	body := []byte(`{"pair":"BTCUSD","interval":"1h","timestamp":1704067200,"open":10,"high":11,"low":9,"close":10.5,"volume":12,"source":"coingecko","finalized":false}`)
 	if err := consumer.handleMessage(context.Background(), kafkago.Message{Value: body}); err != nil {
 		t.Fatalf("handleMessage failed: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestMarketEventConsumerHandleMessageDecodesAndForwardsCandle(t *testing.T) 
 	if sink.calls != 1 || len(sink.items) != 1 {
 		t.Fatalf("expected one forwarded candle, got calls=%d items=%d", sink.calls, len(sink.items))
 	}
-	if sink.items[0].Pair != "BTCUSDT" || sink.items[0].Timestamp != 1704067200 {
+	if sink.items[0].Pair != "BTCUSD" || sink.items[0].Timestamp != 1704067200 {
 		t.Fatalf("unexpected candle: %+v", sink.items[0])
 	}
 }

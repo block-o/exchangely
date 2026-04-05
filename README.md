@@ -1,6 +1,6 @@
 # Exchangely
 
-Exchangely is an event-driven crypto market data platform focused on historical OHLCV availability for a curated set of crypto/fiat and crypto/stablecoin pairs.
+Exchangely is an event-driven crypto market data platform focused on historical OHLCV availability for a curated set of crypto/fiat pairs.
 
 ![Market Dashboard](./docs/ui/market_dashboard.png)
 
@@ -37,9 +37,8 @@ flowchart LR
     API -->|consume market events| Kafka
     API -->|read historical| TS
 
-    Worker -->|historical backfill| BinanceVision
-    Worker -->|recent USDT windows| Binance
-    Worker -->|EUR windows| Kraken
+    Worker -->|historical EUR/USD backfill| Binance Vision & CryptoDataDownload
+    Worker -->|recent EUR/USD windows| Kraken & CoinGecko
 ```
 
 ## Quick Start
@@ -48,4 +47,3 @@ flowchart LR
 2. Run `docker compose up --build`.
 3. Open the frontend at `http://localhost:5173`.
 4. Open the backend API at `http://localhost:8080/api/v1/health`.
-

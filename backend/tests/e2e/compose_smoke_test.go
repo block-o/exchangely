@@ -183,7 +183,7 @@ func TestRunningComposeStack(t *testing.T) {
 	})
 
 	t.Run("realtime market events", func(t *testing.T) {
-		realtimePair := "E2EREALTIMEUSDT"
+		realtimePair := "E2EREALTIMEUSD"
 		realtimeTime := time.Date(2026, 4, 3, 11, 0, 0, 0, time.UTC)
 		realtimeCandle := candle.Candle{
 			Pair:      realtimePair,
@@ -334,7 +334,7 @@ func openDB(t *testing.T, dsn string) *sql.DB {
 func seedMarketFixture(t *testing.T, db *sql.DB) string {
 	t.Helper()
 
-	pairSymbol := "E2ETESTUSDT"
+	pairSymbol := "E2ETESTUSD"
 	first := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	second := first.Add(24 * time.Hour)
 

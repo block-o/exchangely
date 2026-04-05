@@ -22,7 +22,7 @@ func TestBuildSourcesHonorsProviderFlags(t *testing.T) {
 	if got, want := sourceNames(sources.registrySources), []string{"binancevision", "kraken", "coingecko"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected registry sources: got %v want %v", got, want)
 	}
-	if got, want := sourceNames(sources.validatorSources), []string{"binancevision", "kraken"}; !equalStrings(got, want) {
+	if got, want := sourceNames(sources.validatorSources), []string{"binancevision", "kraken", "coingecko"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected validator sources: got %v want %v", got, want)
 	}
 	if got, want := sources.enabledNames, []string{"binancevision", "kraken", "coingecko"}; !equalStrings(got, want) {

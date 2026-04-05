@@ -15,8 +15,8 @@ func TestFetchCandlesParsesMarketChartRangeSamples(t *testing.T) {
 		if r.URL.Path != "/coins/bitcoin/market_chart/range" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		if got := r.URL.Query().Get("vs_currency"); got != "eur" {
-			t.Fatalf("expected eur vs_currency, got %q", got)
+		if got := r.URL.Query().Get("vs_currency"); got != "usd" {
+			t.Fatalf("expected usd vs_currency, got %q", got)
 		}
 		if got := r.Header.Get("x-cg-demo-api-key"); got != "demo-key" {
 			t.Fatalf("expected api key header, got %q", got)
@@ -37,9 +37,9 @@ func TestFetchCandlesParsesMarketChartRangeSamples(t *testing.T) {
 	}
 
 	items, err := client.FetchCandles(context.Background(), ingest.Request{
-		Pair:      "BTCEUR",
+		Pair:      "BTCUSD",
 		Base:      "BTC",
-		Quote:     "EUR",
+		Quote:     "USD",
 		Interval:  "1h",
 		StartTime: time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC),
 		EndTime:   time.Date(2024, 4, 1, 3, 0, 0, 0, time.UTC),
@@ -58,7 +58,7 @@ func TestFetchCandlesParsesMarketChartRangeSamples(t *testing.T) {
 	}
 }
 
-func TestSupportsOnlyRealtimeEURWindows(t *testing.T) {
+func TestSupportsOnlyRealtimeEURAndUSDWindows(t *testing.T) {
 	client := NewClient("", "", http.DefaultClient)
 	client.now = func() time.Time {
 		return time.Date(2026, 4, 4, 10, 0, 0, 0, time.UTC)
@@ -73,6 +73,17 @@ func TestSupportsOnlyRealtimeEURWindows(t *testing.T) {
 		EndTime:   time.Date(2026, 4, 4, 10, 0, 0, 0, time.UTC),
 	}) {
 		t.Fatal("expected current-day EUR realtime window to be supported")
+	}
+
+	if !client.Supports(ingest.Request{
+		Pair:      "BTCUSD",
+		Base:      "BTC",
+		Quote:     "USD",
+		Interval:  "1h",
+		StartTime: time.Date(2026, 4, 4, 9, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 4, 4, 10, 0, 0, 0, time.UTC),
+	}) {
+		t.Fatal("expected current-day USD realtime window to be supported")
 	}
 
 	if client.Supports(ingest.Request{

@@ -65,7 +65,7 @@ func Load() Config {
 		CoinGeckoAPIKey:           getenv("BACKEND_COINGECKO_API_KEY", ""),
 		IntegrityMinSources:       parseInt(getenv("BACKEND_INTEGRITY_MIN_SOURCES", "2"), 2),
 		IntegrityMaxDivergencePct: parseFloat(getenv("BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT", "0.5"), 0.5),
-		DefaultQuoteAssets:        splitCSV(getenv("BACKEND_DEFAULT_QUOTE_ASSETS", "EUR,USDT")),
+		DefaultQuoteAssets:        splitCSV(getenv("BACKEND_DEFAULT_QUOTE_ASSETS", "EUR,USD")),
 	}
 }
 

@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
-import { fetchHealth } from "../api/health";
-import { fetchSyncStatus } from "../api/system";
-import type { HealthResponse, SyncPairStatus } from "../types/api";
+import { dismissWarning as dismissSystemWarning, fetchWarnings as fetchSystemWarnings } from "../api/system";
+import type { ActiveWarning } from "../types/api";
 
 export interface Task {
   id: string;
@@ -24,13 +23,6 @@ interface TasksResponse {
   recentTotal: number;
   recentLimit: number;
   recentPage: number;
-}
-
-interface ActiveWarning {
-  id: string;
-  level: "warning" | "error";
-  title: string;
-  detail: string;
 }
 
 // All known task types in display order
@@ -96,89 +88,6 @@ function taskStatusLabel(status?: string) {
     default:
       return status || "Pending";
   }
-}
-
-function truncate(text: string, limit = 140) {
-  if (text.length <= limit) return text;
-  return `${text.slice(0, limit - 1)}…`;
-}
-
-function previewPairs(pairs: string[], limit = 3) {
-  if (pairs.length <= limit) return pairs.join(", ");
-  return `${pairs.slice(0, limit).join(", ")} +${pairs.length - limit} more`;
-}
-
-function buildWarnings(health: HealthResponse | null, syncPairs: SyncPairStatus[], failedTasks: Task[]): ActiveWarning[] {
-  const warnings: ActiveWarning[] = [];
-
-  if (health && health.status !== "ok") {
-    const failingChecks = Object.entries(health.checks)
-      .filter(([, status]) => status !== "ok")
-      .map(([name]) => name);
-    warnings.push({
-      id: "system-health",
-      level: "error",
-      title: "System health degraded",
-      detail:
-        failingChecks.length > 0
-          ? `Failing checks: ${failingChecks.join(", ")}.`
-          : "One or more system health checks are failing.",
-    });
-  }
-
-  const hourlyPending = syncPairs.filter((pair) => !pair.hourly_backfill_completed);
-  if (hourlyPending.length > 0) {
-    warnings.push({
-      id: "hourly-backfill",
-      level: "warning",
-      title: "Hourly backfill pending",
-      detail: `${hourlyPending.length} pairs are still filling hourly history: ${previewPairs(
-        hourlyPending.map((pair) => pair.pair)
-      )}.`,
-    });
-  }
-
-  const dailyPending = syncPairs.filter(
-    (pair) => pair.hourly_backfill_completed && !pair.daily_backfill_completed
-  );
-  if (dailyPending.length > 0) {
-    warnings.push({
-      id: "daily-backfill",
-      level: "warning",
-      title: "Daily backfill pending",
-      detail: `${dailyPending.length} pairs are not ready for consolidation yet: ${previewPairs(
-        dailyPending.map((pair) => pair.pair)
-      )}.`,
-    });
-  }
-
-  const integrityFailures = failedTasks.filter((task) => task.type === "integrity_check");
-  if (integrityFailures.length > 0) {
-    const latest = integrityFailures[0];
-    warnings.push({
-      id: "integrity-failures",
-      level: "error",
-      title: "Integrity check failures detected",
-      detail: `${integrityFailures.length} recent integrity checks failed. Latest: ${latest.pair} ${
-        latest.last_error ? `(${truncate(latest.last_error, 110)})` : ""
-      }`.trim(),
-    });
-  }
-
-  const otherFailures = failedTasks.filter((task) => task.type !== "integrity_check");
-  if (otherFailures.length > 0) {
-    const latest = otherFailures[0];
-    warnings.push({
-      id: "task-failures",
-      level: "warning",
-      title: "Task failures need review",
-      detail: `${otherFailures.length} non-validator tasks failed recently. Latest: ${TYPE_LABELS[latest.type] ?? latest.type} ${
-        latest.pair && latest.pair !== "*" ? `for ${latest.pair} ` : ""
-      }${latest.last_error ? `(${truncate(latest.last_error, 110)})` : ""}`.trim(),
-    });
-  }
-
-  return warnings;
 }
 
 // ── Multi filter dropdown ───────────────────────────────────────────────────
@@ -367,6 +276,78 @@ function Pagination({ total, limit, page, onPageChange }: PaginationProps) {
   );
 }
 
+function FailureStatus({ reason }: { reason: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <span
+      style={{ position: "relative", display: "inline-flex", alignItems: "center" }}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+    >
+      <span
+        className="text-down"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.35rem",
+          textDecoration: "underline dotted",
+          textUnderlineOffset: "2px",
+          cursor: "help",
+        }}
+        title={reason}
+        tabIndex={0}
+        aria-label={`Failed: ${reason}`}
+      >
+        Failed
+        <span
+          aria-hidden="true"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "1rem",
+            height: "1rem",
+            borderRadius: "999px",
+            border: "1px solid currentColor",
+            fontSize: "0.7rem",
+            lineHeight: 1,
+          }}
+        >
+          i
+        </span>
+      </span>
+
+      {open && (
+        <span
+          role="tooltip"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: "calc(100% + 0.45rem)",
+            zIndex: 20,
+            minWidth: "220px",
+            maxWidth: "320px",
+            padding: "0.6rem 0.7rem",
+            borderRadius: "8px",
+            border: "1px solid rgba(255,107,107,0.35)",
+            background: "rgba(15,18,28,0.96)",
+            boxShadow: "0 12px 28px rgba(0,0,0,0.35)",
+            color: "rgba(255,255,255,0.92)",
+            fontSize: "0.78rem",
+            lineHeight: 1.45,
+            whiteSpace: "normal",
+          }}
+        >
+          {reason}
+        </span>
+      )}
+    </span>
+  );
+}
+
 // ── Main Panel ──────────────────────────────────────────────────────────────
 export function SystemPanel() {
   const [data, setData] = useState<{ upcoming: Task[]; recent: Task[] }>({ upcoming: [], recent: [] });
@@ -375,6 +356,7 @@ export function SystemPanel() {
   const [apiVersion, setApiVersion] = useState<string>("Unknown");
   const [warnings, setWarnings] = useState<ActiveWarning[]>([]);
   const [warningsLoading, setWarningsLoading] = useState(true);
+  const [dismissingWarningIds, setDismissingWarningIds] = useState<Set<string>>(new Set());
 
   const [upcomingPage, setUpcomingPage] = useState(1);
   const [recentPage, setRecentPage] = useState(1);
@@ -390,19 +372,7 @@ export function SystemPanel() {
 
   const fetchWarnings = async () => {
     try {
-      const failedTasksUrl = `${import.meta.env.VITE_API_BASE_URL}/system/tasks?recent_limit=10&recent_page=1&status=failed`;
-      const [health, syncPairs, failedTasksResponse] = await Promise.all([
-        fetchHealth(),
-        fetchSyncStatus(),
-        fetch(failedTasksUrl).then((res) => {
-          if (!res.ok) {
-            throw new Error(`failed tasks request failed: ${res.status}`);
-          }
-          return res.json() as Promise<TasksResponse>;
-        }),
-      ]);
-
-      setWarnings(buildWarnings(health, syncPairs, failedTasksResponse.recent || []));
+      setWarnings(await fetchSystemWarnings());
     } catch (e) {
       console.error("Failed to fetch active warnings", e);
       setWarnings([
@@ -411,6 +381,7 @@ export function SystemPanel() {
           level: "warning",
           title: "Warnings unavailable",
           detail: "Health and synchronization warnings could not be loaded.",
+          fingerprint: "warnings-unavailable",
         },
       ]);
     } finally {
@@ -498,6 +469,23 @@ export function SystemPanel() {
       (recentStatusFilter.size === 0 || recentStatusFilter.has(t.status || ""))
   );
 
+  async function dismissWarning(warning: ActiveWarning) {
+    setDismissingWarningIds((previous) => new Set(previous).add(warning.id));
+
+    try {
+      await dismissSystemWarning(warning.id, warning.fingerprint);
+      setWarnings((previous) => previous.filter((item) => item.id !== warning.id));
+    } catch (e) {
+      console.error("Failed to dismiss warning", e);
+    } finally {
+      setDismissingWarningIds((previous) => {
+        const next = new Set(previous);
+        next.delete(warning.id);
+        return next;
+      });
+    }
+  }
+
   return (
     <section className="panel">
       <div
@@ -552,15 +540,18 @@ export function SystemPanel() {
         ) : (
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              display: "flex",
               gap: "0.75rem",
+              overflowX: "auto",
+              paddingBottom: "0.25rem",
+              scrollSnapType: "x proximity",
             }}
           >
             {warnings.map((warning) => (
               <article
                 key={warning.id}
                 style={{
+                  flex: "0 0 min(320px, calc(100vw - 5rem))",
                   padding: "0.9rem 1rem",
                   borderRadius: "10px",
                   border: `1px solid ${
@@ -568,6 +559,7 @@ export function SystemPanel() {
                   }`,
                   background:
                     warning.level === "error" ? "rgba(120,28,28,0.18)" : "rgba(140,96,0,0.14)",
+                  scrollSnapAlign: "start",
                 }}
               >
                 <div
@@ -581,14 +573,37 @@ export function SystemPanel() {
                 >
                   <strong style={{ fontSize: "0.92rem" }}>{warning.title}</strong>
                   <span
-                    style={{
-                      fontSize: "0.72rem",
-                      letterSpacing: "0.04em",
-                      textTransform: "uppercase",
-                      opacity: 0.75,
-                    }}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
                   >
-                    {warning.level}
+                    <span
+                      style={{
+                        fontSize: "0.72rem",
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
+                        opacity: 0.75,
+                      }}
+                    >
+                      {warning.level}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => dismissWarning(warning)}
+                      aria-label={`Dismiss warning ${warning.title}`}
+                      disabled={dismissingWarningIds.has(warning.id)}
+                      style={{
+                        background: "transparent",
+                        border: "1px solid rgba(255,255,255,0.18)",
+                        borderRadius: "999px",
+                        color: "inherit",
+                        cursor: dismissingWarningIds.has(warning.id) ? "default" : "pointer",
+                        fontSize: "0.9rem",
+                        lineHeight: 1,
+                        opacity: dismissingWarningIds.has(warning.id) ? 0.45 : 1,
+                        padding: "0.12rem 0.42rem",
+                      }}
+                    >
+                      ×
+                    </button>
                   </span>
                 </div>
                 <p style={{ margin: 0, fontSize: "0.84rem", lineHeight: 1.45, opacity: 0.86 }}>
@@ -766,23 +781,13 @@ export function SystemPanel() {
                         {formatDateTime(t.completed_at)}
                       </td>
                       <td>
-                        <span
-                          className={t.status === "failed" ? "text-down" : "text-up"}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "0.3rem",
-                            textDecoration: t.status === "failed" && t.last_error ? "underline dotted" : "none",
-                            textUnderlineOffset: "2px",
-                            cursor: t.status === "failed" && t.last_error ? "help" : "default",
-                          }}
-                          title={t.status === "failed" ? t.last_error || "" : ""}
-                        >
-                          {taskStatusLabel(t.status)}
-                          {t.status === "failed" && t.last_error && (
-                            <span aria-label="Error details available">⚠</span>
-                          )}
-                        </span>
+                        {t.status === "failed" && t.last_error ? (
+                          <FailureStatus reason={t.last_error} />
+                        ) : (
+                          <span className={t.status === "failed" ? "text-down" : "text-up"}>
+                            {taskStatusLabel(t.status)}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}

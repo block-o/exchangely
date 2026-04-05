@@ -151,6 +151,39 @@ func New(svcs Services, opts Options) http.Handler {
 		})
 	})
 
+	mux.HandleFunc("/api/v1/system/warnings", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			items, err := svcs.System.ActiveWarnings(r.Context())
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, items)
+		case http.MethodPost:
+			var payload struct {
+				ID          string `json:"id"`
+				Fingerprint string `json:"fingerprint"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				http.Error(w, "invalid warning dismiss payload", http.StatusBadRequest)
+				return
+			}
+			if payload.ID == "" || payload.Fingerprint == "" {
+				http.Error(w, "id and fingerprint are required", http.StatusBadRequest)
+				return
+			}
+			if err := svcs.System.DismissWarning(r.Context(), payload.ID, payload.Fingerprint); err != nil {
+				writeError(w, err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.Header().Set("Allow", strings.Join([]string{http.MethodGet, http.MethodPost}, ", "))
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	mux.HandleFunc("/api/v1/system/tasks", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 

@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -30,11 +33,17 @@ type SystemTaskReader interface {
 	RecentTasks(ctx context.Context, limit, offset int, types, statuses []string) ([]task.Task, int, error)
 }
 
+type WarningDismissalStore interface {
+	DismissWarning(ctx context.Context, warningID, fingerprint string) error
+	DismissedWarnings(ctx context.Context) (map[string]string, error)
+}
+
 type SystemService struct {
 	dbChecker    Pinger
 	kafkaChecker Pinger
 	syncReader   SyncReader
 	taskReader   SystemTaskReader
+	warningStore WarningDismissalStore
 	leaseName    string
 	leaseReader  LeaseReader
 	pollInterval time.Duration
@@ -55,12 +64,21 @@ type TaskStreamSnapshot struct {
 	RecentTotal   int         `json:"recentTotal"`
 }
 
-func NewSystemService(dbChecker, kafkaChecker Pinger, syncReader SyncReader, taskReader SystemTaskReader, leaseReader LeaseReader, leaseName string, pollInterval time.Duration) *SystemService {
+type ActiveWarning struct {
+	ID          string `json:"id"`
+	Level       string `json:"level"`
+	Title       string `json:"title"`
+	Detail      string `json:"detail"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+func NewSystemService(dbChecker, kafkaChecker Pinger, syncReader SyncReader, taskReader SystemTaskReader, warningStore WarningDismissalStore, leaseReader LeaseReader, leaseName string, pollInterval time.Duration) *SystemService {
 	return &SystemService{
 		dbChecker:    dbChecker,
 		kafkaChecker: kafkaChecker,
 		syncReader:   syncReader,
 		taskReader:   taskReader,
+		warningStore: warningStore,
 		leaseName:    leaseName,
 		leaseReader:  leaseReader,
 		pollInterval: pollInterval,
@@ -240,6 +258,47 @@ func (s *SystemService) RecentTasks(ctx context.Context, limit, offset int, type
 	return tasks, total, nil
 }
 
+func (s *SystemService) ActiveWarnings(ctx context.Context) ([]ActiveWarning, error) {
+	health := s.Health(ctx)
+	syncPairs, err := s.SyncSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	failedTasks, _, err := s.RecentTasks(ctx, 10, 0, nil, []string{"failed"})
+	if err != nil {
+		return nil, err
+	}
+
+	warnings := buildActiveWarnings(health, syncPairs, failedTasks)
+	if s.warningStore == nil {
+		return warnings, nil
+	}
+
+	dismissed, err := s.warningStore.DismissedWarnings(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := warnings[:0]
+	for _, warning := range warnings {
+		if dismissed[warning.ID] == warning.Fingerprint {
+			continue
+		}
+		filtered = append(filtered, warning)
+	}
+
+	return filtered, nil
+}
+
+func (s *SystemService) DismissWarning(ctx context.Context, warningID, fingerprint string) error {
+	if warningID == "" || fingerprint == "" || s.warningStore == nil {
+		return nil
+	}
+
+	return s.warningStore.DismissWarning(ctx, warningID, fingerprint)
+}
+
 func (s *SystemService) NotifyUpdate() {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -345,6 +404,157 @@ func (s *SystemService) Health(ctx context.Context) HealthStatus {
 		Status:    status,
 		Checks:    checks,
 		Timestamp: time.Now().Unix(),
+	}
+}
+
+func buildActiveWarnings(health HealthStatus, syncPairs []syncstatus.PairSyncStatus, failedTasks []task.Task) []ActiveWarning {
+	warnings := make([]ActiveWarning, 0, 5)
+
+	if health.Status != "ok" {
+		failingChecks := make([]string, 0, len(health.Checks))
+		for name, status := range health.Checks {
+			if status != "ok" {
+				failingChecks = append(failingChecks, name)
+			}
+		}
+		sort.Strings(failingChecks)
+
+		detail := "One or more system health checks are failing."
+		if len(failingChecks) > 0 {
+			detail = fmt.Sprintf("Failing checks: %s.", joinStrings(failingChecks))
+		}
+
+		warnings = append(warnings, newWarning("system-health", "error", "System health degraded", detail))
+	}
+
+	hourlyPending := make([]string, 0)
+	for _, pair := range syncPairs {
+		if !pair.HourlyBackfillCompleted {
+			hourlyPending = append(hourlyPending, pair.Pair)
+		}
+	}
+	if len(hourlyPending) > 0 {
+		warnings = append(warnings, newWarning(
+			"hourly-backfill",
+			"warning",
+			"Hourly backfill pending",
+			fmt.Sprintf("%d pairs are still filling hourly history: %s.", len(hourlyPending), previewPairs(hourlyPending)),
+		))
+	}
+
+	dailyPending := make([]string, 0)
+	for _, pair := range syncPairs {
+		if pair.HourlyBackfillCompleted && !pair.DailyBackfillCompleted {
+			dailyPending = append(dailyPending, pair.Pair)
+		}
+	}
+	if len(dailyPending) > 0 {
+		warnings = append(warnings, newWarning(
+			"daily-backfill",
+			"warning",
+			"Daily backfill pending",
+			fmt.Sprintf("%d pairs are not ready for consolidation yet: %s.", len(dailyPending), previewPairs(dailyPending)),
+		))
+	}
+
+	integrityFailures := make([]task.Task, 0)
+	otherFailures := make([]task.Task, 0)
+	for _, failedTask := range failedTasks {
+		if failedTask.Type == task.TypeDataSanity {
+			integrityFailures = append(integrityFailures, failedTask)
+			continue
+		}
+		otherFailures = append(otherFailures, failedTask)
+	}
+
+	if len(integrityFailures) > 0 {
+		latest := integrityFailures[0]
+		detail := fmt.Sprintf("%d recent integrity checks failed. Latest: %s", len(integrityFailures), latest.Pair)
+		if latest.LastError != "" {
+			detail = fmt.Sprintf("%s (%s)", detail, truncateText(latest.LastError, 110))
+		}
+		warnings = append(warnings, newWarning(
+			"integrity-failures",
+			"error",
+			"Integrity check failures detected",
+			detail,
+		))
+	}
+
+	if len(otherFailures) > 0 {
+		latest := otherFailures[0]
+		detail := fmt.Sprintf("%d non-validator tasks failed recently. Latest: %s", len(otherFailures), taskTypeLabel(latest.Type))
+		if latest.Pair != "" && latest.Pair != "*" {
+			detail = fmt.Sprintf("%s for %s", detail, latest.Pair)
+		}
+		if latest.LastError != "" {
+			detail = fmt.Sprintf("%s (%s)", detail, truncateText(latest.LastError, 110))
+		}
+		warnings = append(warnings, newWarning(
+			"task-failures",
+			"warning",
+			"Task failures need review",
+			detail,
+		))
+	}
+
+	return warnings
+}
+
+func newWarning(id, level, title, detail string) ActiveWarning {
+	sum := sha256.Sum256([]byte(id + "|" + level + "|" + title + "|" + detail))
+	return ActiveWarning{
+		ID:          id,
+		Level:       level,
+		Title:       title,
+		Detail:      detail,
+		Fingerprint: hex.EncodeToString(sum[:]),
+	}
+}
+
+func previewPairs(pairs []string) string {
+	if len(pairs) <= 3 {
+		return joinStrings(pairs)
+	}
+	return fmt.Sprintf("%s +%d more", joinStrings(pairs[:3]), len(pairs)-3)
+}
+
+func truncateText(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	return text[:limit-1] + "…"
+}
+
+func joinStrings(values []string) string {
+	switch len(values) {
+	case 0:
+		return ""
+	case 1:
+		return values[0]
+	default:
+		result := values[0]
+		for _, value := range values[1:] {
+			result += ", " + value
+		}
+		return result
+	}
+}
+
+func taskTypeLabel(taskType string) string {
+	switch taskType {
+	case task.TypeBackfill:
+		return "Historical Sweep"
+	case task.TypeRealtime:
+		return "Live Ticker"
+	case task.TypeDataSanity:
+		return "Integrity Check"
+	case task.TypeConsolidate:
+		return "Consolidation"
+	case task.TypeCleanup:
+		return "Task Log Cleanup"
+	default:
+		return taskType
 	}
 }
 

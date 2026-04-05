@@ -1,3 +1,6 @@
+// Package kraken provides an OHLCV market data provider for the Kraken exchange.
+// It handles pair normalization (XBT -> BTC), secondary pair resolution via AssetPairs API,
+// and rate-limit cooldown tracking.
 package kraken
 
 import (
@@ -16,18 +19,23 @@ import (
 	"github.com/block-o/exchangely/backend/internal/ingest"
 )
 
+// rateLimitCooldown is the default wait time after a 429 response or
+// Kraken "Too many requests" error payload.
 const rateLimitCooldown = 30 * time.Second
 
+// Client implements the ingest.MarketSource interface for the Kraken API.
+// It uses a local cache for pair mapping to minimize redundant AssetPairs calls.
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
-	now        func() time.Time
+	now        func() time.Time // now allows mocking time in tests
 	mu         sync.RWMutex
-	pairMap    map[string]string
+	pairMap    map[string]string // normalized pair -> internal kraken code
 	cachedAt   time.Time
 	cooldown   time.Time
 }
 
+// NewClient returns a default Kraken client pointed at api.kraken.com.
 func NewClient(baseURL string, httpClient *http.Client) *Client {
 	if baseURL == "" {
 		baseURL = "https://api.kraken.com"
@@ -43,10 +51,13 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
 	}
 }
 
+// Name returns the canonical source identifier "kraken".
 func (c *Client) Name() string {
 	return "kraken"
 }
 
+// Supports returns true if the request quote is EUR or USD and the interval
+// is 1h or 1d. It only supports requests within the current day for live OHLC.
 func (c *Client) Supports(request ingest.Request) bool {
 	if (request.Quote != "EUR" && request.Quote != "USD") || (request.Interval != "1h" && request.Interval != "1d") {
 		return false
@@ -56,6 +67,8 @@ func (c *Client) Supports(request ingest.Request) bool {
 	return request.EndTime.UTC().After(currentDayStart)
 }
 
+// FetchCandles retrieves OHLC data from the Kraken public API and maps it
+// into the canonical exchangely domain model.
 func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error) {
 	if !c.Supports(request) {
 		return nil, fmt.Errorf("unsupported request %s %s", request.Pair, request.Interval)
@@ -178,6 +191,9 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 	return items, nil
 }
 
+// resolvePairCode maps a user-facing pair (e.g., BTCEUR) to Kraken's internal
+// symbol code (e.g., XXBTZEUR). It uses an internal cache that refreshes
+// periodically via the AssetPairs endpoint.
 func (c *Client) resolvePairCode(ctx context.Context, pair string) (string, error) {
 	normalized := normalizeKrakenPair(pair)
 
@@ -203,6 +219,8 @@ func (c *Client) resolvePairCode(ctx context.Context, pair string) (string, erro
 	return code, nil
 }
 
+// loadPairMap fetches the complete asset pair list from Kraken to build a
+// normalization map. It caches the result for 6 hours.
 func (c *Client) loadPairMap(ctx context.Context) error {
 	c.mu.RLock()
 	if c.pairMap != nil && c.now().UTC().Sub(c.cachedAt) < 6*time.Hour {
@@ -274,6 +292,9 @@ func (c *Client) loadPairMap(ctx context.Context) error {
 	return nil
 }
 
+// normalizeKrakenPair performs string cleaning and canonical currency remapping.
+// Kraken uses legacy X-based codes (XBT for BTC, XDG for DOGE) internally;
+// this helper ensures lookups match exchangely standards.
 func normalizeKrakenPair(value string) string {
 	value = strings.ToUpper(strings.TrimSpace(value))
 	replacer := strings.NewReplacer("/", "", "-", "", "_", "", " ", "")
@@ -283,6 +304,7 @@ func normalizeKrakenPair(value string) string {
 	return value
 }
 
+// cooldownError returns an error if the source is currently in rate-limit backoff.
 func (c *Client) cooldownError() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -292,12 +314,14 @@ func (c *Client) cooldownError() error {
 	return nil
 }
 
+// setCooldown triggers a 30-second backoff window for the source.
 func (c *Client) setCooldown() {
 	c.mu.Lock()
 	c.cooldown = c.now().UTC().Add(rateLimitCooldown)
 	c.mu.Unlock()
 }
 
+// krakenInterval maps exchangely string intervals to Kraken's expected minute values.
 func krakenInterval(interval string) (int, error) {
 	switch interval {
 	case "1m":
@@ -311,6 +335,8 @@ func krakenInterval(interval string) (int, error) {
 	}
 }
 
+// krakenFloat converts various dynamic types from the Kraken JSON response (string or float64)
+// to a canonical float64.
 func krakenFloat(value any) (float64, error) {
 	switch typed := value.(type) {
 	case string:
@@ -322,6 +348,8 @@ func krakenFloat(value any) (float64, error) {
 	}
 }
 
+// krakenInt converts various dynamic types from the Kraken JSON response (float64, int64, or string)
+// to a canonical int64.
 func krakenInt(value any) (int64, error) {
 	switch typed := value.(type) {
 	case float64:

@@ -3,7 +3,7 @@ package service
 import "testing"
 
 func TestBootstrapAssetsIncludesCirculatingSupply(t *testing.T) {
-	items := bootstrapAssets([]string{"EUR", "USDT"})
+	items := bootstrapAssets([]string{"EUR", "USD"})
 
 	supplies := make(map[string]float64, len(items))
 	for _, item := range items {
@@ -18,5 +18,8 @@ func TestBootstrapAssetsIncludesCirculatingSupply(t *testing.T) {
 	}
 	if supplies["EUR"] != 0 {
 		t.Fatalf("expected quote assets to keep zero circulating supply, got EUR=%v", supplies["EUR"])
+	}
+	if supplies["USD"] != 0 {
+		t.Fatalf("expected quote assets to keep zero circulating supply, got USD=%v", supplies["USD"])
 	}
 }

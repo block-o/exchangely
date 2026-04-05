@@ -197,6 +197,7 @@ func buildSources(cfg config.Config) sourceSet {
 	if cfg.EnableCoinGecko {
 		source := coingecko.NewClient("", cfg.CoinGeckoAPIKey, nil)
 		sources.registrySources = append(sources.registrySources, source)
+		sources.validatorSources = append(sources.validatorSources, source)
 		sources.enabledNames = append(sources.enabledNames, source.Name())
 	}
 	if cfg.EnableBinance {

@@ -39,7 +39,7 @@ describe("MarketPage", () => {
                 { symbol: "BTC", name: "Bitcoin", type: "crypto" },
                 { symbol: "ETH", name: "Ethereum", type: "crypto" },
                 { symbol: "EUR", name: "Euro", type: "fiat" },
-                { symbol: "USDT", name: "Tether", type: "stablecoin" },
+                { symbol: "USD", name: "US Dollar", type: "fiat" },
               ],
             }),
           });
@@ -60,7 +60,7 @@ describe("MarketPage", () => {
       data: [
         { symbol: "ETHEUR", base: "ETH", quote: "EUR" },
         { symbol: "BTCEUR", base: "BTC", quote: "EUR" },
-        { symbol: "BTCUSDT", base: "BTC", quote: "USDT" },
+        { symbol: "BTCUSD", base: "BTC", quote: "USD" },
       ]
     });
     vi.stubGlobal(
@@ -131,8 +131,8 @@ describe("MarketPage", () => {
     const assetCells = Array.from(container.querySelectorAll("tbody tr td.symbol")).map((cell) => cell.textContent);
     expect(assetCells).toEqual(["BitcoinBTC", "EthereumETH"]);
 
-    // USDT pair should not be displayed
-    expect(screen.queryByText("BTCUSDT")).not.toBeInTheDocument();
+    // USD pair should not be displayed while EUR is selected
+    expect(screen.queryByText("BTCUSD")).not.toBeInTheDocument();
     
     // Wait for the chart to render 24-item arrays so the background async fetchHistorical resolves
     // before the test tears down (which prevents the React act() "Should not already be working" error)

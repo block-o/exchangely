@@ -9,8 +9,7 @@ import (
 )
 
 type CatalogRepository interface {
-	UpsertAssets(ctx context.Context, assets []asset.Asset) error
-	UpsertPairs(ctx context.Context, pairs []pair.Pair) error
+	ReplaceCatalog(ctx context.Context, assets []asset.Asset, pairs []pair.Pair) error
 	ListAssets(ctx context.Context) ([]asset.Asset, error)
 	ListPairs(ctx context.Context) ([]pair.Pair, error)
 }
@@ -29,10 +28,7 @@ func NewCatalogService(repo CatalogRepository, quotes []string) *CatalogService 
 
 func (s *CatalogService) Seed(ctx context.Context) error {
 	assets := bootstrapAssets(s.quotes)
-	if err := s.repo.UpsertAssets(ctx, assets); err != nil {
-		return err
-	}
-	return s.repo.UpsertPairs(ctx, bootstrapPairs(assets))
+	return s.repo.ReplaceCatalog(ctx, assets, bootstrapPairs(assets))
 }
 
 func (s *CatalogService) Assets(ctx context.Context) ([]asset.Asset, error) {
@@ -65,6 +61,10 @@ func bootstrapAssets(quotes []string) []asset.Asset {
 		assetType := "quote"
 		if symbol == "EUR" {
 			name = "Euro"
+			assetType = "fiat"
+		}
+		if symbol == "USD" {
+			name = "US Dollar"
 			assetType = "fiat"
 		}
 		if symbol == "USDT" {

@@ -45,7 +45,9 @@ func (c *Client) Supports(request ingest.Request) bool {
 	if request.Interval != "1h" {
 		return false
 	}
-	if request.Quote != "EUR" {
+	switch request.Quote {
+	case "EUR", "USD":
+	default:
 		return false
 	}
 	if _, ok := coinIDForBase(request.Base); !ok {
@@ -72,7 +74,7 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 	}
 
 	query := url.Values{}
-	query.Set("vs_currency", "eur")
+	query.Set("vs_currency", strings.ToLower(request.Quote))
 	query.Set("from", strconv.FormatInt(request.StartTime.UTC().Unix(), 10))
 	query.Set("to", strconv.FormatInt(end.Unix(), 10))
 	query.Set("precision", "full")

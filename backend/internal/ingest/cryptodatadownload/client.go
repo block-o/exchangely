@@ -46,7 +46,7 @@ func (c *Client) Supports(request ingest.Request) bool {
 	}
 
 	switch request.Quote {
-	case "EUR", "USDT":
+	case "EUR", "USD", "USDT":
 	default:
 		return false
 	}
@@ -165,6 +165,8 @@ func exchangeForQuote(quote string) (string, bool) {
 	switch quote {
 	case "EUR":
 		return "Bitfinex", true
+	case "USD":
+		return "Bitstamp", true
 	case "USDT":
 		return "Binance", true
 	default:

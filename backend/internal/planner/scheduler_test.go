@@ -13,7 +13,7 @@ func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
 
 	tasks := scheduler.BuildInitialBackfillTasks([]pair.Pair{
 		{Symbol: "BTCEUR"},
-		{Symbol: "ETHUSDT"},
+		{Symbol: "ETHUSD"},
 	}, map[string]SyncState{
 		"BTCEUR": {
 			HourlyLastSynced:        now.Add(-48 * time.Hour),
@@ -40,11 +40,11 @@ func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
 	if !seenPairIntervals["BTCEUR:1h"] {
 		t.Fatal("expected BTCEUR hourly tasks")
 	}
-	if seenPairIntervals["BTCEUR:1d"] || seenPairIntervals["ETHUSDT:1d"] {
+	if seenPairIntervals["BTCEUR:1d"] || seenPairIntervals["ETHUSD:1d"] {
 		t.Fatal("did not expect daily tasks before hourly backfill completion")
 	}
-	if !seenPairIntervals["ETHUSDT:1h"] {
-		t.Fatal("expected ETHUSDT hourly tasks")
+	if !seenPairIntervals["ETHUSD:1h"] {
+		t.Fatal("expected ETHUSD hourly tasks")
 	}
 }
 
@@ -54,7 +54,7 @@ func TestBuildRealtimeTasksIncludesOnlyCaughtUpPairs(t *testing.T) {
 
 	tasks := scheduler.BuildRealtimeTasks([]pair.Pair{
 		{Symbol: "BTCEUR"},
-		{Symbol: "ETHUSDT"},
+		{Symbol: "ETHUSD"},
 	}, map[string]SyncState{
 		"BTCEUR": {
 			HourlyLastSynced:        now,
@@ -62,7 +62,7 @@ func TestBuildRealtimeTasksIncludesOnlyCaughtUpPairs(t *testing.T) {
 			HourlyBackfillCompleted: true,
 			DailyBackfillCompleted:  true,
 		},
-		"ETHUSDT": {
+		"ETHUSD": {
 			HourlyLastSynced:        now,
 			HourlyBackfillCompleted: true,
 			DailyBackfillCompleted:  false,
@@ -74,12 +74,12 @@ func TestBuildRealtimeTasksIncludesOnlyCaughtUpPairs(t *testing.T) {
 	}
 	foundETH := false
 	for _, task := range tasks {
-		if task.Pair == "ETHUSDT" {
+		if task.Pair == "ETHUSD" {
 			foundETH = true
 		}
 	}
 	if !foundETH {
-		t.Fatalf("expected realtime task for ETHUSDT since hourly backfill is complete")
+		t.Fatalf("expected realtime task for ETHUSD since hourly backfill is complete")
 	}
 }
 
@@ -89,13 +89,13 @@ func TestBuildConsolidationTasksIncludesOnlyFullyCaughtUpPairs(t *testing.T) {
 
 	tasks := scheduler.BuildConsolidationTasks([]pair.Pair{
 		{Symbol: "BTCEUR"},
-		{Symbol: "ETHUSDT"},
+		{Symbol: "ETHUSD"},
 	}, map[string]SyncState{
 		"BTCEUR": {
 			HourlyBackfillCompleted: true,
 			DailyBackfillCompleted:  true,
 		},
-		"ETHUSDT": {
+		"ETHUSD": {
 			HourlyBackfillCompleted: true,
 			DailyBackfillCompleted:  false,
 		},

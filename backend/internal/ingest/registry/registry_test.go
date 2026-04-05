@@ -10,23 +10,23 @@ import (
 )
 
 func TestParsePairSymbol(t *testing.T) {
-	base, quote, err := ParsePairSymbol("BTCEUR")
+	base, quote, err := ParsePairSymbol("BTCUSD")
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
-	if base != "BTC" || quote != "EUR" {
+	if base != "BTC" || quote != "USD" {
 		t.Fatalf("unexpected parsed pair: %s/%s", base, quote)
 	}
 }
 
 func TestRegistryPrefersSupportingSource(t *testing.T) {
-	request := ingest.Request{Pair: "BTCUSDT", Base: "BTC", Quote: "USDT", Interval: "1h"}
+	request := ingest.Request{Pair: "BTCUSD", Base: "BTC", Quote: "USD", Interval: "1h"}
 	registry := New(
 		fakeSource{name: "unsupported"},
 		fakeSource{
 			name:       "supported",
 			supports:   true,
-			candleData: []candle.Candle{{Pair: "BTCUSDT", Interval: "1h", Timestamp: 1}},
+			candleData: []candle.Candle{{Pair: "BTCUSD", Interval: "1h", Timestamp: 1}},
 		},
 	)
 
@@ -34,7 +34,7 @@ func TestRegistryPrefersSupportingSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
-	if len(items) != 1 || items[0].Pair != "BTCUSDT" {
+	if len(items) != 1 || items[0].Pair != "BTCUSD" {
 		t.Fatalf("unexpected candles: %+v", items)
 	}
 }

@@ -22,7 +22,7 @@ The system is event-driven and highly available. It relies on three specific rol
 
 ## 3. Core Features
 
-- **Supported Pairs:** Initially EUR (Fiat) and USDT (Stablecoin) against top cryptocurrencies. The system must be easily extensible to new coins.
+- **Supported Pairs:** Initially EUR and USD against top cryptocurrencies. The system must be easily extensible to new coins.
 - **Initial Sync (Backfill):** Runs shortly after service startup. A scheduled process that backfills historical data for the top 25 coins. It runs continuously until it catches up to the current date, guaranteeing zero data gaps. Resolution targets: Hourly and Daily buckets.
 - **Realtime Mode:** Once the initial sync is complete, live feeds start. The system must fetch ticker data from free smart contracts (e.g., Chainlink) and public exchanges (Binance, Kraken).
 - **Consolidation:** Every 60 minutes, realtime data must be aggregated into an hourly bucket (OHLCV format) and subsequently into daily buckets.
@@ -34,9 +34,9 @@ The Golang backend must expose at least the following RESTful endpoints, documen
 - `GET /api/v1/health`
   - Returns the health status of the API, TimescaleDB connection, and Kafka connection.
 - `GET /api/v1/assets`
-  - Returns a list of supported base coins and quote currencies (e.g., BTC, ETH, EUR, USDT).
+  - Returns a list of supported base coins and quote currencies (e.g., BTC, ETH, EUR, USD).
 - `GET /api/v1/pairs`
-  - Returns the available trading pairs currently tracked by the system (e.g., BTCEUR, ETHUSDT).
+  - Returns the available trading pairs currently tracked by the system (e.g., BTCEUR, ETHUSD).
 - `GET /api/v1/historical/{pair}`
   - The core endpoint for historical data.
   - **Query Parameters:** \* `interval` (required): Time bucket resolution (`1h`, `1d`).

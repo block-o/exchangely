@@ -13,23 +13,23 @@ import (
 
 func TestFetchCandlesParsesHourlyCSV(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/cdd/Binance_BTCUSDT_1h.csv" {
+		if r.URL.Path != "/cdd/Bitstamp_BTCUSD_1h.csv" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		_, _ = w.Write([]byte(strings.Join([]string{
 			"Cryptodatadownload.com",
-			"Unix,Date,Symbol,Open,High,Low,Close,Volume BTC,Volume USDT,tradecount",
-			"1704070800000,2024-01-01 01:00:00,BTCUSDT,42500,42600,42400,42550,12.3,522000,1000",
-			"1704067200000,2024-01-01 00:00:00,BTCUSDT,42400,42500,42300,42450,10.5,446000,900",
+			"Unix,Date,Symbol,Open,High,Low,Close,Volume BTC,Volume USD,tradecount",
+			"1704070800000,2024-01-01 01:00:00,BTCUSD,42500,42600,42400,42550,12.3,522000,1000",
+			"1704067200000,2024-01-01 00:00:00,BTCUSD,42400,42500,42300,42450,10.5,446000,900",
 		}, "\n")))
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client())
 	items, err := client.FetchCandles(context.Background(), ingest.Request{
-		Pair:      "BTCUSDT",
+		Pair:      "BTCUSD",
 		Base:      "BTC",
-		Quote:     "USDT",
+		Quote:     "USD",
 		Interval:  "1h",
 		StartTime: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		EndTime:   time.Date(2024, 1, 1, 2, 0, 0, 0, time.UTC),
@@ -94,9 +94,9 @@ func TestSupportsOnlyHistoricalHourlyAndDailyWindows(t *testing.T) {
 	}
 
 	if client.Supports(ingest.Request{
-		Pair:      "BTCUSDT",
+		Pair:      "BTCUSD",
 		Base:      "BTC",
-		Quote:     "USDT",
+		Quote:     "USD",
 		Interval:  "1h",
 		StartTime: time.Date(2026, 4, 4, 0, 0, 0, 0, time.UTC),
 		EndTime:   time.Date(2026, 4, 4, 9, 0, 0, 0, time.UTC),
@@ -105,9 +105,9 @@ func TestSupportsOnlyHistoricalHourlyAndDailyWindows(t *testing.T) {
 	}
 
 	if client.Supports(ingest.Request{
-		Pair:      "BTCUSDT",
+		Pair:      "BTCUSD",
 		Base:      "BTC",
-		Quote:     "USDT",
+		Quote:     "USD",
 		Interval:  "1m",
 		StartTime: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 		EndTime:   time.Date(2026, 4, 1, 1, 0, 0, 0, time.UTC),

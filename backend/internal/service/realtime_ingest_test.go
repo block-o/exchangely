@@ -13,7 +13,7 @@ func TestRealtimeIngestServiceStoresRawAndMaterializesHourly(t *testing.T) {
 	service := NewRealtimeIngestService(store, nil)
 
 	err := service.IngestRealtimeCandles(context.Background(), []candle.Candle{
-		{Pair: "BTCUSDT", Interval: "1h", Timestamp: time.Date(2024, 4, 1, 10, 0, 0, 0, time.UTC).Unix(), Open: 100, High: 102, Low: 99, Close: 101, Volume: 3, Source: "binance"},
+		{Pair: "BTCUSD", Interval: "1h", Timestamp: time.Date(2024, 4, 1, 10, 0, 0, 0, time.UTC).Unix(), Open: 100, High: 102, Low: 99, Close: 101, Volume: 3, Source: "coingecko"},
 	})
 	if err != nil {
 		t.Fatalf("ingest failed: %v", err)

@@ -8,8 +8,8 @@ import (
 
 func TestFromRawAggregatesMultipleSourcesPerBucket(t *testing.T) {
 	items, err := FromRaw("1h", []candle.Candle{
-		{Pair: "BTCUSDT", Timestamp: 10, Open: 100, High: 110, Low: 95, Close: 108, Volume: 10},
-		{Pair: "BTCUSDT", Timestamp: 10, Open: 102, High: 111, Low: 94, Close: 107, Volume: 12},
+		{Pair: "BTCUSD", Timestamp: 10, Open: 100, High: 110, Low: 95, Close: 108, Volume: 10},
+		{Pair: "BTCUSD", Timestamp: 10, Open: 102, High: 111, Low: 94, Close: 107, Volume: 12},
 	})
 	if err != nil {
 		t.Fatalf("consolidate failed: %v", err)

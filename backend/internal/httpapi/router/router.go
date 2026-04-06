@@ -374,21 +374,23 @@ func defaultOpenAPIYAML() string {
 info:
   title: Exchangely API
   version: 0.1.0
-  description: REST API for Exchangely market data and sync state.
+  description: REST API for Exchangely market data and sync state. Github (https://github.com/block-o/exchangely)
 servers:
   - url: http://localhost:8080
 paths:
   /api/v1/health:
     get:
+      tags: [System]
       summary: Health status
       responses:
         "200":
           description: Service health
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/HealthStatus' }
+              schema: { $ref: "#/components/schemas/HealthStatus" }
   /api/v1/assets:
     get:
+      tags: [Catalog]
       summary: List supported assets
       responses:
         "200":
@@ -398,9 +400,14 @@ paths:
               schema:
                 type: object
                 properties:
-                  data: { type: array, items: { $ref: '#/components/schemas/Asset' } }
+                  data:
+                    {
+                      type: array,
+                      items: { $ref: "#/components/schemas/Asset" },
+                    }
   /api/v1/pairs:
     get:
+      tags: [Catalog]
       summary: List supported pairs
       responses:
         "200":
@@ -410,9 +417,14 @@ paths:
               schema:
                 type: object
                 properties:
-                  data: { type: array, items: { $ref: '#/components/schemas/Pair' } }
+                  data:
+                    {
+                      type: array,
+                      items: { $ref: "#/components/schemas/Pair" },
+                    }
   /api/v1/historical/{pair}:
     get:
+      tags: [Market]
       summary: Historical OHLCV data
       description: Returns canonical stored candles for the requested interval.
       parameters:
@@ -432,10 +444,16 @@ paths:
               schema:
                 type: object
                 properties:
-                  data: { type: array, items: { $ref: '#/components/schemas/Candle' } }
+                  data:
+                    {
+                      type: array,
+                      items: { $ref: "#/components/schemas/Candle" },
+                    }
   /api/v1/ticker/{pair}:
     get:
+      tags: [Market]
       summary: Latest realtime ticker view
+      description: Returns the freshest persisted ticker point for a pair. Price and last_update_unix prefer the newest realtime raw sample when it is newer than the current hourly candle; 1h, 24h, and 7d stats are derived from stored hourly candles.
       parameters:
         - in: path
           name: pair
@@ -446,10 +464,12 @@ paths:
           description: Latest ticker
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Ticker' }
+              schema: { $ref: "#/components/schemas/Ticker" }
   /api/v1/tickers:
     get:
+      tags: [Market]
       summary: Latest realtime ticker views
+      description: Returns the freshest persisted ticker point for every pair. Price and last_update_unix prefer the newest realtime raw sample when it is newer than the current hourly candle; 1h, 24h, and 7d stats are derived from stored hourly candles.
       responses:
         "200":
           description: Latest tickers
@@ -458,15 +478,53 @@ paths:
               schema:
                 type: object
                 properties:
-                  data: { type: array, items: { $ref: '#/components/schemas/Ticker' } }
+                  data:
+                    {
+                      type: array,
+                      items: { $ref: "#/components/schemas/Ticker" },
+                    }
   /api/v1/tickers/stream:
     get:
+      tags: [Market]
       summary: Realtime ticker SSE stream
+      description: Streams the same ticker read model as /api/v1/tickers, including freshest persisted realtime prices plus 1h, 24h, and 7d stats.
+      responses:
+        "200":
+          description: Server-Sent Events stream
+          content:
+            text/event-stream:
+              schema:
+                type: object
+                properties:
+                  tickers:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Ticker"
+  /api/v1/news:
+    get:
+      summary: List latest news
+      responses:
+        "200":
+          description: List of news items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    {
+                      type: array,
+                      items: { $ref: "#/components/schemas/NewsItem" },
+                    }
+  /api/v1/news/stream:
+    get:
+      summary: Realtime news SSE stream
       responses:
         "200":
           description: Server-Sent Events stream
   /api/v1/system/sync-status:
     get:
+      tags: [System]
       summary: Backfill progress
       responses:
         "200":
@@ -476,9 +534,14 @@ paths:
               schema:
                 type: object
                 properties:
-                  data: { type: array, items: { $ref: '#/components/schemas/SyncStatus' } }
+                  data:
+                    {
+                      type: array,
+                      items: { $ref: "#/components/schemas/SyncStatus" },
+                    }
   /api/v1/system/version:
     get:
+      tags: [System]
       summary: Runtime version metadata
       responses:
         "200":
@@ -491,6 +554,7 @@ paths:
                   api_version: { type: string }
   /api/v1/system/tasks:
     get:
+      tags: [System]
       summary: Task queue snapshot
       responses:
         "200":
@@ -500,9 +564,17 @@ paths:
               schema:
                 type: object
                 properties:
-                  upcoming: { type: array, items: { $ref: '#/components/schemas/Task' } }
+                  upcoming:
+                    {
+                      type: array,
+                      items: { $ref: "#/components/schemas/Task" },
+                    }
                   upcomingTotal: { type: integer }
-                  recent: { type: array, items: { $ref: '#/components/schemas/Task' } }
+                  recent:
+                    {
+                      type: array,
+                      items: { $ref: "#/components/schemas/Task" },
+                    }
                   recentTotal: { type: integer }
   /api/v1/system/tasks/stream:
     get:
@@ -520,30 +592,12 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/ActiveWarning' }
+                items: { $ref: "#/components/schemas/ActiveWarning" }
     post:
       summary: Dismiss a warning
       responses:
         "204":
           description: Warning dismissed
-  /api/v1/news:
-    get:
-      summary: List latest news
-      responses:
-        "200":
-          description: List of news items
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data: { type: array, items: { $ref: '#/components/schemas/NewsItem' } }
-  /api/v1/news/stream:
-    get:
-      summary: Realtime news SSE stream
-      responses:
-        "200":
-          description: Server-Sent Events stream
 components:
   schemas:
     Asset:
@@ -552,7 +606,7 @@ components:
         symbol: { type: string }
         name: { type: string }
         type: { type: string }
-        circulating_supply: { type: number, format: float }
+        circulating_supply: { type: number, format: double }
     Pair:
       type: object
       properties:

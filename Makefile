@@ -3,10 +3,7 @@ SHELL := /bin/sh
 .PHONY: \
 	backend-fmt backend-fmt-fix backend-lint backend-vet backend-build backend-test backend-check  \
 	frontend-deps frontend-typecheck frontend-build  frontend-test frontend-check \
-	check test e2e up down install-hooks
-
-
-
+	check test e2e load-test up down install-hooks
 
 backend-fmt:
 	cd backend && test -z "$$(gofmt -l .)" || { \
@@ -65,6 +62,9 @@ test:
 
 e2e:
 	./scripts/compose-smoke.sh
+
+load-test:
+	./scripts/compose-load-test.sh
 
 up:
 	docker compose up --build

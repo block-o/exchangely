@@ -17,22 +17,14 @@ import (
 )
 
 func TestRunningComposeStack(t *testing.T) {
+	if os.Getenv("EXCHANGELY_RUN_E2E") != "true" {
+		t.Skip("EXCHANGELY_RUN_E2E is not set")
+	}
+
 	baseURL := strings.TrimRight(os.Getenv("EXCHANGELY_E2E_BASE_URL"), "/")
-	if baseURL == "" {
-		t.Skip("EXCHANGELY_E2E_BASE_URL is not set")
-	}
 	databaseURL := os.Getenv("EXCHANGELY_E2E_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("EXCHANGELY_E2E_DATABASE_URL is not set")
-	}
 	marketTopic := strings.TrimSpace(os.Getenv("EXCHANGELY_E2E_KAFKA_MARKET_TOPIC"))
-	if marketTopic == "" {
-		t.Skip("EXCHANGELY_E2E_KAFKA_MARKET_TOPIC is not set")
-	}
 	kafkaContainer := strings.TrimSpace(os.Getenv("EXCHANGELY_E2E_KAFKA_CONTAINER"))
-	if kafkaContainer == "" {
-		t.Skip("EXCHANGELY_E2E_KAFKA_CONTAINER is not set")
-	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	db := openDB(t, databaseURL)

@@ -84,6 +84,10 @@ services:
       BACKEND_DEFAULT_QUOTE_ASSETS: ${BACKEND_DEFAULT_QUOTE_ASSETS:-EUR,USD}
       BACKEND_TASK_RETENTION_PERIOD: ${BACKEND_TASK_RETENTION_PERIOD:-24h}
       BACKEND_TASK_MAX_LOG_COUNT: ${BACKEND_TASK_MAX_LOG_COUNT:-1000}
+      # Max individual tickers to cache in-memory (default 100)
+      BACKEND_TICKER_CACHE_SIZE: ${BACKEND_TICKER_CACHE_SIZE:-100}
+      # TTL for the global tickers snapshot (default 30s)
+      BACKEND_TICKERS_CACHE_TTL: ${BACKEND_TICKERS_CACHE_TTL:-30s}
     ports:
       - "8080:8080"
     depends_on:

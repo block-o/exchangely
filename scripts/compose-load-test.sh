@@ -8,22 +8,6 @@ KAFKA_BROKERS="${EXCHANGELY_E2E_KAFKA_BROKERS:-127.0.0.1:9092}"
 MARKET_TOPIC="${EXCHANGELY_E2E_KAFKA_MARKET_TOPIC:-exchangely.market.ticks}"
 KAFKA_CONTAINER="${EXCHANGELY_E2E_KAFKA_CONTAINER:-exchangely-kafka}"
 
-assert_topic() {
-  topic="$1"
-  if ! docker exec "$KAFKA_CONTAINER" /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list | grep -Fx "$topic" >/dev/null; then
-    echo "expected kafka topic $topic" >&2
-    exit 1
-  fi
-}
-
-assert_group() {
-  group="$1"
-  if ! docker exec "$KAFKA_CONTAINER" /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list | grep -Fx "$group" >/dev/null; then
-    echo "expected kafka consumer group $group" >&2
-    exit 1
-  fi
-}
-
 docker compose up -d --build $STACK_SERVICES
 
 attempt=0
@@ -38,16 +22,13 @@ until curl -sS "$BASE_URL/api/v1/health" >/dev/null 2>&1; do
 	sleep 2
 done
 
+echo "Starting load test..."
+
 cd backend
-EXCHANGELY_RUN_E2E=true \
+EXCHANGELY_RUN_LOAD_TEST=true \
 EXCHANGELY_E2E_BASE_URL="$BASE_URL" \
 EXCHANGELY_E2E_DATABASE_URL="$DATABASE_URL" \
 EXCHANGELY_E2E_KAFKA_BROKERS="$KAFKA_BROKERS" \
 EXCHANGELY_E2E_KAFKA_MARKET_TOPIC="$MARKET_TOPIC" \
 EXCHANGELY_E2E_KAFKA_CONTAINER="$KAFKA_CONTAINER" \
-go test ./tests/e2e -count=1
-
-assert_topic "exchangely.tasks"
-assert_topic "exchangely.market.ticks"
-assert_group "exchangely-workers-tasks"
-assert_group "exchangely-workers-market"
+go test -v ./tests/e2e -run TestLoad -count=1

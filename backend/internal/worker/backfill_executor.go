@@ -56,7 +56,7 @@ type MarketEventPublisher interface {
 // This is the worker-side counterpart to MarketService.NotifyUpdate().
 // The backfill executor calls it after every successful candle write or realtime cutover update.
 type MarketNotifier interface {
-	NotifyUpdate()
+	NotifyUpdate(pairSymbol string)
 }
 
 // NewBackfillExecutor returns the worker-side executor for backfill, daily consolidation, and realtime tasks.
@@ -128,7 +128,7 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 	}
 
 	if e.notifier != nil {
-		e.notifier.NotifyUpdate()
+		e.notifier.NotifyUpdate(item.Pair)
 	}
 
 	return nil

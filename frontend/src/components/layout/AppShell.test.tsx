@@ -48,7 +48,17 @@ describe("AppShell", () => {
     });
   });
 
-  it("renders api docs nav item and github icon link in the hero", () => {
+  it("renders api docs nav item and github icon link in the hero", async () => {
+    vi.mocked(newsApi.getNews).mockResolvedValue([
+      {
+        id: "1",
+        title: "Test News",
+        link: "https://example.com",
+        source: "Source",
+        published_at: new Date().toISOString(),
+      },
+    ]);
+
     function AlphaView() {
       return <div>Alpha Page</div>;
     }
@@ -65,6 +75,11 @@ describe("AppShell", () => {
         </AppShell>
       </SettingsProvider>
     );
+
+    // Wait for the news ticker to appear to avoid unhandled state updates causing act() warnings
+    await waitFor(() => {
+      expect(screen.getByText("Latest News")).toBeInTheDocument();
+    });
 
     expect(screen.getByRole("link", { name: "GitHub project" })).toHaveAttribute(
       "href",

@@ -27,8 +27,11 @@ describe("NewsTicker", () => {
     const { container } = render(<NewsTicker />);
     
     await waitFor(() => {
-      expect(container.firstChild).toBeNull();
+      // Ensure the initial fetch effect was triggered
+      expect(newsApi.getNews).toHaveBeenCalled();
     });
+
+    expect(container.firstChild).toBeNull();
   });
 
   it("renders headlines and source when news are available", async () => {

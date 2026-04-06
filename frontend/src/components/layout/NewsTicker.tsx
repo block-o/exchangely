@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NewsItem, getNews } from '../../api/news';
 import { formatUnix } from '../../lib/format';
 import { API_BASE_URL } from '../../api/client';

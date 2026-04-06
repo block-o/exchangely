@@ -172,7 +172,7 @@ func (c *MarketEventConsumer) collectBatch(ctx context.Context, first kafkago.Me
 	return messages, nil
 }
 
-// handleBatch groups messages by pair/hour window because RealtimeIngestService consolidates one
+// handleBatch groups messages by pair/hour window because realtime.IngestService consolidates one
 // hourly series at a time. This keeps live ticker SSE updates aligned with realtime poll batches
 // rather than the noisier per-minute message fanout produced by the Kafka topic.
 func (c *MarketEventConsumer) handleBatch(ctx context.Context, messages []kafkago.Message) error {

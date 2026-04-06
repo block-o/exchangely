@@ -16,14 +16,14 @@ import (
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
-	"github.com/block-o/exchangely/backend/internal/ingest"
+	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 )
 
 // rateLimitCooldown is the default wait time after a 429 response or
 // Kraken "Too many requests" error payload.
 const rateLimitCooldown = 30 * time.Second
 
-// Client implements the ingest.MarketSource interface for the Kraken API.
+// Client implements the backfill.Source interface for the Kraken API.
 // It uses a local cache for pair mapping to minimize redundant AssetPairs calls.
 type Client struct {
 	baseURL    string
@@ -58,7 +58,7 @@ func (c *Client) Name() string {
 
 // Supports returns true if the request quote is EUR or USD and the interval
 // is 1h or 1d. It only supports requests within the current day for live OHLC.
-func (c *Client) Supports(request ingest.Request) bool {
+func (c *Client) Supports(request backfill.Request) bool {
 	if (request.Quote != "EUR" && request.Quote != "USD") || (request.Interval != "1h" && request.Interval != "1d") {
 		return false
 	}
@@ -69,7 +69,7 @@ func (c *Client) Supports(request ingest.Request) bool {
 
 // FetchCandles retrieves OHLC data from the Kraken public API and maps it
 // into the canonical exchangely domain model.
-func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error) {
+func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]candle.Candle, error) {
 	if !c.Supports(request) {
 		return nil, fmt.Errorf("unsupported request %s %s", request.Pair, request.Interval)
 	}

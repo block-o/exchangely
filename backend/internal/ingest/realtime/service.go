@@ -1,4 +1,6 @@
-package service
+// Package realtime contains the live market-event ingestion path that rebuilds
+// canonical hourly candles from Kafka-delivered raw samples.
+package realtime
 
 import (
 	"context"
@@ -9,8 +11,8 @@ import (
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 )
 
-// RealtimeMarketStore abstracts the candle persistence layer used during realtime Kafka ingestion.
-type RealtimeMarketStore interface {
+// MarketStore abstracts the candle persistence layer used during realtime Kafka ingestion.
+type MarketStore interface {
 	UpsertRawCandles(ctx context.Context, interval string, candles []candle.Candle) error
 	RawCandles(ctx context.Context, pairSymbol, interval string, start, end time.Time) ([]candle.Candle, error)
 	UpsertCandles(ctx context.Context, interval string, candles []candle.Candle) error
@@ -22,19 +24,21 @@ type MarketNotifier interface {
 	NotifyUpdate()
 }
 
-// RealtimeIngestService consumes market events and rolls them into the latest hourly candle state.
-type RealtimeIngestService struct {
-	store    RealtimeMarketStore
+// IngestService consumes market events and rolls them into the latest hourly candle state.
+type IngestService struct {
+	store    MarketStore
 	notifier MarketNotifier
 }
 
-// NewRealtimeIngestService returns the market-event consumer service for realtime hourly consolidation.
-func NewRealtimeIngestService(store RealtimeMarketStore, notifier MarketNotifier) *RealtimeIngestService {
-	return &RealtimeIngestService{store: store, notifier: notifier}
+// NewIngestService returns the market-event consumer service for realtime hourly consolidation.
+func NewIngestService(store MarketStore, notifier MarketNotifier) *IngestService {
+	return &IngestService{store: store, notifier: notifier}
 }
 
 // IngestRealtimeCandles persists raw market events, rebuilds the affected hour, and upserts the result.
-func (s *RealtimeIngestService) IngestRealtimeCandles(ctx context.Context, candles []candle.Candle) error {
+// The consumer batches events by pair/hour before calling this method, so the first candle can be
+// used to derive the consolidation window for the full batch.
+func (s *IngestService) IngestRealtimeCandles(ctx context.Context, candles []candle.Candle) error {
 	if len(candles) == 0 {
 		return nil
 	}
@@ -118,7 +122,7 @@ func (s *RealtimeIngestService) IngestRealtimeCandles(ctx context.Context, candl
 
 	// Signal connected SSE clients that new data is available.
 	// This is the critical bridge between the Kafka consumer pipeline and the frontend:
-	// Kafka event → IngestRealtimeCandles → Postgres upsert → NotifyUpdate → SSE push.
+	// Kafka event -> IngestRealtimeCandles -> Postgres upsert -> NotifyUpdate -> SSE push.
 	if s.notifier != nil {
 		s.notifier.NotifyUpdate()
 	}

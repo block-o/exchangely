@@ -8,7 +8,7 @@ import (
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
-	"github.com/block-o/exchangely/backend/internal/ingest"
+	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 )
 
 func TestBackfillExecutorWritesCandlesAndProgress(t *testing.T) {
@@ -440,7 +440,7 @@ type fakeMarketSource struct {
 	err   error
 }
 
-func (f *fakeMarketSource) FetchCandles(_ context.Context, _ ingest.Request) ([]candle.Candle, error) {
+func (f *fakeMarketSource) FetchCandles(_ context.Context, _ backfill.Request) ([]candle.Candle, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -454,7 +454,7 @@ func (f *fakeMarketSource) Name() string {
 	return "fake"
 }
 
-func (f *fakeMarketSource) Supports(_ ingest.Request) bool {
+func (f *fakeMarketSource) Supports(_ backfill.Request) bool {
 	return true
 }
 

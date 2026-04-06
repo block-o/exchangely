@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
-	"github.com/block-o/exchangely/backend/internal/ingest"
+	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 )
 
 var errArchiveNotFound = errors.New("binance vision archive not found")
@@ -43,7 +43,7 @@ func (c *Client) Name() string {
 	return "binancevision"
 }
 
-func (c *Client) Supports(request ingest.Request) bool {
+func (c *Client) Supports(request backfill.Request) bool {
 	switch request.Interval {
 	case "1h", "1d":
 	default:
@@ -59,7 +59,7 @@ func (c *Client) Supports(request ingest.Request) bool {
 	}
 }
 
-func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error) {
+func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]candle.Candle, error) {
 	if !c.Supports(request) {
 		return nil, fmt.Errorf("unsupported request %s %s", request.Pair, request.Interval)
 	}
@@ -99,7 +99,7 @@ func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]ca
 	return nil, fmt.Errorf("no binance vision archives available for %s %s", request.Pair, request.Interval)
 }
 
-func (c *Client) fetchDailyArchive(ctx context.Context, symbol string, request ingest.Request, day time.Time) ([]candle.Candle, error) {
+func (c *Client) fetchDailyArchive(ctx context.Context, symbol string, request backfill.Request, day time.Time) ([]candle.Candle, error) {
 	path := fmt.Sprintf(
 		"/data/spot/daily/klines/%s/%s/%s-%s-%s.zip",
 		symbol,
@@ -111,7 +111,7 @@ func (c *Client) fetchDailyArchive(ctx context.Context, symbol string, request i
 	return c.fetchArchive(ctx, path, request)
 }
 
-func (c *Client) fetchArchive(ctx context.Context, path string, request ingest.Request) ([]candle.Candle, error) {
+func (c *Client) fetchArchive(ctx context.Context, path string, request backfill.Request) ([]candle.Candle, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return nil, err

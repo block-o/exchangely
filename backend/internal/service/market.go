@@ -46,7 +46,7 @@ func (s *MarketService) Tickers(ctx context.Context) ([]ticker.Ticker, error) {
 }
 
 // NotifyUpdate fans out a non-blocking signal to every active SSE subscriber channel.
-// Called by the worker layer (BackfillExecutor, RealtimeIngestService) after successful
+// Called by the worker layer (BackfillExecutor, realtime.IngestService) after successful
 // database writes. The non-blocking send ensures a slow consumer never blocks the worker.
 func (s *MarketService) NotifyUpdate() {
 	s.mu.RLock()

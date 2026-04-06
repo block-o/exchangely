@@ -8,7 +8,7 @@ import (
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/domain/pair"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
-	"github.com/block-o/exchangely/backend/internal/ingest"
+	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 	"github.com/block-o/exchangely/backend/internal/planner"
 	"github.com/block-o/exchangely/backend/internal/worker"
 )
@@ -203,7 +203,7 @@ type integrationMarketSource struct {
 	err   error
 }
 
-func (s *integrationMarketSource) FetchCandles(_ context.Context, _ ingest.Request) ([]candle.Candle, error) {
+func (s *integrationMarketSource) FetchCandles(_ context.Context, _ backfill.Request) ([]candle.Candle, error) {
 	if s.err != nil {
 		return nil, s.err
 	}

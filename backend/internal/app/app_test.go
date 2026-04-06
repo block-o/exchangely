@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/block-o/exchangely/backend/internal/config"
-	"github.com/block-o/exchangely/backend/internal/ingest"
+	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 )
 
 func TestBuildSourcesHonorsProviderFlags(t *testing.T) {
@@ -30,7 +30,43 @@ func TestBuildSourcesHonorsProviderFlags(t *testing.T) {
 	}
 }
 
-func sourceNames(sources []ingest.Source) []string {
+func TestBuildSourcesKeepsBackfillOnlyProvidersOutOfValidatorSet(t *testing.T) {
+	cfg := config.Config{
+		EnableBinance:            false,
+		EnableKraken:             false,
+		EnableBinanceVision:      false,
+		EnableCryptoDataDownload: true,
+		EnableCoinGecko:          false,
+	}
+
+	sources := buildSources(cfg)
+
+	if got, want := sourceNames(sources.registrySources), []string{"cryptodatadownload"}; !equalStrings(got, want) {
+		t.Fatalf("unexpected registry sources: got %v want %v", got, want)
+	}
+	if len(sources.validatorSources) != 0 {
+		t.Fatalf("expected no validator sources for backfill-only provider, got %v", sourceNames(sources.validatorSources))
+	}
+	if got, want := sources.enabledNames, []string{"cryptodatadownload"}; !equalStrings(got, want) {
+		t.Fatalf("unexpected enabled source names: got %v want %v", got, want)
+	}
+}
+
+func TestBuildSourcesReturnsEmptySetsWhenAllProvidersDisabled(t *testing.T) {
+	sources := buildSources(config.Config{})
+
+	if len(sources.registrySources) != 0 {
+		t.Fatalf("expected no registry sources, got %v", sourceNames(sources.registrySources))
+	}
+	if len(sources.validatorSources) != 0 {
+		t.Fatalf("expected no validator sources, got %v", sourceNames(sources.validatorSources))
+	}
+	if len(sources.enabledNames) != 0 {
+		t.Fatalf("expected no enabled sources, got %v", sources.enabledNames)
+	}
+}
+
+func sourceNames(sources []backfill.Source) []string {
 	names := make([]string, 0, len(sources))
 	for _, source := range sources {
 		names = append(names, source.Name())

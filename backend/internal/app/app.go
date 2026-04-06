@@ -14,13 +14,13 @@ import (
 	"github.com/block-o/exchangely/backend/internal/config"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
 	"github.com/block-o/exchangely/backend/internal/httpapi/router"
-	"github.com/block-o/exchangely/backend/internal/ingest"
+	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 	"github.com/block-o/exchangely/backend/internal/ingest/binance"
 	"github.com/block-o/exchangely/backend/internal/ingest/binancevision"
 	"github.com/block-o/exchangely/backend/internal/ingest/coingecko"
 	"github.com/block-o/exchangely/backend/internal/ingest/cryptodatadownload"
 	"github.com/block-o/exchangely/backend/internal/ingest/kraken"
-	ingestregistry "github.com/block-o/exchangely/backend/internal/ingest/registry"
+	"github.com/block-o/exchangely/backend/internal/ingest/realtime"
 	kafka "github.com/block-o/exchangely/backend/internal/messaging/kafka"
 	"github.com/block-o/exchangely/backend/internal/planner"
 	"github.com/block-o/exchangely/backend/internal/service"
@@ -43,9 +43,11 @@ type App struct {
 	enabledSources  []string
 }
 
+// sourceSet keeps the runtime wiring explicit: backfill uses a registry with ordered fallback,
+// while validation only receives providers trusted for cross-source comparisons.
 type sourceSet struct {
-	registrySources  []ingest.Source
-	validatorSources []ingest.Source
+	registrySources  []backfill.Source
+	validatorSources []backfill.Source
 	enabledNames     []string
 }
 
@@ -103,8 +105,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	taskPublisher := kafka.NewTaskPublisher(cfg.KafkaBrokers, cfg.KafkaTasksTopic)
 	marketPublisher := kafka.NewMarketEventPublisher(cfg.KafkaBrokers, cfg.KafkaMarketTopic)
 	sources := buildSources(cfg)
-	sourceRegistry := ingestregistry.New(sources.registrySources...)
-	realtimeIngest := service.NewRealtimeIngestService(marketRepo, marketService)
+	sourceRegistry := backfill.NewRegistry(sources.registrySources...)
+	realtimeIngest := realtime.NewIngestService(marketRepo, marketService)
 	plannerRunner := planner.NewRunner(
 		instanceID,
 		cfg.PlannerLeaseName,
@@ -172,10 +174,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}, nil
 }
 
+// buildSources translates provider flags into the two ingest paths introduced by the refactor:
+// backfill registry fallback and validator peer comparison.
 func buildSources(cfg config.Config) sourceSet {
 	sources := sourceSet{
-		registrySources:  make([]ingest.Source, 0, 5),
-		validatorSources: make([]ingest.Source, 0, 3),
+		registrySources:  make([]backfill.Source, 0, 5),
+		validatorSources: make([]backfill.Source, 0, 3),
 		enabledNames:     make([]string, 0, 5),
 	}
 

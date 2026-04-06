@@ -10,8 +10,7 @@ import (
 	"github.com/block-o/exchangely/backend/internal/consolidate"
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
-	"github.com/block-o/exchangely/backend/internal/ingest"
-	"github.com/block-o/exchangely/backend/internal/ingest/registry"
+	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 )
 
 var ErrHourlyDataUnavailable = errors.New("hourly data unavailable for daily consolidation")
@@ -45,7 +44,7 @@ type BackfillExecutor struct {
 }
 
 type MarketSource interface {
-	FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error)
+	FetchCandles(ctx context.Context, request backfill.Request) ([]candle.Candle, error)
 }
 
 // MarketEventPublisher sends candle data to Kafka for downstream consumption (realtime flow).
@@ -254,7 +253,7 @@ func (e *BackfillExecutor) materializeDaily(ctx context.Context, item task.Task)
 }
 
 func (e *BackfillExecutor) fetchSourceCandles(ctx context.Context, item task.Task) ([]candle.Candle, error) {
-	base, quote, err := registry.ParsePairSymbol(item.Pair)
+	base, quote, err := backfill.ParsePairSymbol(item.Pair)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrMarketSourceUnavailable, err)
 	}
@@ -263,7 +262,7 @@ func (e *BackfillExecutor) fetchSourceCandles(ctx context.Context, item task.Tas
 		return nil, fmt.Errorf("%w: no source registry configured", ErrMarketSourceUnavailable)
 	}
 
-	items, err := e.sources.FetchCandles(ctx, ingest.Request{
+	items, err := e.sources.FetchCandles(ctx, backfill.Request{
 		Pair:      item.Pair,
 		Base:      base,
 		Quote:     quote,

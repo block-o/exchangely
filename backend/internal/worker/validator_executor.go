@@ -9,12 +9,11 @@ import (
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
-	"github.com/block-o/exchangely/backend/internal/ingest"
-	"github.com/block-o/exchangely/backend/internal/ingest/registry"
+	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 )
 
 type ValidatorExecutor struct {
-	sources          []ingest.Source
+	sources          []backfill.Source
 	minSources       int
 	maxDivergencePct float64
 }
@@ -24,9 +23,9 @@ type ValidatorOptions struct {
 	MaxDivergencePct float64
 }
 
-func NewValidatorExecutor(sources []ingest.Source, opts ValidatorOptions) *ValidatorExecutor {
+func NewValidatorExecutor(sources []backfill.Source, opts ValidatorOptions) *ValidatorExecutor {
 	// Filter out nils
-	filtered := make([]ingest.Source, 0, len(sources))
+	filtered := make([]backfill.Source, 0, len(sources))
 	for _, s := range sources {
 		if s != nil {
 			filtered = append(filtered, s)
@@ -50,7 +49,7 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 		return fmt.Errorf("validator received non-sanity task %q", item.Type)
 	}
 
-	base, quote, err := registry.ParsePairSymbol(item.Pair)
+	base, quote, err := backfill.ParsePairSymbol(item.Pair)
 	if err != nil {
 		return err
 	}
@@ -61,7 +60,7 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 	var expectedCandleCount int
 
 	for _, source := range v.sources {
-		req := ingest.Request{
+		req := backfill.Request{
 			Pair:      item.Pair,
 			Base:      base,
 			Quote:     quote,

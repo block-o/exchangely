@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/block-o/exchangely/backend/internal/ingest"
+	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 )
 
 func TestFetchCandlesParsesHourlyCSV(t *testing.T) {
@@ -26,7 +26,7 @@ func TestFetchCandlesParsesHourlyCSV(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client())
-	items, err := client.FetchCandles(context.Background(), ingest.Request{
+	items, err := client.FetchCandles(context.Background(), backfill.Request{
 		Pair:      "BTCUSD",
 		Base:      "BTC",
 		Quote:     "USD",
@@ -62,7 +62,7 @@ func TestFetchCandlesParsesDailyCSV(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client())
-	items, err := client.FetchCandles(context.Background(), ingest.Request{
+	items, err := client.FetchCandles(context.Background(), backfill.Request{
 		Pair:      "BTCEUR",
 		Base:      "BTC",
 		Quote:     "EUR",
@@ -82,7 +82,7 @@ func TestSupportsOnlyHistoricalHourlyAndDailyWindows(t *testing.T) {
 	client := NewClient("", http.DefaultClient)
 	client.now = func() time.Time { return time.Date(2026, 4, 4, 10, 0, 0, 0, time.UTC) }
 
-	if !client.Supports(ingest.Request{
+	if !client.Supports(backfill.Request{
 		Pair:      "BTCEUR",
 		Base:      "BTC",
 		Quote:     "EUR",
@@ -93,7 +93,7 @@ func TestSupportsOnlyHistoricalHourlyAndDailyWindows(t *testing.T) {
 		t.Fatal("expected historical EUR window to be supported")
 	}
 
-	if client.Supports(ingest.Request{
+	if client.Supports(backfill.Request{
 		Pair:      "BTCUSD",
 		Base:      "BTC",
 		Quote:     "USD",
@@ -104,7 +104,7 @@ func TestSupportsOnlyHistoricalHourlyAndDailyWindows(t *testing.T) {
 		t.Fatal("expected current-day window to be unsupported")
 	}
 
-	if client.Supports(ingest.Request{
+	if client.Supports(backfill.Request{
 		Pair:      "BTCUSD",
 		Base:      "BTC",
 		Quote:     "USD",

@@ -21,13 +21,12 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - **Task Runtime Extensions**: Scheduler now emits `integrity_check` tasks for caught-up pairs and workers execute cross-source validation passes.
 
 ## Roadmap & Missing Features
-- [ ] Finish the **health validator scheduled task**: task emission and worker execution already exist; configurable thresholds and failed-task surfacing are now wired, but findings still need persistence and dedicated API exposure.
 - [x] Add Active Warnings area on top of the task status panel so current platform risks such as degraded health, pending backfills, and recent task failures are visible without digging through task history.
 - [x] Add **CryptoDataDownload** as a dedicated backfill provider for historical hourly/daily CSV fallback alongside the existing exchange adapters.
 - [x] Add **CoinGecko** as an additional realtime ticker provider, using live market-chart samples for supported realtime quote windows.
-- [ ] **Refactored Ingest**: Split the `ingest` module cleanly into two distinct submodules: `backfill` and `realtime`.
+- [x] **Refactored Ingest**: Split the `ingest` module cleanly into two distinct submodules: `backfill` and `realtime`.
 - [ ] Add scheduled **month/year rollup buckets** derived from hourly/daily canonical candles rather than provider-native month archives.
-- [ ] **Historical backfill with day and month resolution** from a given variable specified at the backend, defaulting to 2017 for the existing tickers
+- [ ] **Historical backfill with day and month resolution** for all coin historical prices. For this feature add a minimum date to pull data from (ie, 2016) configured with a Variable in backend. From this date, you should use the oldest date available for each coin considering the date it was listed in relevant exchanges (ie, Kraken/Binance)
 - [ ] Design a way to graphically visualize gaps in data resolution in operations panel
 - [ ] Add **Yahoo Finance (Yfinance)** as a ticker provider.
 - [ ] **Fiat/Forex Pairs**: Begin tracking currency-to-currency pairs (e.g., EURUSD, EURGBP).
@@ -41,4 +40,3 @@ The immediate phase aims at ensuring that fetched records match securely across 
 Operational rule updates:
 - Historical source fetch granularity must never be coarser than **1 day**, and **1 hour** remains the preferred canonical backfill resolution.
 - Provider-native monthly archives should not drive historical sweeps; larger buckets such as month/year must be built later by scheduled consolidation from canonical stored candles.
-

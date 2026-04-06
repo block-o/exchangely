@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/block-o/exchangely/backend/internal/ingest"
+	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 )
 
 func TestFetchCandlesParsesMarketChartRangeSamples(t *testing.T) {
@@ -36,7 +36,7 @@ func TestFetchCandlesParsesMarketChartRangeSamples(t *testing.T) {
 		return time.Date(2024, 4, 1, 2, 30, 0, 0, time.UTC)
 	}
 
-	items, err := client.FetchCandles(context.Background(), ingest.Request{
+	items, err := client.FetchCandles(context.Background(), backfill.Request{
 		Pair:      "BTCUSD",
 		Base:      "BTC",
 		Quote:     "USD",
@@ -64,7 +64,7 @@ func TestSupportsOnlyRealtimeEURAndUSDWindows(t *testing.T) {
 		return time.Date(2026, 4, 4, 10, 0, 0, 0, time.UTC)
 	}
 
-	if !client.Supports(ingest.Request{
+	if !client.Supports(backfill.Request{
 		Pair:      "BTCEUR",
 		Base:      "BTC",
 		Quote:     "EUR",
@@ -75,7 +75,7 @@ func TestSupportsOnlyRealtimeEURAndUSDWindows(t *testing.T) {
 		t.Fatal("expected current-day EUR realtime window to be supported")
 	}
 
-	if !client.Supports(ingest.Request{
+	if !client.Supports(backfill.Request{
 		Pair:      "BTCUSD",
 		Base:      "BTC",
 		Quote:     "USD",
@@ -86,7 +86,7 @@ func TestSupportsOnlyRealtimeEURAndUSDWindows(t *testing.T) {
 		t.Fatal("expected current-day USD realtime window to be supported")
 	}
 
-	if client.Supports(ingest.Request{
+	if client.Supports(backfill.Request{
 		Pair:      "BTCUSDT",
 		Base:      "BTC",
 		Quote:     "USDT",
@@ -97,7 +97,7 @@ func TestSupportsOnlyRealtimeEURAndUSDWindows(t *testing.T) {
 		t.Fatal("expected USDT quote to be unsupported")
 	}
 
-	if client.Supports(ingest.Request{
+	if client.Supports(backfill.Request{
 		Pair:      "BTCEUR",
 		Base:      "BTC",
 		Quote:     "EUR",

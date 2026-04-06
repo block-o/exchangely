@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
-	"github.com/block-o/exchangely/backend/internal/ingest"
+	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 )
 
 type Client struct {
@@ -40,7 +40,7 @@ func (c *Client) Name() string {
 	return "cryptodatadownload"
 }
 
-func (c *Client) Supports(request ingest.Request) bool {
+func (c *Client) Supports(request backfill.Request) bool {
 	if request.Interval != "1h" && request.Interval != "1d" {
 		return false
 	}
@@ -55,7 +55,7 @@ func (c *Client) Supports(request ingest.Request) bool {
 	return !request.EndTime.UTC().After(cutoff)
 }
 
-func (c *Client) FetchCandles(ctx context.Context, request ingest.Request) ([]candle.Candle, error) {
+func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]candle.Candle, error) {
 	if !c.Supports(request) {
 		return nil, fmt.Errorf("unsupported request %s %s", request.Pair, request.Interval)
 	}

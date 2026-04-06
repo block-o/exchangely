@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/block-o/exchangely/backend/internal/ingest"
+	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 )
 
 func TestFetchCandlesParsesKrakenOHLC(t *testing.T) {
@@ -40,7 +40,7 @@ func TestFetchCandlesParsesKrakenOHLC(t *testing.T) {
 	client.now = func() time.Time {
 		return time.Unix(1711933200, 0).UTC()
 	}
-	items, err := client.FetchCandles(context.Background(), ingest.Request{
+	items, err := client.FetchCandles(context.Background(), backfill.Request{
 		Pair:      "BTCEUR",
 		Base:      "BTC",
 		Quote:     "EUR",
@@ -89,7 +89,7 @@ func TestFetchCandlesResolvesWsnamePairs(t *testing.T) {
 	client.now = func() time.Time {
 		return time.Unix(1711933200, 0).UTC()
 	}
-	items, err := client.FetchCandles(context.Background(), ingest.Request{
+	items, err := client.FetchCandles(context.Background(), backfill.Request{
 		Pair:      "ETHEUR",
 		Base:      "ETH",
 		Quote:     "EUR",
@@ -132,7 +132,7 @@ func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
 	client.now = func() time.Time {
 		return time.Unix(1711933200, 0).UTC()
 	}
-	_, err := client.FetchCandles(context.Background(), ingest.Request{
+	_, err := client.FetchCandles(context.Background(), backfill.Request{
 		Pair:      "BTCEUR",
 		Base:      "BTC",
 		Quote:     "EUR",
@@ -144,7 +144,7 @@ func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
 		t.Fatal("expected rate limit error")
 	}
 
-	_, err = client.FetchCandles(context.Background(), ingest.Request{
+	_, err = client.FetchCandles(context.Background(), backfill.Request{
 		Pair:      "BTCEUR",
 		Base:      "BTC",
 		Quote:     "EUR",
@@ -173,7 +173,7 @@ func TestFetchCandlesEntersCooldownWhenAssetPairsRateLimited(t *testing.T) {
 		return time.Unix(1711933200, 0).UTC()
 	}
 
-	request := ingest.Request{
+	request := backfill.Request{
 		Pair:      "BTCEUR",
 		Base:      "BTC",
 		Quote:     "EUR",
@@ -202,7 +202,7 @@ func TestSupportsOnlyRecentWindows(t *testing.T) {
 		return time.Date(2026, 4, 2, 15, 0, 0, 0, time.UTC)
 	}
 
-	if !client.Supports(ingest.Request{
+	if !client.Supports(backfill.Request{
 		Pair:      "BTCEUR",
 		Base:      "BTC",
 		Quote:     "EUR",
@@ -213,7 +213,7 @@ func TestSupportsOnlyRecentWindows(t *testing.T) {
 		t.Fatal("expected current-day window to be supported")
 	}
 
-	if client.Supports(ingest.Request{
+	if client.Supports(backfill.Request{
 		Pair:      "BTCEUR",
 		Base:      "BTC",
 		Quote:     "EUR",
@@ -251,7 +251,7 @@ func TestFetchCandlesUsesCorrectIntervalParameters(t *testing.T) {
 
 			client := NewClient(server.URL, server.Client())
 			client.now = func() time.Time { return time.Now().Add(24 * time.Hour) }
-			_, _ = client.FetchCandles(context.Background(), ingest.Request{
+			_, _ = client.FetchCandles(context.Background(), backfill.Request{
 				Pair:      "BTCEUR",
 				Base:      "BTC",
 				Quote:     "EUR",
@@ -336,7 +336,7 @@ func TestKrakenInt(t *testing.T) {
 func TestFetchCandlesFailures(t *testing.T) {
 	t.Run("unsupported request", func(t *testing.T) {
 		client := NewClient("", nil)
-		_, err := client.FetchCandles(context.Background(), ingest.Request{Interval: "1m"})
+		_, err := client.FetchCandles(context.Background(), backfill.Request{Interval: "1m"})
 		if err == nil || !strings.Contains(err.Error(), "unsupported request") {
 			t.Errorf("expected unsupported request error, got %v", err)
 		}
@@ -354,7 +354,7 @@ func TestFetchCandlesFailures(t *testing.T) {
 		client := NewClient(server.URL, server.Client())
 		now := time.Now().UTC()
 		client.now = func() time.Time { return now }
-		_, err := client.FetchCandles(context.Background(), ingest.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
+		_, err := client.FetchCandles(context.Background(), backfill.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
 		if err == nil || !strings.Contains(err.Error(), "kraken status 500") {
 			t.Errorf("expected 500 error, got %v", err)
 		}
@@ -372,7 +372,7 @@ func TestFetchCandlesFailures(t *testing.T) {
 		client := NewClient(server.URL, server.Client())
 		now := time.Now().UTC()
 		client.now = func() time.Time { return now }
-		_, err := client.FetchCandles(context.Background(), ingest.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
+		_, err := client.FetchCandles(context.Background(), backfill.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
 		if err == nil || !strings.Contains(err.Error(), "EGeneral:Internal Error") {
 			t.Errorf("expected kraken error, got %v", err)
 		}
@@ -390,7 +390,7 @@ func TestFetchCandlesFailures(t *testing.T) {
 		client := NewClient(server.URL, server.Client())
 		now := time.Now().UTC()
 		client.now = func() time.Time { return now }
-		items, err := client.FetchCandles(context.Background(), ingest.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
+		items, err := client.FetchCandles(context.Background(), backfill.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
 		if err != nil {
 			t.Errorf("expected nil error (skipping malformed row), got %v", err)
 		}
@@ -466,7 +466,7 @@ func TestFetchCandlesMoreFailures(t *testing.T) {
 		client := NewClient(server.URL, server.Client())
 		now := time.Now().UTC()
 		client.now = func() time.Time { return now }
-		_, err := client.FetchCandles(context.Background(), ingest.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
+		_, err := client.FetchCandles(context.Background(), backfill.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
 		if err == nil || !strings.Contains(err.Error(), "kraken result missing pair") {
 			t.Errorf("expected missing pair error, got %v", err)
 		}
@@ -484,7 +484,7 @@ func TestFetchCandlesMoreFailures(t *testing.T) {
 		client := NewClient(server.URL, server.Client())
 		now := time.Now().UTC()
 		client.now = func() time.Time { return now }
-		_, err := client.FetchCandles(context.Background(), ingest.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
+		_, err := client.FetchCandles(context.Background(), backfill.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
 		if err == nil || !strings.Contains(err.Error(), "unsupported int value") {
 			t.Errorf("expected timestamp error, got %v", err)
 		}
@@ -498,7 +498,7 @@ func TestFetchCandlesMoreFailures(t *testing.T) {
 		client := NewClient(server.URL, server.Client())
 		now := time.Now().UTC()
 		client.now = func() time.Time { return now }
-		_, err := client.FetchCandles(context.Background(), ingest.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
+		_, err := client.FetchCandles(context.Background(), backfill.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
 		if err == nil || !strings.Contains(err.Error(), "is not mapped for kraken") {
 			t.Errorf("expected mapping error, got %v", err)
 		}
@@ -516,7 +516,7 @@ func TestFetchCandlesMoreFailures(t *testing.T) {
 		client := NewClient(server.URL, server.Client())
 		now := time.Now().UTC()
 		client.now = func() time.Time { return now }
-		_, err := client.FetchCandles(context.Background(), ingest.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
+		_, err := client.FetchCandles(context.Background(), backfill.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
 		if err == nil || !strings.Contains(err.Error(), "unsupported float value") {
 			t.Errorf("expected float error, got %v", err)
 		}
@@ -534,7 +534,7 @@ func TestFetchCandlesMoreFailures(t *testing.T) {
 		client := NewClient(server.URL, server.Client())
 		now := time.Now().UTC()
 		client.now = func() time.Time { return now }
-		_, err := client.FetchCandles(context.Background(), ingest.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
+		_, err := client.FetchCandles(context.Background(), backfill.Request{Pair: "BTCEUR", Quote: "EUR", Interval: "1h", EndTime: now})
 		if err == nil || !strings.Contains(err.Error(), "json: cannot unmarshal") {
 			t.Errorf("expected unmarshal error, got %v", err)
 		}

@@ -616,7 +616,7 @@ h1, h2, h3, h4, h5, h6 {
 .news-ticker-scroll {
   display: flex;
   white-space: nowrap;
-  animation: ticker-scroll 240s linear infinite;
+  animation: ticker-scroll linear infinite;
   padding-left: 2rem;
 }
 

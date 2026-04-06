@@ -73,4 +73,23 @@ describe("NewsTicker", () => {
       expect(items.length).toBe(2); // Duplicated
     });
   });
+
+  it("applies correct animation duration based on speed prop", async () => {
+    vi.mocked(newsApi.getNews).mockResolvedValue([
+      {
+        id: "1",
+        title: "Headline 1",
+        link: "https://example.com/1",
+        source: "Source",
+        published_at: new Date().toISOString(),
+      },
+    ]);
+
+    const { container } = render(<NewsTicker speed={999} />);
+
+    await waitFor(() => {
+      const scrollDiv = container.querySelector(".news-ticker-scroll");
+      expect(scrollDiv).toHaveStyle("animation-duration: 999s");
+    });
+  });
 });

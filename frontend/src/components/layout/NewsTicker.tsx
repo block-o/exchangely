@@ -5,9 +5,10 @@ import { API_BASE_URL } from '../../api/client';
 
 interface NewsTickerProps {
   assets?: string[]; // Symbols to highlight
+  speed?: number;     // Animation duration in seconds (default 480)
 }
 
-export const NewsTicker: React.FC<NewsTickerProps> = ({ assets = [] }) => {
+export const NewsTicker: React.FC<NewsTickerProps> = ({ assets = [], speed = 480 }) => {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [connected, setConnected] = useState(false);
 
@@ -70,7 +71,7 @@ export const NewsTicker: React.FC<NewsTickerProps> = ({ assets = [] }) => {
       <div className="news-ticker-label">
         Latest News
       </div>
-      <div className="news-ticker-scroll">
+      <div className="news-ticker-scroll" style={{ animationDuration: `${speed}s` }}>
         {displayNews.map((item, idx) => (
           <a 
             key={`${item.id}-${idx}`} 

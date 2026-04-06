@@ -31,16 +31,16 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - [x] Add **CryptoDataDownload** as a dedicated backfill provider for historical hourly/daily CSV fallback alongside the existing exchange adapters.
 - [x] Add **CoinGecko** as an additional realtime ticker provider, using live market-chart samples for supported realtime quote windows.
 - [x] **Refactored Ingest**: Split the `ingest` module cleanly into two distinct submodules: `backfill` and `realtime`.
-- [/] **Extend Market view**: Circulating supply (from realtime) and 24h variation stats are implemented in the read model; still need to calculate 1h% and 7d% change, 24h volume variation, and expose these new fields in the Dashboard UI.
+- [x] **Extend Market view**: Circulating supply (from realtime) and 24h variation stats are implemented in the read model; still need to calculate 1h% and 7d% change, 24h volume variation, and expose these new fields in the Dashboard UI.
+- [x] **Extend the supported coins to be configurable in the backend**: Reconciliation logic is implemented (unused coins/pairs are pruned from DB on startup), but the coin list is currently hardcoded in `CatalogService`.
+- [x] **Caching Layer**: Implemented multi-layered ticker caching with per-ticker invalidation and time-based global snapshots.
+- [x] Implement a **News feed**: Add a recent news feed implementation from trusted RSS feeds. This should be displayed as a horizontal scrolling feed in the main page. The feed should be updated every 5 minutes. 
 - [ ] Add Chainlink for realtime historical data providers. Review if we could call the smartcontract for free for each coin ensuring we have the most accurate data possible for free.
-- [/] Implement a **News feed**: Add a recent news feed implementation from trusted RSS feeds. This should be displayed as a horizontal scrolling feed in the main page. The feed should be updated every 5 minutes. 
-- [/] **Extend the supported coins to be configurable in the backend**: Reconciliation logic is implemented (unused coins/pairs are pruned from DB on startup), but the coin list is currently hardcoded in `CatalogService`.
 - [ ] Add scheduled **month/year rollup buckets** derived from hourly/daily canonical candles rather than provider-native month archives for recent data. Only override historical data if the realtime data bucket is complete for the interval we are overriding. So for example, if we have one month data of realtime data for a coin, we should override the 30 day bucket with the realtime data, that is wipped out after the consolidation happen, ensuring only recent data is derived from realtime data and keeping data size small.
 - [ ] **Historical backfill with day and month resolution** for all coin historical prices. For this feature add a minimum date to pull data from (ie, 2016) configured with a Variable in backend. From this date, you should use the oldest date available for each coin considering the date it was listed in relevant exchanges (ie, Kraken/Binance). Decide smartly this feature
 - [ ] Design a way to graphically visualize gaps in data resolution in operations panel
 - [ ] **Fiat/Forex Pairs**: Begin tracking currency-to-currency pairs (e.g., EURUSD, EURGBP).
 - [ ] Implement robust source load-balancing and rate-limit back-off (circuit breakers for `429 Too Many Requests`).
-- [x] **Caching Layer**: Implemented multi-layered ticker caching with per-ticker invalidation and time-based global snapshots.
 - [ ] Implement a **Redis-based cache layer**: Transition news feed and historical price reads to a Redis backend for sub-millisecond response times and reduced primary database load.
 - [ ] Implement api call examples in swagger
 - [ ] Add **Yahoo Finance (Yfinance)** as a ticker provider.

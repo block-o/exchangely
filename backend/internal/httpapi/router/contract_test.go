@@ -59,6 +59,48 @@ func (r *noopRepo) Current(ctx context.Context, name string) (lease.Lease, error
 func (r *noopRepo) UpsertNews(ctx context.Context, i []news.News) error      { return nil }
 func (r *noopRepo) ListNews(ctx context.Context, l int) ([]news.News, error) { return nil, nil }
 
+func TestRouterHasNoUndocumentedPaths(t *testing.T) {
+	// 1. Load and parse openapi.yaml
+	path := filepath.Join("..", "..", "..", "..", "docs", "openapi", "openapi.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read openapi.yaml: %v", err)
+	}
+
+	var spec struct {
+		Paths map[string]interface{} `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(data, &spec); err != nil {
+		t.Fatalf("failed to unmarshal openapi.yaml: %v", err)
+	}
+
+	// 2. Exhaustive list of paths we KNOW are registered in the router.
+	// This serves as the source of truth for the reverse check since http.ServeMux
+	// is not easily introspectable.
+	knownPaths := []string{
+		"/api/v1/health",
+		"/api/v1/assets",
+		"/api/v1/pairs",
+		"/api/v1/historical/{pair}",
+		"/api/v1/ticker/{pair}",
+		"/api/v1/tickers",
+		"/api/v1/tickers/stream",
+		"/api/v1/system/sync-status",
+		"/api/v1/system/version",
+		"/api/v1/system/tasks",
+		"/api/v1/system/tasks/stream",
+		"/api/v1/system/warnings",
+		"/api/v1/news",
+		"/api/v1/news/stream",
+	}
+
+	for _, p := range knownPaths {
+		if _, ok := spec.Paths[p]; !ok {
+			t.Errorf("Path %q is registered in router but MISSING from openapi.yaml documentation", p)
+		}
+	}
+}
+
 func TestOpenAPIContractSync(t *testing.T) {
 	// 1. Load and parse openapi.yaml
 	path := filepath.Join("..", "..", "..", "..", "docs", "openapi", "openapi.yaml")
@@ -109,8 +151,4 @@ func TestOpenAPIContractSync(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestRouterHasNoUndocumentedPaths(t *testing.T) {
-	t.Skip("Reverse check (router -> openapi) is harder with http.ServeMux as it doesn't expose routes easily.")
 }

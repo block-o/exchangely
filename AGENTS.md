@@ -67,6 +67,7 @@ Current task types:
 - `integrity_check`
 - `consolidation`
 - `task_cleanup`
+- `news_fetch`
 
 Current notable API surface:
 
@@ -81,6 +82,8 @@ Current notable API surface:
 - `GET /api/v1/system/tasks`
 - `GET /api/v1/system/tasks/stream`
 - `GET /api/v1/system/version`
+- `GET /api/v1/news`
+- `GET /api/v1/news/stream`
 
 When changing API behavior, update `docs/openapi/openapi.yaml` if the contract changes materially.
 
@@ -106,6 +109,7 @@ Completed work already reflected in the repo includes:
 - SSE-driven ticker and task updates for the frontend.
 - Operations dashboard with active warnings.
 - CryptoDataDownload and CoinGecko integrations.
+- Real-time news ingestion from RSS sources (CoinDesk, Cointelegraph, TheBlock).
 - Compose-based smoke/e2e coverage.
 
 ## How To Use PLAN.md

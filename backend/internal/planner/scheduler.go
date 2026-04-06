@@ -23,19 +23,24 @@ type Scheduler struct {
 	backfillWindow1H     time.Duration
 	backfillWindow1D     time.Duration
 	realtimePollInterval time.Duration
+	newsFetchInterval    time.Duration
 }
 
 // NewScheduler returns the planner scheduler tuned for coarse-grained backfill windows
 // and the given realtime poll cadence. The pollInterval determines how often the planner
 // generates a fresh realtime task per pair — e.g. 2m means prices update every ~2 minutes.
-func NewScheduler(pollInterval time.Duration) *Scheduler {
+func NewScheduler(pollInterval, newsInterval time.Duration) *Scheduler {
 	if pollInterval <= 0 {
 		pollInterval = 2 * time.Minute
+	}
+	if newsInterval <= 0 {
+		newsInterval = 5 * time.Minute
 	}
 	return &Scheduler{
 		backfillWindow1H:     12 * time.Hour,
 		backfillWindow1D:     7 * 24 * time.Hour,
 		realtimePollInterval: pollInterval,
+		newsFetchInterval:    newsInterval,
 	}
 }
 
@@ -83,10 +88,24 @@ func (s *Scheduler) BuildCleanupTask(now time.Time) task.Task {
 	return task.Task{
 		ID:          fmt.Sprintf("%s:daily:%d", task.TypeCleanup, dayStart.Unix()),
 		Type:        task.TypeCleanup,
-		Pair:        "*", // global — not pair-specific
+		Pair:        "*", // global
 		Interval:    "1d",
 		WindowStart: dayStart,
 		WindowEnd:   dayEnd,
+	}
+}
+
+// BuildNewsFetchTask emits a task_news_fetch task based on the configured interval.
+func (s *Scheduler) BuildNewsFetchTask(now time.Time) task.Task {
+	windowStart := now.UTC().Truncate(s.newsFetchInterval)
+	windowEnd := windowStart.Add(s.newsFetchInterval)
+	return task.Task{
+		ID:          fmt.Sprintf("%s:periodic:%d", task.TypeNewsFetch, windowStart.Unix()),
+		Type:        task.TypeNewsFetch,
+		Pair:        "*", // global
+		Interval:    s.newsFetchInterval.String(),
+		WindowStart: windowStart,
+		WindowEnd:   windowEnd,
 	}
 }
 

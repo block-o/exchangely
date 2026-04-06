@@ -46,6 +46,8 @@ type Config struct {
 	TickerCacheSize int
 	// TickersCacheTTL defines how long the global tickers snapshot is kept in memory.
 	TickersCacheTTL time.Duration
+	// NewsFetchInterval defines how often the worker should fetch news from RSS feeds.
+	NewsFetchInterval time.Duration
 }
 
 func Load() Config {
@@ -81,6 +83,7 @@ func Load() Config {
 		TaskRetentionCount:        parseInt(getenv("BACKEND_TASK_MAX_LOG_COUNT", "1000"), 1000),
 		TickerCacheSize:           parseInt(getenv("BACKEND_TICKER_CACHE_SIZE", "100"), 100),
 		TickersCacheTTL:           parseDuration(getenv("BACKEND_TICKERS_CACHE_TTL", "30s")),
+		NewsFetchInterval:         parseDuration(getenv("BACKEND_NEWS_FETCH_INTERVAL", "5m")),
 	}
 }
 

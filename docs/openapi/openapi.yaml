@@ -86,3 +86,48 @@ paths:
       responses:
         "200":
           description: Sync status snapshot
+  /api/v1/news:
+    get:
+      summary: List latest news
+      description: Returns a list of curated market news fetched from RSS sources.
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: List of news items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NewsItem'
+  /api/v1/news/stream:
+    get:
+      summary: Realtime news SSE stream
+      description: Notifies subscribers whenever new news items are ingested.
+      responses:
+        "200":
+          description: News update notification
+components:
+  schemas:
+    NewsItem:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        link:
+          type: string
+        source:
+          type: string
+        published_at:
+          type: string
+          format: date-time

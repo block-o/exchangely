@@ -21,6 +21,7 @@ type Services struct {
 	Catalog *service.CatalogService
 	Market  *service.MarketService
 	System  *service.SystemService
+	News    *service.NewsService
 }
 
 type Options struct {
@@ -154,6 +155,58 @@ func New(svcs Services, opts Options) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{
 			"api_version": "v1.0.0",
 		})
+	})
+
+	// GET /api/v1/news — returns the latest news articles.
+	mux.HandleFunc("/api/v1/news", func(w http.ResponseWriter, r *http.Request) {
+		limit := getIntParam(r, "limit", 50)
+		items, err := svcs.News.List(r.Context(), limit)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, dto.ListResponse[any]{Data: toAnySlice(items)})
+	})
+
+	// GET /api/v1/news/stream — Server-Sent Events (SSE) endpoint for news updates.
+	mux.HandleFunc("/api/v1/news/stream", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "SSE not supported", http.StatusInternalServerError)
+			return
+		}
+
+		ctx := r.Context()
+		updates := svcs.News.Subscribe()
+		defer svcs.News.Unsubscribe(updates)
+
+		// Initial push
+		items, _ := svcs.News.List(ctx, 50)
+		data, _ := json.Marshal(map[string]any{"news": items})
+		if err := writeSSEData(w, data); err != nil {
+			slog.Warn("initial news stream write failed", "error", err)
+			return
+		}
+		flusher.Flush()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-updates:
+				items, _ := svcs.News.List(ctx, 50)
+				data, _ := json.Marshal(map[string]any{"news": items})
+				if err := writeSSEData(w, data); err != nil {
+					slog.Warn("news stream write failed", "error", err)
+					return
+				}
+				flusher.Flush()
+			}
+		}
 	})
 
 	mux.HandleFunc("/api/v1/system/warnings", func(w http.ResponseWriter, r *http.Request) {

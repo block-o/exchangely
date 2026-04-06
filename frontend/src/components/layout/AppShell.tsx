@@ -2,6 +2,7 @@ import { Children, useState, type PropsWithChildren, useEffect } from "react";
 import { sections } from "../../app/router";
 import { API_BASE_URL } from "../../api/client";
 import { SettingsModal } from "./SettingsModal";
+import { NewsTicker } from "./NewsTicker";
 
 function getApiDocsUrl() {
   try {
@@ -81,6 +82,7 @@ export function AppShell({ children }: PropsWithChildren) {
         </div>
       </header>
       <main className="content">
+        <NewsTicker />
         {/* Route by configured section order so production minification cannot break page matching. */}
         <div key={activeHash} className="page-transition-wrapper">
           {pages[sections.findIndex((section) => `#${section.id}` === activeHash)] ?? pages[0] ?? null}

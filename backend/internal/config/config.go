@@ -36,6 +36,12 @@ type Config struct {
 	IntegrityMinSources       int
 	IntegrityMaxDivergencePct float64
 	DefaultQuoteAssets        []string
+	// TaskRetentionPeriod defines how long completed and failed tasks are kept
+	// in the task repository before being pruned.
+	TaskRetentionPeriod time.Duration
+	// TaskRetentionCount defines the maximum number of completed and failed
+	// tasks kept per cleanup cycle, further pruning the log if it exceeds this count.
+	TaskRetentionCount int
 }
 
 func Load() Config {
@@ -67,6 +73,8 @@ func Load() Config {
 		IntegrityMinSources:       parseInt(getenv("BACKEND_INTEGRITY_MIN_SOURCES", "2"), 2),
 		IntegrityMaxDivergencePct: parseFloat(getenv("BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT", "0.5"), 0.5),
 		DefaultQuoteAssets:        splitCSV(getenv("BACKEND_DEFAULT_QUOTE_ASSETS", "EUR,USD")),
+		TaskRetentionPeriod:       parseDuration(getenv("BACKEND_TASK_RETENTION_PERIOD", "24h")),
+		TaskRetentionCount:        parseInt(getenv("BACKEND_TASK_MAX_LOG_COUNT", "1000"), 1000),
 	}
 }
 

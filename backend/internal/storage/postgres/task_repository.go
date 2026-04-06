@@ -285,11 +285,22 @@ func (r *TaskRepository) MarkBackfillSeeded(ctx context.Context, pairSymbol stri
 	return err
 }
 
-// PruneOldTasks deletes completed and failed tasks whose updated_at is older than olderThan.
-// This keeps the task log bounded. Returns the number of rows deleted.
-func (r *TaskRepository) PruneOldTasks(ctx context.Context, olderThan time.Duration) (int64, error) {
+// PruneOldTasks deletes completed and failed tasks. It first removes tasks older than olderThan,
+// and then further prunes the log to ensure no more than keepMax completed/failed tasks remain.
+// This keeps the task log bounded by both time (retention period) and volume (max count).
+// Returns the total number of rows deleted.
+func (r *TaskRepository) PruneOldTasks(ctx context.Context, olderThan time.Duration, keepMax int) (int64, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	// 1. Duration-based prune
 	cutoff := time.Now().UTC().Add(-olderThan)
-	result, err := r.db.ExecContext(ctx, `
+	res1, err := tx.ExecContext(ctx, `
 		DELETE FROM tasks
 		WHERE status IN ('completed', 'failed')
 		  AND updated_at < $1
@@ -297,5 +308,30 @@ func (r *TaskRepository) PruneOldTasks(ctx context.Context, olderThan time.Durat
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	deleted1, _ := res1.RowsAffected()
+
+	// 2. Count-based prune
+	var deleted2 int64
+	if keepMax > 0 {
+		res2, err := tx.ExecContext(ctx, `
+			DELETE FROM tasks
+			WHERE id IN (
+				SELECT id
+				FROM tasks
+				WHERE status IN ('completed', 'failed')
+				ORDER BY updated_at DESC
+				OFFSET $1
+			)
+		`, keepMax)
+		if err != nil {
+			return deleted1, err
+		}
+		deleted2, _ = res2.RowsAffected()
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return deleted1 + deleted2, nil
 }

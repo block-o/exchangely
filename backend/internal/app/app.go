@@ -125,7 +125,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		MinSources:       cfg.IntegrityMinSources,
 		MaxDivergencePct: cfg.IntegrityMaxDivergencePct,
 	})
-	cleanupExe := worker.NewCleanupExecutor(taskRepo, 7*24*time.Hour) // Retain 7 days of logs
+	cleanupExe := worker.NewCleanupExecutor(taskRepo, cfg.TaskRetentionPeriod, cfg.TaskRetentionCount)
 
 	routerExe := worker.NewRouterExecutor(map[string]worker.Executor{
 		task.TypeBackfill:    backfillExe,

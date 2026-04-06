@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestLoadDefaultsDevelopmentCORSOrigins(t *testing.T) {
@@ -76,5 +77,19 @@ func TestLoadUsesConfiguredIntegrityValidatorSettings(t *testing.T) {
 	}
 	if !cfg.EnableCoinGecko {
 		t.Fatal("expected coingecko provider to be enabled")
+	}
+}
+
+func TestLoadUsesConfiguredTaskRetention(t *testing.T) {
+	t.Setenv("BACKEND_TASK_RETENTION_PERIOD", "48h")
+	t.Setenv("BACKEND_TASK_MAX_LOG_COUNT", "5000")
+
+	cfg := Load()
+
+	if cfg.TaskRetentionPeriod != 48*time.Hour {
+		t.Fatalf("expected task retention period 48h, got %v", cfg.TaskRetentionPeriod)
+	}
+	if cfg.TaskRetentionCount != 5000 {
+		t.Fatalf("expected task retention count 5000, got %d", cfg.TaskRetentionCount)
 	}
 }

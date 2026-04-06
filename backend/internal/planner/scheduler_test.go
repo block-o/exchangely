@@ -8,7 +8,7 @@ import (
 )
 
 func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
-	scheduler := NewScheduler(2 * time.Minute)
+	scheduler := NewScheduler(2*time.Minute, 5*time.Minute)
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildInitialBackfillTasks([]pair.Pair{
@@ -49,7 +49,7 @@ func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
 }
 
 func TestBuildRealtimeTasksStartBeforeBackfillCompletion(t *testing.T) {
-	scheduler := NewScheduler(2 * time.Minute)
+	scheduler := NewScheduler(2*time.Minute, 5*time.Minute)
 	now := time.Date(2026, 4, 2, 12, 34, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildRealtimeTasks([]pair.Pair{
@@ -91,7 +91,7 @@ func TestBuildRealtimeTasksStartBeforeBackfillCompletion(t *testing.T) {
 }
 
 func TestBuildInitialBackfillTasksStopsAtRealtimeCutover(t *testing.T) {
-	scheduler := NewScheduler(2 * time.Minute)
+	scheduler := NewScheduler(2*time.Minute, 5*time.Minute)
 	now := time.Date(2026, 4, 2, 12, 34, 0, 0, time.UTC)
 	realtimeStarted := time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC)
 
@@ -114,7 +114,7 @@ func TestBuildInitialBackfillTasksStopsAtRealtimeCutover(t *testing.T) {
 }
 
 func TestBuildConsolidationTasksIncludesOnlyFullyCaughtUpPairs(t *testing.T) {
-	scheduler := NewScheduler(2 * time.Minute)
+	scheduler := NewScheduler(2*time.Minute, 5*time.Minute)
 	now := time.Date(2026, 4, 2, 12, 34, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildConsolidationTasks([]pair.Pair{
@@ -150,7 +150,7 @@ func TestBuildConsolidationTasksIncludesOnlyFullyCaughtUpPairs(t *testing.T) {
 // would generate the same ID (truncated to the hour), causing the planner's
 // Enqueue to silently drop the second one—leaving prices stale for up to 1 hour.
 func TestRealtimeTasksGenerateDistinctIDsPerPollWindow(t *testing.T) {
-	scheduler := NewScheduler(2 * time.Minute)
+	scheduler := NewScheduler(2*time.Minute, 5*time.Minute)
 
 	caughtUp := map[string]SyncState{
 		"BTCEUR": {
@@ -192,11 +192,11 @@ func TestRealtimeTasksGenerateDistinctIDsPerPollWindow(t *testing.T) {
 // TestNewSchedulerDefaultsPollInterval verifies that a zero or negative
 // pollInterval falls back to the 2-minute default.
 func TestNewSchedulerDefaultsPollInterval(t *testing.T) {
-	s := NewScheduler(0)
+	s := NewScheduler(0, 0)
 	if s.realtimePollInterval != 2*time.Minute {
 		t.Fatalf("expected 2m default, got %v", s.realtimePollInterval)
 	}
-	s2 := NewScheduler(-1 * time.Second)
+	s2 := NewScheduler(-1*time.Second, -1*time.Second)
 	if s2.realtimePollInterval != 2*time.Minute {
 		t.Fatalf("expected 2m default for negative, got %v", s2.realtimePollInterval)
 	}
@@ -205,7 +205,7 @@ func TestNewSchedulerDefaultsPollInterval(t *testing.T) {
 // TestBuildCleanupTask verifies that the cleanup task is correctly generated
 // with a unique ID per day.
 func TestBuildCleanupTask(t *testing.T) {
-	s := NewScheduler(2 * time.Minute)
+	s := NewScheduler(2*time.Minute, 5*time.Minute)
 	now1 := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	now2 := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
 

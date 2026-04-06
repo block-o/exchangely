@@ -4,6 +4,7 @@ import App from "./App";
 
 class MockEventSource {
   close = vi.fn();
+  onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
 
@@ -75,6 +76,9 @@ describe("App", () => {
             recentLimit: 10,
             recentPage: 1,
           });
+        }
+        if (url.includes("/news")) {
+          return mockResponse({ data: [] });
         }
         return Promise.reject(new Error(`Unhandled fetch URL: ${url}`));
       })

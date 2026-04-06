@@ -4,9 +4,11 @@ import { MarketPage } from "./MarketPage";
 import { SettingsProvider } from "../app/settings";
 import * as pairsApi from "../api/pairs";
 import * as historicalApi from "../api/historical";
+import * as newsApi from "../api/news";
 
 vi.mock("../api/pairs");
 vi.mock("../api/system");
+vi.mock("../api/news", () => ({ getNews: vi.fn() }));
 vi.mock("../api/historical", () => ({ fetchHistorical: vi.fn() }));
 
 class MockEventSource {
@@ -28,6 +30,7 @@ describe("MarketPage", () => {
     localStorage.clear();
     MockEventSource.instances = [];
     vi.mocked(historicalApi.fetchHistorical).mockResolvedValue({ data: [] });
+    vi.mocked(newsApi.getNews).mockResolvedValue([]);
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {

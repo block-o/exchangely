@@ -21,6 +21,7 @@ type Services struct {
 	Catalog *service.CatalogService
 	Market  *service.MarketService
 	System  *service.SystemService
+	News    *service.NewsService
 }
 
 type Options struct {
@@ -154,6 +155,58 @@ func New(svcs Services, opts Options) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{
 			"api_version": "v1.0.0",
 		})
+	})
+
+	// GET /api/v1/news — returns the latest news articles.
+	mux.HandleFunc("/api/v1/news", func(w http.ResponseWriter, r *http.Request) {
+		limit := getIntParam(r, "limit", 50)
+		items, err := svcs.News.List(r.Context(), limit)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, dto.ListResponse[any]{Data: toAnySlice(items)})
+	})
+
+	// GET /api/v1/news/stream — Server-Sent Events (SSE) endpoint for news updates.
+	mux.HandleFunc("/api/v1/news/stream", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "SSE not supported", http.StatusInternalServerError)
+			return
+		}
+
+		ctx := r.Context()
+		updates := svcs.News.Subscribe()
+		defer svcs.News.Unsubscribe(updates)
+
+		// Initial push
+		items, _ := svcs.News.List(ctx, 50)
+		data, _ := json.Marshal(map[string]any{"news": items})
+		if err := writeSSEData(w, data); err != nil {
+			slog.Warn("initial news stream write failed", "error", err)
+			return
+		}
+		flusher.Flush()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-updates:
+				items, _ := svcs.News.List(ctx, 50)
+				data, _ := json.Marshal(map[string]any{"news": items})
+				if err := writeSSEData(w, data); err != nil {
+					slog.Warn("news stream write failed", "error", err)
+					return
+				}
+				flusher.Flush()
+			}
+		}
 	})
 
 	mux.HandleFunc("/api/v1/system/warnings", func(w http.ResponseWriter, r *http.Request) {
@@ -331,71 +384,84 @@ paths:
       responses:
         "200":
           description: Service health
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthStatus' }
   /api/v1/assets:
     get:
       summary: List supported assets
       responses:
         "200":
           description: Asset catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Asset' } }
   /api/v1/pairs:
     get:
       summary: List supported pairs
       responses:
         "200":
           description: Pair catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Pair' } }
   /api/v1/historical/{pair}:
     get:
       summary: Historical OHLCV data
-      description: Returns canonical stored candles for the requested interval. Use this endpoint for historical charts and backfilled series, not for the freshest live price.
+      description: Returns canonical stored candles for the requested interval.
       parameters:
         - in: path
           name: pair
           required: true
-          schema:
-            type: string
+          schema: { type: string }
         - in: query
           name: interval
           required: true
-          schema:
-            type: string
-            enum: [1h, 1d]
-        - in: query
-          name: start_time
-          schema:
-            type: integer
-            format: int64
-        - in: query
-          name: end_time
-          schema:
-            type: integer
-            format: int64
+          schema: { type: string, enum: [1h, 1d] }
       responses:
         "200":
           description: Historical candle data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Candle' } }
   /api/v1/ticker/{pair}:
     get:
       summary: Latest realtime ticker view
-      description: Returns the freshest persisted ticker point for a pair. Price and last_update_unix prefer the newest realtime raw sample when it is newer than the current hourly candle; 24h stats remain derived from stored hourly candles.
       parameters:
         - in: path
           name: pair
           required: true
-          schema:
-            type: string
+          schema: { type: string }
       responses:
         "200":
           description: Latest ticker
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ticker' }
   /api/v1/tickers:
     get:
       summary: Latest realtime ticker views
-      description: Returns the freshest persisted ticker point for every pair. Price and last_update_unix prefer the newest realtime raw sample when it is newer than the current hourly candle; 24h stats remain derived from stored hourly candles.
       responses:
         "200":
           description: Latest tickers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Ticker' } }
   /api/v1/tickers/stream:
     get:
       summary: Realtime ticker SSE stream
-      description: Streams the same ticker read model as /api/v1/tickers, including freshest persisted realtime prices plus 24h stats.
       responses:
         "200":
           description: Server-Sent Events stream
@@ -405,24 +471,165 @@ paths:
       responses:
         "200":
           description: Sync status snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SyncStatus' } }
   /api/v1/system/version:
     get:
       summary: Runtime version metadata
       responses:
         "200":
           description: Version snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_version: { type: string }
   /api/v1/system/tasks:
     get:
       summary: Task queue snapshot
       responses:
         "200":
           description: Upcoming and recent tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upcoming: { type: array, items: { $ref: '#/components/schemas/Task' } }
+                  upcomingTotal: { type: integer }
+                  recent: { type: array, items: { $ref: '#/components/schemas/Task' } }
+                  recentTotal: { type: integer }
   /api/v1/system/tasks/stream:
     get:
       summary: Realtime task SSE stream
       responses:
         "200":
           description: Server-Sent Events stream
+  /api/v1/system/warnings:
+    get:
+      summary: Active system warnings
+      responses:
+        "200":
+          description: List of active warnings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ActiveWarning' }
+    post:
+      summary: Dismiss a warning
+      responses:
+        "204":
+          description: Warning dismissed
+  /api/v1/news:
+    get:
+      summary: List latest news
+      responses:
+        "200":
+          description: List of news items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/NewsItem' } }
+  /api/v1/news/stream:
+    get:
+      summary: Realtime news SSE stream
+      responses:
+        "200":
+          description: Server-Sent Events stream
+components:
+  schemas:
+    Asset:
+      type: object
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        type: { type: string }
+        circulating_supply: { type: number, format: float }
+    Pair:
+      type: object
+      properties:
+        base: { type: string }
+        quote: { type: string }
+        symbol: { type: string }
+    Candle:
+      type: object
+      properties:
+        pair: { type: string }
+        interval: { type: string }
+        timestamp: { type: integer, format: int64 }
+        open: { type: number, format: double }
+        high: { type: number, format: double }
+        low: { type: number, format: double }
+        close: { type: number, format: double }
+        volume: { type: number, format: double }
+        source: { type: string }
+        finalized: { type: boolean }
+    Ticker:
+      type: object
+      properties:
+        pair: { type: string }
+        price: { type: number, format: double }
+        market_cap: { type: number, format: double }
+        variation_24h: { type: number, format: double }
+        high_24h: { type: number, format: double }
+        low_24h: { type: number, format: double }
+        last_update_unix: { type: integer, format: int64 }
+        source: { type: string }
+    Task:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string }
+        pair: { type: string }
+        interval: { type: string }
+        window_start: { type: string, format: date-time }
+        window_end: { type: string, format: date-time }
+        status: { type: string }
+        last_error: { type: string }
+        completed_at: { type: string, format: date-time }
+    SyncStatus:
+      type: object
+      properties:
+        pair: { type: string }
+        backfill_completed: { type: boolean }
+        last_synced_unix: { type: integer, format: int64 }
+        next_target_unix: { type: integer, format: int64 }
+        hourly_backfill_completed: { type: boolean }
+        daily_backfill_completed: { type: boolean }
+        hourly_synced_unix: { type: integer, format: int64 }
+        daily_synced_unix: { type: integer, format: int64 }
+        next_hourly_target_unix: { type: integer, format: int64 }
+        next_daily_target_unix: { type: integer, format: int64 }
+    HealthStatus:
+      type: object
+      properties:
+        status: { type: string }
+        checks: { type: object, additionalProperties: { type: string } }
+        timestamp: { type: integer, format: int64 }
+    ActiveWarning:
+      type: object
+      properties:
+        id: { type: string }
+        level: { type: string }
+        title: { type: string }
+        detail: { type: string }
+        fingerprint: { type: string }
+    NewsItem:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        link: { type: string }
+        source: { type: string }
+        published_at: { type: string, format: date-time }
 `
 }
 

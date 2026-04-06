@@ -25,13 +25,14 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - **Operations Visibility**: Restored and improved backend-side filtering and pagination support for the operations dashboard, ensuring reliable visibility into large task logs.
 - **Performance Optimization**: Implemented a multi-layered caching system for ticker endpoints (per-ticker invalidation + time-based global cache) to significantly reduce database load during high concurrency.
 - **Testing Infrastructure**: Added a dedicated Go-based load testing suite (`make load-test`) integrated into CI, ensuring performance stability for ticker read models under heavy request volume.
+- **Market Metrics**: Extended the ticker read model and Dashboard UI with 1h%, 7d%, and 24h volume metrics; synchronized OpenAPI 3.0 specifications for all market data entities.
 
 ## Roadmap & Missing Features
 - [x] Add Active Warnings area on top of the task status panel so current platform risks such as degraded health, pending backfills, and recent task failures are visible without digging through task history.
 - [x] Add **CryptoDataDownload** as a dedicated backfill provider for historical hourly/daily CSV fallback alongside the existing exchange adapters.
 - [x] Add **CoinGecko** as an additional realtime ticker provider, using live market-chart samples for supported realtime quote windows.
 - [x] **Refactored Ingest**: Split the `ingest` module cleanly into two distinct submodules: `backfill` and `realtime`.
-- [x] **Extend Market view**: Circulating supply (from realtime) and 24h variation stats are implemented in the read model; still need to calculate 1h% and 7d% change, 24h volume variation, and expose these new fields in the Dashboard UI.
+- [x] **Extend Market view**: Integrated 1h%, 7d%, and 24h Volume metrics into the SQL read model and Dashboard UI with color-coded trends.
 - [x] **Extend the supported coins to be configurable in the backend**: Reconciliation logic is implemented (unused coins/pairs are pruned from DB on startup), but the coin list is currently hardcoded in `CatalogService`.
 - [x] **Caching Layer**: Implemented multi-layered ticker caching with per-ticker invalidation and time-based global snapshots.
 - [x] Implement a **News feed**: Add a recent news feed implementation from trusted RSS feeds. This should be displayed as a horizontal scrolling feed in the main page. The feed should be updated every 5 minutes. 
@@ -46,8 +47,8 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - [ ] Add **Yahoo Finance (Yfinance)** as a ticker provider.
 
 ## Current Focus
-**News Feed Implementation & Market View Enhancements**
-Implementing a real-time RSS news ticker for the dashboard and completing the 1h/7d market metrics in the ticker read model.
+**Provider Expansion & Historical Optimization**
+Finalizing the **Yahoo Finance (Yfinance)** provider integration and designing the **month/year rollup** scheduled consolidation architecture to optimize longer-term historical storage.
 
 Operational rule updates:
 - Historical source fetch granularity must never be coarser than **1 day**, and **1 hour** remains the preferred canonical backfill resolution.

@@ -165,6 +165,6 @@ type fakeNotifier struct {
 	notifyCalls int
 }
 
-func (f *fakeNotifier) NotifyUpdate() {
+func (f *fakeNotifier) NotifyUpdate(pairSymbol string) {
 	f.notifyCalls++
 }

@@ -92,7 +92,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		cfg.RealtimePollInterval,
 	)
 	taskRepo.SetNotifier(systemService)
-	marketService := service.NewMarketService(marketRepo)
+	marketService := service.NewMarketService(marketRepo, cfg.TickerCacheSize, cfg.TickersCacheTTL)
 
 	handler := router.New(router.Services{
 		Catalog: catalogService,

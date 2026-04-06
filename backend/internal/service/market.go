@@ -22,13 +22,24 @@ type MarketService struct {
 	repo      MarketRepository
 	updateChs []chan struct{} // one buffered channel per active SSE subscriber
 	mu        sync.RWMutex    // guards updateChs slice
+
+	// Caching layer
+	tickerCache        map[string]ticker.Ticker
+	tickersCache       []ticker.Ticker
+	tickersCacheExpiry time.Time
+	cacheMu            sync.RWMutex // guards tickerCache and tickersCache
+	cacheSize          int
+	tickersTTL         time.Duration
 }
 
-// NewMarketService returns a MarketService backed by the given repository.
-func NewMarketService(repo MarketRepository) *MarketService {
+// NewMarketService returns a MarketService backed by the given repository and configured cache settings.
+func NewMarketService(repo MarketRepository, cacheSize int, tickersTTL time.Duration) *MarketService {
 	return &MarketService{
-		repo:      repo,
-		updateChs: make([]chan struct{}, 0),
+		repo:        repo,
+		updateChs:   make([]chan struct{}, 0),
+		tickerCache: make(map[string]ticker.Ticker, cacheSize),
+		cacheSize:   cacheSize,
+		tickersTTL:  tickersTTL,
 	}
 }
 
@@ -37,18 +48,62 @@ func (s *MarketService) Historical(ctx context.Context, pairSymbol, interval str
 }
 
 func (s *MarketService) Ticker(ctx context.Context, pairSymbol string) (ticker.Ticker, error) {
-	return s.repo.Ticker(ctx, pairSymbol)
+	s.cacheMu.RLock()
+	item, ok := s.tickerCache[pairSymbol]
+	s.cacheMu.RUnlock()
+	if ok {
+		return item, nil
+	}
+
+	item, err := s.repo.Ticker(ctx, pairSymbol)
+	if err != nil {
+		return ticker.Ticker{}, err
+	}
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	// Basic LRU/capacity management: if the map grows too large, clear it.
+	// Since we only have ~30 pairs, we rarely hit the default 100 capacity.
+	if len(s.tickerCache) >= s.cacheSize {
+		s.tickerCache = make(map[string]ticker.Ticker, s.cacheSize)
+	}
+	s.tickerCache[pairSymbol] = item
+
+	return item, nil
 }
 
 // Tickers delegates to the repository to fetch the latest global ticker state.
+// Results are cached for a configurable duration (tickersTTL) to prevent DB pressure.
 func (s *MarketService) Tickers(ctx context.Context) ([]ticker.Ticker, error) {
-	return s.repo.Tickers(ctx)
+	s.cacheMu.RLock()
+	if s.tickersCache != nil && time.Now().Before(s.tickersCacheExpiry) {
+		res := s.tickersCache
+		s.cacheMu.RUnlock()
+		return res, nil
+	}
+	s.cacheMu.RUnlock()
+
+	items, err := s.repo.Tickers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	s.tickersCache = items
+	s.tickersCacheExpiry = time.Now().Add(s.tickersTTL)
+
+	return items, nil
 }
 
 // NotifyUpdate fans out a non-blocking signal to every active SSE subscriber channel.
-// Called by the worker layer (BackfillExecutor, realtime.IngestService) after successful
-// database writes. The non-blocking send ensures a slow consumer never blocks the worker.
-func (s *MarketService) NotifyUpdate() {
+// It also invalidates the cached ticker entry for the specific pair that was updated.
+// The global "all tickers" cache is NOT invalidated here; it expires based on its TTL.
+func (s *MarketService) NotifyUpdate(pairSymbol string) {
+	s.cacheMu.Lock()
+	delete(s.tickerCache, pairSymbol)
+	s.cacheMu.Unlock()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, ch := range s.updateChs {

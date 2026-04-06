@@ -56,7 +56,7 @@ paths:
   /api/v1/ticker/{pair}:
     get:
       summary: Latest realtime ticker view
-      description: Returns the freshest persisted ticker point for a pair. Price and last_update_unix prefer the newest realtime raw sample when it is newer than the current hourly candle; 24h stats remain derived from stored hourly candles.
+      description: Returns the freshest persisted ticker point for a pair. Price and last_update_unix prefer the newest realtime raw sample when it is newer than the current hourly candle. Results are cached in-memory and invalidated per-ticker upon data updates.
       parameters:
         - in: path
           name: pair
@@ -69,7 +69,7 @@ paths:
   /api/v1/tickers:
     get:
       summary: Latest realtime ticker views
-      description: Returns the freshest persisted ticker point for every pair. Price and last_update_unix prefer the newest realtime raw sample when it is newer than the current hourly candle; 24h stats remain derived from stored hourly candles.
+      description: Returns the freshest persisted ticker point for every pair. Results are cached in-memory with a time-based expiration (default 30s) to reduce database load. This global cache is not evicted by individual ticker updates.
       responses:
         "200":
           description: Latest tickers

@@ -23,6 +23,8 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - **Scheduled Maintenance**: Added `task_cleanup` executor for automatic, scheduled pruning of completed and failed task logs to maintain bounded database growth.
 - **Operational Tuning**: Made task log retention configurable through `BACKEND_TASK_RETENTION_PERIOD` and `BACKEND_TASK_MAX_LOG_COUNT`, supporting both duration-based and volume-based (count) pruning.
 - **Operations Visibility**: Restored and improved backend-side filtering and pagination support for the operations dashboard, ensuring reliable visibility into large task logs.
+- **Performance Optimization**: Implemented a multi-layered caching system for ticker endpoints (per-ticker invalidation + time-based global cache) to significantly reduce database load during high concurrency.
+- **Testing Infrastructure**: Added a dedicated Go-based load testing suite (`make load-test`) integrated into CI, ensuring performance stability for ticker read models under heavy request volume.
 
 ## Roadmap & Missing Features
 - [x] Add Active Warnings area on top of the task status panel so current platform risks such as degraded health, pending backfills, and recent task failures are visible without digging through task history.
@@ -37,7 +39,8 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - [ ] **Historical backfill with day and month resolution** for all coin historical prices. For this feature add a minimum date to pull data from (ie, 2016) configured with a Variable in backend. From this date, you should use the oldest date available for each coin considering the date it was listed in relevant exchanges (ie, Kraken/Binance). Decide smartly this feature
 - [ ] Design a way to graphically visualize gaps in data resolution in operations panel
 - [ ] **Fiat/Forex Pairs**: Begin tracking currency-to-currency pairs (e.g., EURUSD, EURGBP).
-- [ ] Implement robust source load-balancing, rate-limit back-off (circuit breakers for `429 Too Many Requests`), and caching.
+- [ ] Implement robust source load-balancing and rate-limit back-off (circuit breakers for `429 Too Many Requests`).
+- [x] **Caching Layer**: Implemented multi-layered ticker caching with per-ticker invalidation and time-based global snapshots.
 - [ ] Implement api call examples in swagger
 - [ ] Add **Yahoo Finance (Yfinance)** as a ticker provider.
 

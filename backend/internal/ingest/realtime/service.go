@@ -21,7 +21,7 @@ type MarketStore interface {
 // MarketNotifier is satisfied by MarketService. It pushes a signal to the SSE EventBus
 // so that connected browser clients are notified immediately when new data is persisted.
 type MarketNotifier interface {
-	NotifyUpdate()
+	NotifyUpdate(pairSymbol string)
 }
 
 // IngestService consumes market events and rolls them into the latest hourly candle state.
@@ -124,7 +124,7 @@ func (s *IngestService) IngestRealtimeCandles(ctx context.Context, candles []can
 	// This is the critical bridge between the Kafka consumer pipeline and the frontend:
 	// Kafka event -> IngestRealtimeCandles -> Postgres upsert -> NotifyUpdate -> SSE push.
 	if s.notifier != nil {
-		s.notifier.NotifyUpdate()
+		s.notifier.NotifyUpdate(first.Pair)
 	}
 
 	return nil

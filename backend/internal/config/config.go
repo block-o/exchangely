@@ -42,6 +42,10 @@ type Config struct {
 	// TaskRetentionCount defines the maximum number of completed and failed
 	// tasks kept per cleanup cycle, further pruning the log if it exceeds this count.
 	TaskRetentionCount int
+	// TickerCacheSize defines the maximum number of individual tickers to keep in the memory cache.
+	TickerCacheSize int
+	// TickersCacheTTL defines how long the global tickers snapshot is kept in memory.
+	TickersCacheTTL time.Duration
 }
 
 func Load() Config {
@@ -75,6 +79,8 @@ func Load() Config {
 		DefaultQuoteAssets:        splitCSV(getenv("BACKEND_DEFAULT_QUOTE_ASSETS", "EUR,USD")),
 		TaskRetentionPeriod:       parseDuration(getenv("BACKEND_TASK_RETENTION_PERIOD", "24h")),
 		TaskRetentionCount:        parseInt(getenv("BACKEND_TASK_MAX_LOG_COUNT", "1000"), 1000),
+		TickerCacheSize:           parseInt(getenv("BACKEND_TICKER_CACHE_SIZE", "100"), 100),
+		TickersCacheTTL:           parseDuration(getenv("BACKEND_TICKERS_CACHE_TTL", "30s")),
 	}
 }
 

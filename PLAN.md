@@ -19,23 +19,31 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - **Operations Dashboard**: SSE-powered `SystemPanel` accurately tracking and predicting future backfill and realtime poll gaps.
 - **Documentation**: Substantial inline godoc standard for SSE/SQL methods mapping.
 - **Task Runtime Extensions**: Scheduler now emits `integrity_check` tasks for caught-up pairs and workers execute cross-source validation passes.
+- **Data Consistency**: Implemented advisory pair-level locking in PostgreSQL during worker execution to prevent concurrent mutations of the same trading pair and ensure strictly sequential candle processing.
+- **Scheduled Maintenance**: Added `task_cleanup` executor for automatic, scheduled pruning of completed and failed task logs to maintain bounded database growth.
+- **Operational Tuning**: Made task log retention configurable through `BACKEND_TASK_RETENTION_PERIOD` and `BACKEND_TASK_MAX_LOG_COUNT`, supporting both duration-based and volume-based (count) pruning.
+- **Operations Visibility**: Restored and improved backend-side filtering and pagination support for the operations dashboard, ensuring reliable visibility into large task logs.
 
 ## Roadmap & Missing Features
 - [x] Add Active Warnings area on top of the task status panel so current platform risks such as degraded health, pending backfills, and recent task failures are visible without digging through task history.
 - [x] Add **CryptoDataDownload** as a dedicated backfill provider for historical hourly/daily CSV fallback alongside the existing exchange adapters.
 - [x] Add **CoinGecko** as an additional realtime ticker provider, using live market-chart samples for supported realtime quote windows.
 - [x] **Refactored Ingest**: Split the `ingest` module cleanly into two distinct submodules: `backfill` and `realtime`.
-- [ ] Add scheduled **month/year rollup buckets** derived from hourly/daily canonical candles rather than provider-native month archives.
-- [ ] **Historical backfill with day and month resolution** for all coin historical prices. For this feature add a minimum date to pull data from (ie, 2016) configured with a Variable in backend. From this date, you should use the oldest date available for each coin considering the date it was listed in relevant exchanges (ie, Kraken/Binance)
+- [/] **Extend Market view**: Circulating supply (from realtime) and 24h variation stats are implemented in the read model; still need to calculate 1h% and 7d% change, 24h volume variation, and expose these new fields in the Dashboard UI.
+- [ ] Add Chainlink for realtime historical data providers. Review if we could call the smartcontract for free for each coin ensuring we have the most accurate data possible for free.
+- [ ] Implement a **News feed**: Add a recent news feed implementation from trusted RSS feeds / Twitter trends or accounts. THis should be displaed as some how a horizontal scrolling feed in the main page. The feed should be updated every 5 minutes. 
+- [/] **Extend the supported coins to be configurable in the backend**: Reconciliation logic is implemented (unused coins/pairs are pruned from DB on startup), but the coin list is currently hardcoded in `CatalogService`.
+- [ ] Add scheduled **month/year rollup buckets** derived from hourly/daily canonical candles rather than provider-native month archives for recent data. Only override historical data if the realtime data bucket is complete for the interval we are overriding. So for example, if we have one month data of realtime data for a coin, we should override the 30 day bucket with the realtime data, that is wipped out after the consolidation happen, ensuring only recent data is derived from realtime data and keeping data size small.
+- [ ] **Historical backfill with day and month resolution** for all coin historical prices. For this feature add a minimum date to pull data from (ie, 2016) configured with a Variable in backend. From this date, you should use the oldest date available for each coin considering the date it was listed in relevant exchanges (ie, Kraken/Binance). Decide smartly this feature
 - [ ] Design a way to graphically visualize gaps in data resolution in operations panel
-- [ ] Add **Yahoo Finance (Yfinance)** as a ticker provider.
 - [ ] **Fiat/Forex Pairs**: Begin tracking currency-to-currency pairs (e.g., EURUSD, EURGBP).
 - [ ] Implement robust source load-balancing, rate-limit back-off (circuit breakers for `429 Too Many Requests`), and caching.
 - [ ] Implement api call examples in swagger
+- [ ] Add **Yahoo Finance (Yfinance)** as a ticker provider.
 
 ## Current Focus
-**Data Integrity Validator & New Provider Integration**
-The immediate phase aims at ensuring that fetched records match securely across exchanges prior to write, followed quickly by introducing new data sources (CryptoDataDownload, CoinGecko, Yfinance) and splitting up the ingestion mechanics into dedicated paths.
+**Market View Enhancements & Provider Expansion**
+Completing the 1h, 7d, and 24h volume metrics in the ticker read model and Dashboard, while finishing the Yahoo Finance provider and exploring month/year rollup architectures.
 
 Operational rule updates:
 - Historical source fetch granularity must never be coarser than **1 day**, and **1 hour** remains the preferred canonical backfill resolution.

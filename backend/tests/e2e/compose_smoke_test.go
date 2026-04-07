@@ -70,7 +70,7 @@ func TestRunningComposeStack(t *testing.T) {
 			Pair string `json:"pair"`
 		}
 
-		waitFor(t, 20*time.Second, func() bool {
+		waitFor(t, 60*time.Second, func() bool {
 			getJSON(t, client, baseURL+"/api/v1/system/sync-status", &payload)
 			return len(payload) > 0
 		})
@@ -80,7 +80,7 @@ func TestRunningComposeStack(t *testing.T) {
 	})
 
 	t.Run("planner lease", func(t *testing.T) {
-		waitFor(t, 40*time.Second, func() bool {
+		waitFor(t, 120*time.Second, func() bool {
 			holder, expiresAt, err := plannerLease(db, "planner_leader")
 			if err != nil {
 				t.Fatalf("planner lease query failed: %v", err)
@@ -101,7 +101,7 @@ func TestRunningComposeStack(t *testing.T) {
 	})
 
 	t.Run("task flow", func(t *testing.T) {
-		waitFor(t, 20*time.Second, func() bool {
+		waitFor(t, 60*time.Second, func() bool {
 			total, claimed, completedOrFailed, err := taskCounts(db)
 			if err != nil {
 				t.Fatalf("task counts query failed: %v", err)

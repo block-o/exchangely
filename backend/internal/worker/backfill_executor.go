@@ -77,6 +77,12 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 	startedAt := time.Now()
 	switch item.Type {
 	case task.TypeBackfill, task.TypeConsolidate, task.TypeRealtime:
+		slog.InfoContext(ctx, "task execution active",
+			"task_id", item.ID,
+			"type", item.Type,
+			"pair", item.Pair,
+			"interval", item.Interval,
+		)
 	default:
 		return fmt.Errorf("unsupported task type %q", item.Type)
 	}
@@ -196,7 +202,7 @@ func (e *BackfillExecutor) publishRealtime(ctx context.Context, item task.Task) 
 		if err := e.events.PublishCandles(ctx, consolidated); err != nil {
 			return nil, err
 		}
-		slog.Info("realtime task published market events",
+		slog.Debug("realtime task published market events",
 			"task_id", item.ID,
 			"pair", item.Pair,
 			"interval", item.Interval,
@@ -262,11 +268,16 @@ func (e *BackfillExecutor) fetchSourceCandles(ctx context.Context, item task.Tas
 		return nil, fmt.Errorf("%w: no source registry configured", ErrMarketSourceUnavailable)
 	}
 
+	reqInterval := item.Interval
+	if reqInterval == "realtime" {
+		reqInterval = "1h"
+	}
+
 	items, err := e.sources.FetchCandles(ctx, backfill.Request{
 		Pair:      item.Pair,
 		Base:      base,
 		Quote:     quote,
-		Interval:  item.Interval,
+		Interval:  reqInterval,
 		StartTime: item.WindowStart.UTC(),
 		EndTime:   item.WindowEnd.UTC(),
 	})

@@ -32,6 +32,8 @@ type Config struct {
 	RealtimePollInterval      time.Duration
 	WorkerPollInterval        time.Duration
 	WorkerBatchSize           int
+	PlannerBackfillBatchPct   int
+	WorkerBackfillBatchPct    int
 	CoinGeckoAPIKey           string
 	IntegrityMinSources       int
 	IntegrityMaxDivergencePct float64
@@ -48,6 +50,9 @@ type Config struct {
 	TickersCacheTTL time.Duration
 	// NewsFetchInterval defines how often the worker should fetch news from RSS feeds.
 	NewsFetchInterval time.Duration
+	// DefaultBackfillStart defines the earliest date for which the system will attempt
+	// to fetch historical data for newly discovered pairs.
+	DefaultBackfillStart time.Time
 }
 
 func Load() Config {
@@ -74,7 +79,9 @@ func Load() Config {
 		PlannerTick:               parseDuration(getenv("BACKEND_PLANNER_TICK", "10s")),
 		RealtimePollInterval:      parseDuration(getenv("BACKEND_REALTIME_POLL_INTERVAL", "2m")),
 		WorkerPollInterval:        parseDuration(getenv("BACKEND_WORKER_POLL_INTERVAL", "5s")),
-		WorkerBatchSize:           parseInt(getenv("BACKEND_WORKER_BATCH_SIZE", "8"), 8),
+		WorkerBatchSize:           parseInt(getenv("BACKEND_WORKER_BATCH_SIZE", "100"), 100),
+		PlannerBackfillBatchPct:   parsePercent(getenv("BACKEND_PLANNER_BACKFILL_BATCH_PERCENT", "20"), 50),
+		WorkerBackfillBatchPct:    parsePercent(getenv("BACKEND_WORKER_BACKFILL_BATCH_PERCENT", "50"), 50),
 		CoinGeckoAPIKey:           getenv("BACKEND_COINGECKO_API_KEY", ""),
 		IntegrityMinSources:       parseInt(getenv("BACKEND_INTEGRITY_MIN_SOURCES", "2"), 2),
 		IntegrityMaxDivergencePct: parseFloat(getenv("BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT", "0.5"), 0.5),
@@ -84,6 +91,7 @@ func Load() Config {
 		TickerCacheSize:           parseInt(getenv("BACKEND_TICKER_CACHE_SIZE", "100"), 100),
 		TickersCacheTTL:           parseDuration(getenv("BACKEND_TICKERS_CACHE_TTL", "30s")),
 		NewsFetchInterval:         parseDuration(getenv("BACKEND_NEWS_FETCH_INTERVAL", "5m")),
+		DefaultBackfillStart:      parseTime(getenv("BACKEND_DEFAULT_BACKFILL_START", "2017-01-01T00:00:00Z")),
 	}
 }
 
@@ -152,5 +160,25 @@ func parseBool(value string, fallback bool) bool {
 		return fallback
 	}
 
+	return parsed
+}
+
+func parseTime(value string) time.Time {
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		// Default to 2017-01-01 if invalid
+		return time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
+	}
+	return t
+}
+
+func parsePercent(value string, fallback int) int {
+	parsed := parseInt(value, fallback)
+	if parsed < 0 {
+		return 0
+	}
+	if parsed > 100 {
+		return 100
+	}
 	return parsed
 }

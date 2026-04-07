@@ -120,7 +120,7 @@ func TestOpenAPIContractSync(t *testing.T) {
 	// We use the real New functions with nil/dummy dependencies to avoid panics.
 	nr := &noopRepo{}
 	svcs := router.Services{
-		Catalog: service.NewCatalogService(nr, nil),
+		Catalog: service.NewCatalogService(nr, nil, time.Time{}),
 		Market:  service.NewMarketService(nr, 100, 30*time.Second),
 		System:  service.NewSystemService(nr, nr, nr, nr, nr, nr, "leader", 0),
 		News:    service.NewNewsService(nr),

@@ -17,7 +17,7 @@ import (
 //  2. Multi-Source Aggregation: If items exist for the same timestamp from different sources,
 //     it calculates the average price (Open/Close) and sums the volume across sources.
 func FromRaw(interval string, items []candle.Candle) ([]candle.Candle, error) {
-	if interval != "1h" && interval != "1d" {
+	if interval != "1h" && interval != "1d" && interval != "realtime" {
 		return nil, fmt.Errorf("unsupported raw consolidation interval %q", interval)
 	}
 	if len(items) == 0 {
@@ -27,7 +27,7 @@ func FromRaw(interval string, items []candle.Candle) ([]candle.Candle, error) {
 	grouped := map[int64][]candle.Candle{}
 	for _, item := range items {
 		groupKey := item.Timestamp
-		if interval == "1h" {
+		if interval == "1h" || interval == "realtime" {
 			groupKey = time.Unix(item.Timestamp, 0).UTC().Truncate(time.Hour).Unix()
 		}
 		grouped[groupKey] = append(grouped[groupKey], item)

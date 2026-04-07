@@ -40,12 +40,13 @@ func (r *CatalogRepository) ReplaceCatalog(ctx context.Context, assets []asset.A
 
 	for _, item := range pairs {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO pairs (symbol, base_asset, quote_asset)
-			VALUES ($1, $2, $3)
+			INSERT INTO pairs (symbol, base_asset, quote_asset, backfill_start_at)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (symbol) DO UPDATE
 			SET base_asset = EXCLUDED.base_asset,
-			    quote_asset = EXCLUDED.quote_asset
-		`, item.Symbol, item.Base, item.Quote); err != nil {
+			    quote_asset = EXCLUDED.quote_asset,
+			    backfill_start_at = EXCLUDED.backfill_start_at
+		`, item.Symbol, item.Base, item.Quote, item.BackfillStart.UTC()); err != nil {
 			return err
 		}
 	}
@@ -175,7 +176,7 @@ func (r *CatalogRepository) ListAssets(ctx context.Context) ([]asset.Asset, erro
 
 func (r *CatalogRepository) ListPairs(ctx context.Context) ([]pair.Pair, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT symbol, base_asset, quote_asset
+		SELECT symbol, base_asset, quote_asset, backfill_start_at
 		FROM pairs
 		ORDER BY symbol
 	`)
@@ -189,9 +190,10 @@ func (r *CatalogRepository) ListPairs(ctx context.Context) ([]pair.Pair, error) 
 	var items []pair.Pair
 	for rows.Next() {
 		var item pair.Pair
-		if err := rows.Scan(&item.Symbol, &item.Base, &item.Quote); err != nil {
+		if err := rows.Scan(&item.Symbol, &item.Base, &item.Quote, &item.BackfillStart); err != nil {
 			return nil, err
 		}
+		item.BackfillStart = item.BackfillStart.UTC()
 		items = append(items, item)
 	}
 

@@ -24,6 +24,10 @@ type LeaseCoordinator interface {
 	AcquireOrRenew(ctx context.Context, name, holder string, ttl time.Duration) (lease.Lease, bool, error)
 }
 
+type CoverageProvider interface {
+	GetAllCompletedDays(ctx context.Context) (map[string]map[string]bool, error)
+}
+
 type TaskSink interface {
 	Enqueue(ctx context.Context, tasks []task.Task) ([]task.Task, error)
 }
@@ -34,17 +38,19 @@ type TaskPublisher interface {
 
 // Runner owns planner leadership and periodically turns catalog + sync state into executable tasks.
 type Runner struct {
-	instanceID string
-	leaseName  string
-	leaseTTL   time.Duration
-	interval   time.Duration
-	scheduler  *Scheduler
-	pairs      PairProvider
-	sync       SyncStateProvider
-	leases     LeaseCoordinator
-	tasks      TaskSink
-	publisher  TaskPublisher
-	isLeader   bool
+	instanceID              string
+	leaseName               string
+	leaseTTL                time.Duration
+	interval                time.Duration
+	scheduler               *Scheduler
+	maxBackfillTasksPerTick int
+	pairs                   PairProvider
+	sync                    SyncStateProvider
+	leases                  LeaseCoordinator
+	tasks                   TaskSink
+	coverage                CoverageProvider
+	publisher               TaskPublisher
+	isLeader                bool
 }
 
 // NewRunner wires the planner runtime with the scheduler, state stores, and optional Kafka publisher.
@@ -52,23 +58,27 @@ func NewRunner(
 	instanceID, leaseName string,
 	leaseTTL, interval time.Duration,
 	scheduler *Scheduler,
+	maxBackfillTasksPerTick int,
 	pairs PairProvider,
 	sync SyncStateProvider,
 	leases LeaseCoordinator,
 	tasks TaskSink,
+	coverage CoverageProvider,
 	publisher TaskPublisher,
 ) *Runner {
 	return &Runner{
-		instanceID: instanceID,
-		leaseName:  leaseName,
-		leaseTTL:   leaseTTL,
-		interval:   interval,
-		scheduler:  scheduler,
-		pairs:      pairs,
-		sync:       sync,
-		leases:     leases,
-		tasks:      tasks,
-		publisher:  publisher,
+		instanceID:              instanceID,
+		leaseName:               leaseName,
+		leaseTTL:                leaseTTL,
+		interval:                interval,
+		scheduler:               scheduler,
+		maxBackfillTasksPerTick: maxBackfillTasksPerTick,
+		pairs:                   pairs,
+		sync:                    sync,
+		leases:                  leases,
+		tasks:                   tasks,
+		coverage:                coverage,
+		publisher:               publisher,
 	}
 }
 
@@ -137,14 +147,46 @@ func (r *Runner) runTick(ctx context.Context) error {
 		}
 	}
 
+	coverage, err := r.coverage.GetAllCompletedDays(ctx)
+	if err != nil {
+		return err
+	}
+
 	now := time.Now().UTC()
-	tasks := r.scheduler.BuildRealtimeTasks(pairs, adapted, now)
-	tasks = append(tasks, r.scheduler.BuildInitialBackfillTasks(pairs, adapted, now)...)
-	tasks = append(tasks, r.scheduler.BuildConsolidationTasks(pairs, adapted, now)...)
-	tasks = append(tasks, r.scheduler.BuildCleanupTask(now))   // daily task log pruning
-	tasks = append(tasks, r.scheduler.BuildNewsFetchTask(now)) // periodic news fetch
-	if len(tasks) == 0 {
+	realtimeTasks := r.scheduler.BuildRealtimeTasks(pairs, adapted, now)
+	if err := r.enqueueBatch(ctx, realtimeTasks); err != nil {
+		return err
+	}
+
+	backfillTasks := r.scheduler.BuildInitialBackfillTasksLimited(pairs, adapted, coverage, now, r.maxBackfillTasksPerTick)
+	if r.maxBackfillTasksPerTick > 0 && len(backfillTasks) == r.maxBackfillTasksPerTick {
+		slog.Info("planner capped backfill task batch",
+			"instance_id", r.instanceID,
+			"backfill_task_limit", r.maxBackfillTasksPerTick,
+		)
+	}
+
+	followUpTasks := make([]task.Task, 0, len(backfillTasks)+4)
+	followUpTasks = append(followUpTasks, backfillTasks...)
+	followUpTasks = append(followUpTasks, r.scheduler.BuildGapValidationTasks(pairs, adapted, coverage, now)...)
+	followUpTasks = append(followUpTasks, r.scheduler.BuildConsolidationTasks(pairs, adapted, now)...)
+	followUpTasks = append(followUpTasks, r.scheduler.BuildCleanupTask(now))   // daily task log pruning
+	followUpTasks = append(followUpTasks, r.scheduler.BuildNewsFetchTask(now)) // periodic news fetch
+
+	if len(realtimeTasks) == 0 && len(followUpTasks) == 0 {
 		slog.Debug("planner tick complete", "instance_id", r.instanceID, "pair_count", len(pairs), "task_count", 0)
+		return nil
+	}
+
+	if err := r.enqueueBatch(ctx, followUpTasks); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *Runner) enqueueBatch(ctx context.Context, tasks []task.Task) error {
+	if len(tasks) == 0 {
 		return nil
 	}
 
@@ -153,7 +195,6 @@ func (r *Runner) runTick(ctx context.Context) error {
 		return err
 	}
 	if len(enqueuedTasks) == 0 {
-		slog.Debug("planner tick complete", "instance_id", r.instanceID, "pair_count", len(pairs), "task_count", 0)
 		return nil
 	}
 
@@ -176,4 +217,22 @@ func (r *Runner) runTick(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func ComputeBackfillTaskCap(workerBatchSize, percent int) int {
+	if workerBatchSize <= 0 || percent <= 0 {
+		return 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+
+	cap := (workerBatchSize*percent + 99) / 100
+	if cap > workerBatchSize {
+		return workerBatchSize
+	}
+	if cap < 1 {
+		return 1
+	}
+	return cap
 }

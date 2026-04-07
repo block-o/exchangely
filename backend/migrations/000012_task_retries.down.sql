@@ -1,0 +1,3 @@
+ALTER TABLE tasks
+    DROP COLUMN IF NOT EXISTS retry_count,
+    DROP COLUMN IF NOT EXISTS retry_at;

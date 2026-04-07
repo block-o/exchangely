@@ -19,7 +19,7 @@ func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
 			HourlyLastSynced:        now.Add(-48 * time.Hour),
 			HourlyBackfillCompleted: false,
 		},
-	}, now)
+	}, make(map[string]map[string]bool), now)
 
 	if len(tasks) == 0 {
 		t.Fatal("expected backfill tasks")
@@ -103,13 +103,14 @@ func TestBuildInitialBackfillTasksStopsAtRealtimeCutover(t *testing.T) {
 			HourlyRealtimeStartedAt: realtimeStarted,
 			HourlyBackfillCompleted: false,
 		},
-	}, now)
+	}, make(map[string]map[string]bool), now)
 
-	if len(tasks) != 1 {
-		t.Fatalf("expected 1 capped backfill task, got %d", len(tasks))
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 capped backfill tasks, got %d", len(tasks))
 	}
-	if !tasks[0].WindowEnd.Equal(realtimeStarted) {
-		t.Fatalf("expected backfill to stop at realtime cutover %s, got %s", realtimeStarted, tasks[0].WindowEnd)
+	// With 1h granularity, tasks[1] should end at realtimeStarted (10:00)
+	if !tasks[1].WindowEnd.Equal(realtimeStarted) {
+		t.Fatalf("expected backfill to stop at realtime cutover %s, got %s", realtimeStarted, tasks[1].WindowEnd)
 	}
 }
 
@@ -171,6 +172,9 @@ func TestRealtimeTasksGenerateDistinctIDsPerPollWindow(t *testing.T) {
 
 	if len(tasks1) != 2 || len(tasks2) != 2 {
 		t.Fatalf("expected 2 tasks each (1 realtime, 1 sanity), got %d and %d", len(tasks1), len(tasks2))
+	}
+	if tasks1[0].Interval != "realtime" {
+		t.Fatalf("expected realtime interval, got %q", tasks1[0].Interval)
 	}
 	if tasks1[0].ID == tasks2[0].ID {
 		t.Fatalf("expected distinct task IDs across poll windows, both got %q", tasks1[0].ID)

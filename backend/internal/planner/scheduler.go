@@ -37,8 +37,8 @@ func NewScheduler(pollInterval, newsInterval time.Duration) *Scheduler {
 		newsInterval = 5 * time.Minute
 	}
 	return &Scheduler{
-		backfillWindow1H:     12 * time.Hour,
-		backfillWindow1D:     7 * 24 * time.Hour,
+		backfillWindow1H:     1 * time.Hour,
+		backfillWindow1D:     24 * time.Hour,
 		realtimePollInterval: pollInterval,
 		newsFetchInterval:    newsInterval,
 	}
@@ -47,16 +47,27 @@ func NewScheduler(pollInterval, newsInterval time.Duration) *Scheduler {
 // BuildInitialBackfillTasks emits hourly work first and only advances to daily backfill after hourly catch-up.
 // Once live realtime starts for a pair, hourly historical work is capped at that cutover so backfill
 // does not continue into the live-managed window.
-func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[string]SyncState, now time.Time) []task.Task {
+func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[string]SyncState, coverage map[string]map[string]bool, now time.Time) []task.Task {
+	return s.BuildInitialBackfillTasksLimited(pairs, state, coverage, now, 0)
+}
+
+// BuildInitialBackfillTasksLimited behaves like BuildInitialBackfillTasks but stops
+// once the requested task count limit is reached. A non-positive limit means unlimited.
+func (s *Scheduler) BuildInitialBackfillTasksLimited(pairs []pair.Pair, state map[string]SyncState, coverage map[string]map[string]bool, now time.Time, limit int) []task.Task {
 	currentHour := now.UTC().Truncate(time.Hour)
 	currentDay := currentHour.Truncate(24 * time.Hour)
 	tasks := make([]task.Task, 0)
 
 	for _, trackedPair := range pairs {
 		pairState := state[trackedPair.Symbol]
+		pairCoverage := coverage[trackedPair.Symbol]
+
 		hourlyCursor := pairState.HourlyLastSynced.UTC()
 		if hourlyCursor.IsZero() {
-			hourlyCursor = currentHour.AddDate(0, 0, -30)
+			hourlyCursor = trackedPair.BackfillStart.UTC()
+			if hourlyCursor.IsZero() {
+				hourlyCursor = currentHour.AddDate(0, 0, -30) // fallback if not set
+			}
 		}
 		hourlyCutover := currentHour
 		if !pairState.HourlyRealtimeStartedAt.IsZero() && pairState.HourlyRealtimeStartedAt.UTC().Before(hourlyCutover) {
@@ -64,7 +75,16 @@ func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[strin
 		}
 
 		if !pairState.HourlyBackfillCompleted {
-			tasks = append(tasks, s.windowedTasks(trackedPair.Symbol, "1h", hourlyCursor, hourlyCutover, s.backfillWindow1H)...)
+			for _, t := range s.windowedTasks(trackedPair.Symbol, "1h", hourlyCursor, hourlyCutover, s.backfillWindow1H) {
+				dayKey := t.WindowStart.UTC().Format("2006-01-02")
+				if pairCoverage[dayKey] {
+					continue
+				}
+				tasks = append(tasks, t)
+				if limit > 0 && len(tasks) >= limit {
+					return tasks
+				}
+			}
 			continue
 		}
 
@@ -73,7 +93,56 @@ func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[strin
 			dailyCursor = hourlyCursor.Truncate(24 * time.Hour)
 		}
 		if !pairState.DailyBackfillCompleted {
-			tasks = append(tasks, s.windowedTasks(trackedPair.Symbol, "1d", dailyCursor, currentDay, s.backfillWindow1D)...)
+			for _, t := range s.windowedTasks(trackedPair.Symbol, "1d", dailyCursor, currentDay, s.backfillWindow1D) {
+				dayKey := t.WindowStart.UTC().Format("2006-01-02")
+				if pairCoverage[dayKey] {
+					continue
+				}
+				tasks = append(tasks, t)
+				if limit > 0 && len(tasks) >= limit {
+					return tasks
+				}
+			}
+		}
+	}
+
+	return tasks
+}
+
+// BuildGapValidationTasks emits tasks to verify coverage for days between backfill_start and yesterday
+// that are not yet marked as complete.
+func (s *Scheduler) BuildGapValidationTasks(pairs []pair.Pair, state map[string]SyncState, coverage map[string]map[string]bool, now time.Time) []task.Task {
+	yesterday := now.UTC().Truncate(24 * time.Hour).Add(-24 * time.Hour)
+	tasks := make([]task.Task, 0)
+
+	for _, trackedPair := range pairs {
+		pairCoverage := coverage[trackedPair.Symbol]
+		start := trackedPair.BackfillStart.UTC()
+		if start.IsZero() {
+			continue
+		}
+
+		// Only check up to yesterday
+		for cursor := start; !cursor.After(yesterday); cursor = cursor.Add(24 * time.Hour) {
+			dayKey := cursor.Format("2006-01-02")
+			if pairCoverage[dayKey] {
+				continue
+			}
+
+			// Add gap validation task for this day
+			tasks = append(tasks, task.Task{
+				ID:          taskID(task.TypeGapValidation, trackedPair.Symbol, "1d", cursor, cursor.Add(24*time.Hour)),
+				Type:        task.TypeGapValidation,
+				Pair:        trackedPair.Symbol,
+				Interval:    "1d",
+				WindowStart: cursor,
+				WindowEnd:   cursor.Add(24 * time.Hour),
+			})
+
+			// Limit the number of validation tasks per tick to avoid flooding (e.g. max 5 per pair)
+			if len(tasks) > 50 { // total across all pairs
+				return tasks
+			}
 		}
 	}
 
@@ -158,10 +227,10 @@ func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncS
 
 		// Realtime extraction
 		tasks = append(tasks, task.Task{
-			ID:          taskID(task.TypeRealtime, trackedPair.Symbol, "1h", pollWindow, nextHour),
+			ID:          taskID(task.TypeRealtime, trackedPair.Symbol, "realtime", pollWindow, nextHour),
 			Type:        task.TypeRealtime,
 			Pair:        trackedPair.Symbol,
-			Interval:    "1h",
+			Interval:    "realtime",
 			WindowStart: currentHour,
 			WindowEnd:   nextHour,
 		})

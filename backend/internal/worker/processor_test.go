@@ -28,6 +28,22 @@ func TestProcessorIsIdempotentAcrossRepeatedDeliveries(t *testing.T) {
 	}
 }
 
+func TestRunnerPassesBackfillCapToPendingSource(t *testing.T) {
+	source := &fakePendingSource{}
+	runner := NewRunner(source, NewProcessor(&fakeStore{claimed: map[string]bool{}}, &fakeLocker{}, &fakeExecutor{}), 5, 12, 3)
+
+	if err := runner.runBatch(context.Background()); err != nil {
+		t.Fatalf("runBatch failed: %v", err)
+	}
+
+	if source.limit != 12 {
+		t.Fatalf("expected runner to request limit 12, got %d", source.limit)
+	}
+	if source.backfillLimit != 3 {
+		t.Fatalf("expected runner to request backfill limit 3, got %d", source.backfillLimit)
+	}
+}
+
 type fakeStore struct {
 	claimed map[string]bool
 }
@@ -61,4 +77,15 @@ type fakeExecutor struct {
 func (e *fakeExecutor) Execute(_ context.Context, _ task.Task) error {
 	e.calls++
 	return nil
+}
+
+type fakePendingSource struct {
+	limit         int
+	backfillLimit int
+}
+
+func (s *fakePendingSource) Pending(_ context.Context, limit, backfillLimit int) ([]task.Task, error) {
+	s.limit = limit
+	s.backfillLimit = backfillLimit
+	return nil, nil
 }

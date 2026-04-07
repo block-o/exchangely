@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/asset"
 	"github.com/block-o/exchangely/backend/internal/domain/pair"
@@ -15,20 +16,22 @@ type CatalogRepository interface {
 }
 
 type CatalogService struct {
-	repo   CatalogRepository
-	quotes []string
+	repo                 CatalogRepository
+	quotes               []string
+	defaultBackfillStart time.Time
 }
 
-func NewCatalogService(repo CatalogRepository, quotes []string) *CatalogService {
+func NewCatalogService(repo CatalogRepository, quotes []string, defaultBackfillStart time.Time) *CatalogService {
 	return &CatalogService{
-		repo:   repo,
-		quotes: quotes,
+		repo:                 repo,
+		quotes:               quotes,
+		defaultBackfillStart: defaultBackfillStart,
 	}
 }
 
 func (s *CatalogService) Seed(ctx context.Context) error {
 	assets := bootstrapAssets(s.quotes)
-	return s.repo.ReplaceCatalog(ctx, assets, bootstrapPairs(assets))
+	return s.repo.ReplaceCatalog(ctx, assets, bootstrapPairs(assets, s.defaultBackfillStart))
 }
 
 func (s *CatalogService) Assets(ctx context.Context) ([]asset.Asset, error) {
@@ -81,7 +84,7 @@ func bootstrapAssets(quotes []string) []asset.Asset {
 	return items
 }
 
-func bootstrapPairs(assets []asset.Asset) []pair.Pair {
+func bootstrapPairs(assets []asset.Asset, startDate time.Time) []pair.Pair {
 	baseSymbols := make([]string, 0)
 	quotes := make([]string, 0)
 
@@ -98,9 +101,10 @@ func bootstrapPairs(assets []asset.Asset) []pair.Pair {
 	for _, base := range baseSymbols {
 		for _, quote := range quotes {
 			pairs = append(pairs, pair.Pair{
-				Base:   base,
-				Quote:  quote,
-				Symbol: base + quote,
+				Base:          base,
+				Quote:         quote,
+				Symbol:        base + quote,
+				BackfillStart: startDate,
 			})
 		}
 	}

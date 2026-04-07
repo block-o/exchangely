@@ -47,7 +47,7 @@ func TestWorker_RetryStateIntegration(t *testing.T) {
 	_ = processor.Process(ctx, item)
 
 	// 4. Verify DB state via Repository
-	pending, err := repo.Pending(ctx, 10)
+	pending, err := repo.Pending(ctx, 10, 10)
 	if err != nil {
 		t.Fatalf("Pending failed: %v", err)
 	}

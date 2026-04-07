@@ -101,22 +101,24 @@ func (p *Processor) Process(ctx context.Context, item task.Task) error {
 }
 
 type PendingSource interface {
-	Pending(ctx context.Context, limit int) ([]task.Task, error)
+	Pending(ctx context.Context, limit, backfillLimit int) ([]task.Task, error)
 }
 
 type Runner struct {
-	source    PendingSource
-	processor *Processor
-	interval  time.Duration
-	batchSize int
+	source                   PendingSource
+	processor                *Processor
+	interval                 time.Duration
+	batchSize                int
+	maxBackfillTasksPerBatch int
 }
 
-func NewRunner(source PendingSource, processor *Processor, interval time.Duration, batchSize int) *Runner {
+func NewRunner(source PendingSource, processor *Processor, interval time.Duration, batchSize int, maxBackfillTasksPerBatch int) *Runner {
 	return &Runner{
-		source:    source,
-		processor: processor,
-		interval:  interval,
-		batchSize: batchSize,
+		source:                   source,
+		processor:                processor,
+		interval:                 interval,
+		batchSize:                batchSize,
+		maxBackfillTasksPerBatch: maxBackfillTasksPerBatch,
 	}
 }
 
@@ -138,7 +140,7 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 func (r *Runner) runBatch(ctx context.Context) error {
-	items, err := r.source.Pending(ctx, r.batchSize)
+	items, err := r.source.Pending(ctx, r.batchSize, r.maxBackfillTasksPerBatch)
 	if err != nil {
 		return err
 	}

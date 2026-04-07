@@ -22,6 +22,8 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - **Data Consistency**: Implemented advisory pair-level locking in PostgreSQL during worker execution to prevent concurrent mutations of the same trading pair and ensure strictly sequential candle processing.
 - **Scheduled Maintenance**: Added `task_cleanup` executor for automatic, scheduled pruning of completed and failed task logs to maintain bounded database growth.
 - **Operational Tuning**: Made task log retention configurable through `BACKEND_TASK_RETENTION_PERIOD` and `BACKEND_TASK_MAX_LOG_COUNT`, supporting both duration-based and volume-based (count) pruning.
+- **Planner Throughput Control**: Planner now commits realtime tasks ahead of a capped backfill enqueue budget derived from `BACKEND_WORKER_BATCH_SIZE`, avoiding first-tick backlog floods on fresh stacks.
+- **Worker Throughput Control**: Worker pending selection now enforces a separate historical-sweep cap per batch so existing backfill backlogs cannot occupy the full worker slice.
 - **Operations Visibility**: Restored and improved backend-side filtering and pagination support for the operations dashboard, ensuring reliable visibility into large task logs.
 - **Performance Optimization**: Implemented a multi-layered caching system for ticker endpoints (per-ticker invalidation + time-based global cache) to significantly reduce database load during high concurrency.
 - **Testing Infrastructure**: Added a dedicated Go-based load testing suite (`make load-test`) integrated into CI, ensuring performance stability for ticker read models under heavy request volume.

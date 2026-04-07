@@ -68,7 +68,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	catalogRepo := postgresrepo.NewCatalogRepository(db)
-	catalogService := service.NewCatalogService(catalogRepo, cfg.DefaultQuoteAssets)
+	catalogService := service.NewCatalogService(catalogRepo, cfg.DefaultQuoteAssets, cfg.DefaultBackfillStart)
 	if err := catalogService.Seed(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("seed catalog: %w", err)
@@ -117,6 +117,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		cfg.PlannerLeaseTTL,
 		cfg.PlannerTick,
 		planner.NewScheduler(cfg.RealtimePollInterval, cfg.NewsFetchInterval),
+		planner.ComputeBackfillTaskCap(cfg.WorkerBatchSize, cfg.PlannerBackfillBatchPct),
 		catalogRepo,
 		syncRepo,
 		leaseRepo,
@@ -154,7 +155,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		consumerGroup(cfg.KafkaConsumerGroup, "tasks"),
 		workerProcessor,
 	)
-	workerRunner := worker.NewRunner(taskRepo, workerProcessor, cfg.WorkerPollInterval, cfg.WorkerBatchSize)
+	workerRunner := worker.NewRunner(
+		taskRepo,
+		workerProcessor,
+		cfg.WorkerPollInterval,
+		cfg.WorkerBatchSize,
+		planner.ComputeBackfillTaskCap(cfg.WorkerBatchSize, cfg.WorkerBackfillBatchPct),
+	)
 	marketConsumer := kafka.NewMarketEventConsumer(
 		cfg.KafkaBrokers,
 		cfg.KafkaMarketTopic,

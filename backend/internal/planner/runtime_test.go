@@ -18,6 +18,7 @@ func TestRunTickSkipsSchedulingWhenLeaseNotAcquired(t *testing.T) {
 		15*time.Second,
 		10*time.Second,
 		NewScheduler(2*time.Minute, 5*time.Minute),
+		4,
 		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
 		&fakeSyncProvider{states: map[string]postgresrepo.SyncState{}},
 		fakeLeaseCoordinator{acquired: false},
@@ -54,6 +55,7 @@ func TestRunTickSeedsMissingPairsAndEnqueuesTasks(t *testing.T) {
 		15*time.Second,
 		10*time.Second,
 		NewScheduler(2*time.Minute, 5*time.Minute),
+		4,
 		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
 		syncProvider,
 		fakeLeaseCoordinator{acquired: true},
@@ -69,14 +71,14 @@ func TestRunTickSeedsMissingPairsAndEnqueuesTasks(t *testing.T) {
 	if len(syncProvider.seededPairs) != 1 || syncProvider.seededPairs[0] != "BTCEUR" {
 		t.Fatalf("expected BTCEUR to be seeded, got %+v", syncProvider.seededPairs)
 	}
-	if taskSink.enqueueCalls != 1 {
-		t.Fatalf("expected a single enqueue call, got %d", taskSink.enqueueCalls)
+	if taskSink.enqueueCalls != 2 {
+		t.Fatalf("expected realtime and follow-up enqueue calls, got %d", taskSink.enqueueCalls)
 	}
 	if len(taskSink.tasks) == 0 {
 		t.Fatal("expected tasks to be enqueued")
 	}
-	if publisher.publishCalls != 1 {
-		t.Fatalf("expected a single publish call, got %d", publisher.publishCalls)
+	if publisher.publishCalls != 2 {
+		t.Fatalf("expected realtime and follow-up publish calls, got %d", publisher.publishCalls)
 	}
 	if len(publisher.tasks) != len(taskSink.tasks) {
 		t.Fatalf("expected publisher to receive same tasks, got %d vs %d", len(publisher.tasks), len(taskSink.tasks))
@@ -99,6 +101,7 @@ func TestRunTickPublishesRealtimeForCaughtUpPairs(t *testing.T) {
 		15*time.Second,
 		10*time.Second,
 		NewScheduler(2*time.Minute, 5*time.Minute),
+		4,
 		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
 		&fakeSyncProvider{
 			states: map[string]postgresrepo.SyncState{
@@ -124,6 +127,76 @@ func TestRunTickPublishesRealtimeForCaughtUpPairs(t *testing.T) {
 	}
 	if !foundRealtime {
 		t.Fatalf("expected realtime task in %+v", taskSink.tasks)
+	}
+}
+
+func TestRunTickEnqueuesRealtimeBeforeCappedBackfill(t *testing.T) {
+	taskSink := &fakeTaskSink{}
+	publisher := &fakeTaskPublisher{}
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+
+	runner := NewRunner(
+		"instance-a",
+		"planner_leader",
+		15*time.Second,
+		10*time.Second,
+		NewScheduler(2*time.Minute, 5*time.Minute),
+		2,
+		fakePairProvider{pairs: []pair.Pair{
+			{Symbol: "BTCEUR", BackfillStart: now.Add(-6 * time.Hour)},
+			{Symbol: "ETHUSD", BackfillStart: now.Add(-6 * time.Hour)},
+		}},
+		&fakeSyncProvider{
+			states: map[string]postgresrepo.SyncState{
+				"BTCEUR": {},
+				"ETHUSD": {},
+			},
+		},
+		fakeLeaseCoordinator{acquired: true},
+		taskSink,
+		&fakeCoverageProvider{},
+		publisher,
+	)
+
+	if err := runner.runTick(context.Background()); err != nil {
+		t.Fatalf("runTick failed: %v", err)
+	}
+
+	if len(taskSink.batches) != 2 {
+		t.Fatalf("expected 2 enqueue batches, got %d", len(taskSink.batches))
+	}
+	if len(taskSink.batches[0]) != 2 {
+		t.Fatalf("expected 2 realtime tasks in first batch, got %d", len(taskSink.batches[0]))
+	}
+	for _, item := range taskSink.batches[0] {
+		if item.Type != task.TypeRealtime {
+			t.Fatalf("expected only realtime tasks in first batch, got %+v", taskSink.batches[0])
+		}
+	}
+
+	backfillCount := 0
+	for _, item := range taskSink.batches[1] {
+		if item.Type == task.TypeBackfill {
+			backfillCount++
+		}
+	}
+	if backfillCount != 2 {
+		t.Fatalf("expected capped backfill count 2, got %d", backfillCount)
+	}
+	if len(taskSink.batches[1]) <= backfillCount {
+		t.Fatalf("expected follow-up batch to also include non-backfill tasks, got %+v", taskSink.batches[1])
+	}
+}
+
+func TestComputeBackfillTaskCapClampsToWorkerBatchSize(t *testing.T) {
+	if got := ComputeBackfillTaskCap(8, 150); got != 8 {
+		t.Fatalf("expected cap to clamp to worker batch size 8, got %d", got)
+	}
+	if got := ComputeBackfillTaskCap(8, 25); got != 2 {
+		t.Fatalf("expected 25%% of batch size 8 to round up to 2, got %d", got)
+	}
+	if got := ComputeBackfillTaskCap(8, 0); got != 0 {
+		t.Fatalf("expected 0 percent to disable capped backfill, got %d", got)
 	}
 }
 
@@ -180,6 +253,7 @@ func (f fakeLeaseCoordinator) AcquireOrRenew(_ context.Context, name, holder str
 type fakeTaskSink struct {
 	enqueueCalls int
 	tasks        []task.Task
+	batches      [][]task.Task
 	err          error
 }
 
@@ -188,7 +262,9 @@ func (f *fakeTaskSink) Enqueue(_ context.Context, tasks []task.Task) ([]task.Tas
 		return nil, f.err
 	}
 	f.enqueueCalls++
-	f.tasks = append([]task.Task{}, tasks...)
+	batch := append([]task.Task{}, tasks...)
+	f.batches = append(f.batches, batch)
+	f.tasks = append(f.tasks, batch...)
 	return append([]task.Task{}, tasks...), nil
 }
 
@@ -203,7 +279,7 @@ func (f *fakeTaskPublisher) Publish(_ context.Context, tasks []task.Task) error 
 		return f.err
 	}
 	f.publishCalls++
-	f.tasks = append([]task.Task{}, tasks...)
+	f.tasks = append(f.tasks, tasks...)
 	return nil
 }
 

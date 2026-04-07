@@ -93,3 +93,33 @@ func TestLoadUsesConfiguredTaskRetention(t *testing.T) {
 		t.Fatalf("expected task retention count 5000, got %d", cfg.TaskRetentionCount)
 	}
 }
+
+func TestLoadClampsPlannerBackfillBatchPercent(t *testing.T) {
+	t.Setenv("BACKEND_PLANNER_BACKFILL_BATCH_PERCENT", "150")
+
+	cfg := Load()
+
+	if cfg.PlannerBackfillBatchPct != 100 {
+		t.Fatalf("expected planner backfill percent to clamp to 100, got %d", cfg.PlannerBackfillBatchPct)
+	}
+}
+
+func TestLoadAllowsPlannerBackfillBatchPercentToDisableBackfill(t *testing.T) {
+	t.Setenv("BACKEND_PLANNER_BACKFILL_BATCH_PERCENT", "-20")
+
+	cfg := Load()
+
+	if cfg.PlannerBackfillBatchPct != 0 {
+		t.Fatalf("expected planner backfill percent to clamp to 0, got %d", cfg.PlannerBackfillBatchPct)
+	}
+}
+
+func TestLoadClampsWorkerBackfillBatchPercent(t *testing.T) {
+	t.Setenv("BACKEND_WORKER_BACKFILL_BATCH_PERCENT", "150")
+
+	cfg := Load()
+
+	if cfg.WorkerBackfillBatchPct != 100 {
+		t.Fatalf("expected worker backfill percent to clamp to 100, got %d", cfg.WorkerBackfillBatchPct)
+	}
+}

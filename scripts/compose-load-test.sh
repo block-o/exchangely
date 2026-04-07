@@ -7,7 +7,9 @@ DATABASE_URL="${EXCHANGELY_E2E_DATABASE_URL:-postgres://postgres:postgres@localh
 KAFKA_BROKERS="${EXCHANGELY_E2E_KAFKA_BROKERS:-127.0.0.1:9092}"
 MARKET_TOPIC="${EXCHANGELY_E2E_KAFKA_MARKET_TOPIC:-exchangely.market.ticks}"
 KAFKA_CONTAINER="${EXCHANGELY_E2E_KAFKA_CONTAINER:-exchangely-kafka}"
+BACKFILL_START=$(date -u -v-24H +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "24 hours ago" +"%Y-%m-%dT%H:%M:%SZ")
 
+BACKEND_DEFAULT_BACKFILL_START="$BACKFILL_START" \
 docker compose up -d --build $STACK_SERVICES
 
 attempt=0

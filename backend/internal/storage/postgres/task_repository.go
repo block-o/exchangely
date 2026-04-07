@@ -136,12 +136,54 @@ func (r *TaskRepository) Fail(ctx context.Context, taskID string, errStr string)
 	return err
 }
 
-func (r *TaskRepository) Pending(ctx context.Context, limit int) ([]task.Task, error) {
+func (r *TaskRepository) Pending(ctx context.Context, limit, backfillLimit int) ([]task.Task, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	if backfillLimit < 0 {
+		backfillLimit = 0
+	}
+	if backfillLimit > limit {
+		backfillLimit = limit
+	}
+
+	items, err := r.pendingByType(ctx, limit, false)
+	if err != nil {
+		return nil, err
+	}
+
+	remaining := limit - len(items)
+	if remaining <= 0 || backfillLimit == 0 {
+		return items, nil
+	}
+	if backfillLimit > remaining {
+		backfillLimit = remaining
+	}
+
+	backfillItems, err := r.pendingByType(ctx, backfillLimit, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(items, backfillItems...), nil
+}
+
+func (r *TaskRepository) pendingByType(ctx context.Context, limit int, backfillOnly bool) ([]task.Task, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	operator := "<>"
+	if backfillOnly {
+		operator = "="
+	}
+
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, task_type, pair_symbol, interval, window_start, window_end
 		FROM tasks
 		WHERE status = 'pending'
 		  AND (retry_at IS NULL OR retry_at <= NOW())
+		  AND task_type `+operator+` $2
 		ORDER BY CASE task_type
 		             WHEN 'live_ticker' THEN 0
 		             WHEN 'integrity_check' THEN 1
@@ -151,7 +193,7 @@ func (r *TaskRepository) Pending(ctx context.Context, limit int) ([]task.Task, e
 		         window_start ASC,
 		         created_at ASC
 		LIMIT $1
-	`, limit)
+	`, limit, task.TypeBackfill)
 	if err != nil {
 		return nil, err
 	}

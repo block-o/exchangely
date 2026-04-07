@@ -16,20 +16,22 @@ type CatalogRepository interface {
 }
 
 type CatalogService struct {
-	repo   CatalogRepository
-	quotes []string
+	repo                 CatalogRepository
+	quotes               []string
+	defaultBackfillStart time.Time
 }
 
-func NewCatalogService(repo CatalogRepository, quotes []string) *CatalogService {
+func NewCatalogService(repo CatalogRepository, quotes []string, defaultBackfillStart time.Time) *CatalogService {
 	return &CatalogService{
-		repo:   repo,
-		quotes: quotes,
+		repo:                 repo,
+		quotes:               quotes,
+		defaultBackfillStart: defaultBackfillStart,
 	}
 }
 
 func (s *CatalogService) Seed(ctx context.Context) error {
 	assets := bootstrapAssets(s.quotes)
-	return s.repo.ReplaceCatalog(ctx, assets, bootstrapPairs(assets))
+	return s.repo.ReplaceCatalog(ctx, assets, bootstrapPairs(assets, s.defaultBackfillStart))
 }
 
 func (s *CatalogService) Assets(ctx context.Context) ([]asset.Asset, error) {
@@ -82,7 +84,7 @@ func bootstrapAssets(quotes []string) []asset.Asset {
 	return items
 }
 
-func bootstrapPairs(assets []asset.Asset) []pair.Pair {
+func bootstrapPairs(assets []asset.Asset, startDate time.Time) []pair.Pair {
 	baseSymbols := make([]string, 0)
 	quotes := make([]string, 0)
 
@@ -95,7 +97,6 @@ func bootstrapPairs(assets []asset.Asset) []pair.Pair {
 		}
 	}
 
-	startDate := time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
 	pairs := make([]pair.Pair, 0, len(baseSymbols)*len(quotes))
 	for _, base := range baseSymbols {
 		for _, quote := range quotes {

@@ -48,6 +48,12 @@ func NewScheduler(pollInterval, newsInterval time.Duration) *Scheduler {
 // Once live realtime starts for a pair, hourly historical work is capped at that cutover so backfill
 // does not continue into the live-managed window.
 func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[string]SyncState, coverage map[string]map[string]bool, now time.Time) []task.Task {
+	return s.BuildInitialBackfillTasksLimited(pairs, state, coverage, now, 0)
+}
+
+// BuildInitialBackfillTasksLimited behaves like BuildInitialBackfillTasks but stops
+// once the requested task count limit is reached. A non-positive limit means unlimited.
+func (s *Scheduler) BuildInitialBackfillTasksLimited(pairs []pair.Pair, state map[string]SyncState, coverage map[string]map[string]bool, now time.Time, limit int) []task.Task {
 	currentHour := now.UTC().Truncate(time.Hour)
 	currentDay := currentHour.Truncate(24 * time.Hour)
 	tasks := make([]task.Task, 0)
@@ -69,15 +75,16 @@ func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[strin
 		}
 
 		if !pairState.HourlyBackfillCompleted {
-			hourlyTasks := s.windowedTasks(trackedPair.Symbol, "1h", hourlyCursor, hourlyCutover, s.backfillWindow1H)
-			filtered := make([]task.Task, 0, len(hourlyTasks))
-			for _, t := range hourlyTasks {
+			for _, t := range s.windowedTasks(trackedPair.Symbol, "1h", hourlyCursor, hourlyCutover, s.backfillWindow1H) {
 				dayKey := t.WindowStart.UTC().Format("2006-01-02")
-				if !pairCoverage[dayKey] {
-					filtered = append(filtered, t)
+				if pairCoverage[dayKey] {
+					continue
+				}
+				tasks = append(tasks, t)
+				if limit > 0 && len(tasks) >= limit {
+					return tasks
 				}
 			}
-			tasks = append(tasks, filtered...)
 			continue
 		}
 
@@ -86,15 +93,16 @@ func (s *Scheduler) BuildInitialBackfillTasks(pairs []pair.Pair, state map[strin
 			dailyCursor = hourlyCursor.Truncate(24 * time.Hour)
 		}
 		if !pairState.DailyBackfillCompleted {
-			dailyTasks := s.windowedTasks(trackedPair.Symbol, "1d", dailyCursor, currentDay, s.backfillWindow1D)
-			filtered := make([]task.Task, 0, len(dailyTasks))
-			for _, t := range dailyTasks {
+			for _, t := range s.windowedTasks(trackedPair.Symbol, "1d", dailyCursor, currentDay, s.backfillWindow1D) {
 				dayKey := t.WindowStart.UTC().Format("2006-01-02")
-				if !pairCoverage[dayKey] {
-					filtered = append(filtered, t)
+				if pairCoverage[dayKey] {
+					continue
+				}
+				tasks = append(tasks, t)
+				if limit > 0 && len(tasks) >= limit {
+					return tasks
 				}
 			}
-			tasks = append(tasks, filtered...)
 		}
 	}
 

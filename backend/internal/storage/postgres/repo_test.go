@@ -87,7 +87,7 @@ func TestTaskRepository_RetriesAndCooldown(t *testing.T) {
 	}
 
 	// 5. Verify Pending respects retry_at
-	pending, err := repo.Pending(ctx, 10)
+	pending, err := repo.Pending(ctx, 10, 10)
 	if err != nil {
 		t.Fatalf("Pending failed: %v", err)
 	}
@@ -133,6 +133,51 @@ func TestTaskRepository_RetriesAndCooldown(t *testing.T) {
 	}
 	if retryCount != 25 {
 		t.Errorf("expected retry_count 25, got %d", retryCount)
+	}
+}
+
+func TestTaskRepository_PendingCapsBackfillMix(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	repo := NewTaskRepository(db, "test-worker")
+	ctx := context.Background()
+
+	_, _ = db.Exec("DELETE FROM tasks")
+
+	now := time.Now().UTC().Truncate(time.Hour)
+	items := []task.Task{
+		{ID: "rt-1", Type: task.TypeRealtime, Pair: "BTCEUR", Interval: "realtime", WindowStart: now, WindowEnd: now.Add(time.Hour)},
+		{ID: "integrity-1", Type: task.TypeDataSanity, Pair: "BTCEUR", Interval: "1h", WindowStart: now.Add(-time.Hour), WindowEnd: now},
+		{ID: "cleanup-1", Type: task.TypeCleanup, Pair: "*", Interval: "1d", WindowStart: now.Truncate(24 * time.Hour), WindowEnd: now.Truncate(24 * time.Hour).Add(24 * time.Hour)},
+		{ID: "backfill-1", Type: task.TypeBackfill, Pair: "BTCEUR", Interval: "1h", WindowStart: now.Add(-4 * time.Hour), WindowEnd: now.Add(-3 * time.Hour)},
+		{ID: "backfill-2", Type: task.TypeBackfill, Pair: "ETHEUR", Interval: "1h", WindowStart: now.Add(-3 * time.Hour), WindowEnd: now.Add(-2 * time.Hour)},
+		{ID: "backfill-3", Type: task.TypeBackfill, Pair: "XRPUSD", Interval: "1h", WindowStart: now.Add(-2 * time.Hour), WindowEnd: now.Add(-time.Hour)},
+	}
+
+	if _, err := repo.Enqueue(ctx, items); err != nil {
+		t.Fatalf("Enqueue failed: %v", err)
+	}
+
+	pending, err := repo.Pending(ctx, 5, 1)
+	if err != nil {
+		t.Fatalf("Pending failed: %v", err)
+	}
+	if len(pending) != 4 {
+		t.Fatalf("expected 4 tasks (3 non-backfill + 1 backfill), got %d", len(pending))
+	}
+
+	backfillCount := 0
+	for i, item := range pending {
+		if item.Type == task.TypeBackfill {
+			backfillCount++
+			if i != len(pending)-1 {
+				t.Fatalf("expected backfill task to be appended after non-backfill tasks, got %+v", pending)
+			}
+		}
+	}
+	if backfillCount != 1 {
+		t.Fatalf("expected exactly 1 backfill task, got %d", backfillCount)
 	}
 }
 

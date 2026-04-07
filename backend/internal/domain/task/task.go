@@ -3,12 +3,13 @@ package task
 import "time"
 
 const (
-	TypeBackfill    = "historical_sweep"
-	TypeConsolidate = "consolidation"
-	TypeRealtime    = "live_ticker"
-	TypeDataSanity  = "integrity_check"
-	TypeCleanup     = "task_cleanup"
-	TypeNewsFetch   = "news_fetch"
+	TypeBackfill      = "historical_sweep"
+	TypeConsolidate   = "consolidation"
+	TypeRealtime      = "live_ticker"
+	TypeDataSanity    = "integrity_check"
+	TypeCleanup       = "task_cleanup"
+	TypeNewsFetch     = "news_fetch"
+	TypeGapValidation = "gap_validation"
 )
 
 type Task struct {
@@ -21,4 +22,6 @@ type Task struct {
 	Status      string     `json:"status,omitempty"`
 	LastError   string     `json:"last_error,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	RetryCount  int        `json:"retry_count"`
+	RetryAt     *time.Time `json:"retry_at,omitempty"`
 }

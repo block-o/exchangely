@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/asset"
 	"github.com/block-o/exchangely/backend/internal/domain/pair"
@@ -94,13 +95,15 @@ func bootstrapPairs(assets []asset.Asset) []pair.Pair {
 		}
 	}
 
+	startDate := time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
 	pairs := make([]pair.Pair, 0, len(baseSymbols)*len(quotes))
 	for _, base := range baseSymbols {
 		for _, quote := range quotes {
 			pairs = append(pairs, pair.Pair{
-				Base:   base,
-				Quote:  quote,
-				Symbol: base + quote,
+				Base:          base,
+				Quote:         quote,
+				Symbol:        base + quote,
+				BackfillStart: startDate,
 			})
 		}
 	}

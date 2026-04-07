@@ -25,7 +25,7 @@ func TestHourlyBackfillTaskExecutesAndUpdatesProgress(t *testing.T) {
 			HourlyBackfillCompleted: false,
 			DailyBackfillCompleted:  false,
 		},
-	}, now)
+	}, make(map[string]map[string]bool), now)
 
 	if len(tasks) != 1 {
 		t.Fatalf("expected exactly one hourly task, got %d", len(tasks))
@@ -84,7 +84,7 @@ func TestDailyPromotionMakesPairRealtimeEligible(t *testing.T) {
 		},
 	}
 
-	tasks := scheduler.BuildInitialBackfillTasks([]pair.Pair{{Symbol: "BTCEUR"}}, state, now)
+	tasks := scheduler.BuildInitialBackfillTasks([]pair.Pair{{Symbol: "BTCEUR"}}, state, make(map[string]map[string]bool), now)
 	if len(tasks) != 1 {
 		t.Fatalf("expected one daily task, got %d", len(tasks))
 	}
@@ -148,7 +148,7 @@ func TestDailyPromotionMakesPairRealtimeEligible(t *testing.T) {
 	if len(afterPromotion) != 2 {
 		t.Fatalf("expected 2 tasks (realtime/sanity) after daily promotion, got %d", len(afterPromotion))
 	}
-	if afterPromotion[0].Type != task.TypeRealtime || afterPromotion[0].Interval != "1h" {
+	if afterPromotion[0].Type != task.TypeRealtime || afterPromotion[0].Interval != "realtime" {
 		t.Fatalf("unexpected realtime task: %+v", afterPromotion[0])
 	}
 }

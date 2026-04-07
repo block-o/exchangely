@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -110,13 +111,25 @@ func (r *TaskRepository) Complete(ctx context.Context, taskID string) error {
 }
 
 func (r *TaskRepository) Fail(ctx context.Context, taskID string, errStr string) error {
+	// Calculate next retry with jitter (1h +/- 5m)
+	jitterSeconds := rand.Intn(601) - 300 // -300 to +300 seconds
+	nextRetryAt := time.Now().Add(time.Hour + time.Duration(jitterSeconds)*time.Second).UTC()
+
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE tasks
-		SET status = 'failed',
-		    last_error = $1,
+		SET status = CASE 
+		             WHEN (interval = '1h' AND retry_count < 24) OR (interval = '1d' AND retry_count < 7) THEN 'pending'
+		             ELSE 'failed'
+		         END,
+		    retry_at = CASE 
+		             WHEN (interval = '1h' AND retry_count < 24) OR (interval = '1d' AND retry_count < 7) THEN $1
+		             ELSE retry_at
+		         END,
+		    retry_count = retry_count + 1,
+		    last_error = $2,
 		    updated_at = NOW()
-		WHERE id = $2
-	`, errStr, taskID)
+		WHERE id = $3
+	`, nextRetryAt, errStr, taskID)
 	if err == nil {
 		r.notify()
 	}
@@ -128,6 +141,7 @@ func (r *TaskRepository) Pending(ctx context.Context, limit int) ([]task.Task, e
 		SELECT id, task_type, pair_symbol, interval, window_start, window_end
 		FROM tasks
 		WHERE status = 'pending'
+		  AND (retry_at IS NULL OR retry_at <= NOW())
 		ORDER BY CASE task_type
 		             WHEN 'live_ticker' THEN 0
 		             WHEN 'integrity_check' THEN 1

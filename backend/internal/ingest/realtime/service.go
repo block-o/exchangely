@@ -45,16 +45,16 @@ func (s *IngestService) IngestRealtimeCandles(ctx context.Context, candles []can
 
 	first := candles[0]
 	startedAt := time.Now()
-	slog.Info("realtime ingest started",
+	slog.Debug("realtime ingest started",
 		"pair", first.Pair,
-		"interval", "1h",
+		"interval", "realtime",
 		"candle_count", len(candles),
 	)
 
 	if err := s.store.UpsertRawCandles(ctx, "1h", candles); err != nil {
 		slog.Warn("realtime ingest failed",
 			"pair", first.Pair,
-			"interval", "1h",
+			"interval", "realtime",
 			"step", "upsert_raw",
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 			"error", err,
@@ -69,7 +69,7 @@ func (s *IngestService) IngestRealtimeCandles(ctx context.Context, candles []can
 	if err != nil {
 		slog.Warn("realtime ingest failed",
 			"pair", first.Pair,
-			"interval", "1h",
+			"interval", "realtime",
 			"step", "load_raw",
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 			"error", err,
@@ -81,7 +81,7 @@ func (s *IngestService) IngestRealtimeCandles(ctx context.Context, candles []can
 	if err != nil {
 		slog.Warn("realtime ingest failed",
 			"pair", first.Pair,
-			"interval", "1h",
+			"interval", "realtime",
 			"step", "consolidate",
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 			"error", err,
@@ -89,9 +89,9 @@ func (s *IngestService) IngestRealtimeCandles(ctx context.Context, candles []can
 		return err
 	}
 	if len(consolidated) == 0 {
-		slog.Info("realtime ingest completed",
+		slog.Debug("realtime ingest completed",
 			"pair", first.Pair,
-			"interval", "1h",
+			"interval", "realtime",
 			"raw_count", len(rawCandles),
 			"consolidated_count", 0,
 			"duration_ms", time.Since(startedAt).Milliseconds(),
@@ -103,7 +103,7 @@ func (s *IngestService) IngestRealtimeCandles(ctx context.Context, candles []can
 	if err := s.store.UpsertCandles(ctx, "1h", consolidated); err != nil {
 		slog.Warn("realtime ingest failed",
 			"pair", first.Pair,
-			"interval", "1h",
+			"interval", "realtime",
 			"step", "upsert_consolidated",
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 			"error", err,
@@ -111,9 +111,9 @@ func (s *IngestService) IngestRealtimeCandles(ctx context.Context, candles []can
 		return err
 	}
 
-	slog.Info("realtime ingest completed",
+	slog.Debug("realtime ingest completed",
 		"pair", first.Pair,
-		"interval", "1h",
+		"interval", "realtime",
 		"raw_count", len(rawCandles),
 		"consolidated_count", len(consolidated),
 		"duration_ms", time.Since(startedAt).Milliseconds(),

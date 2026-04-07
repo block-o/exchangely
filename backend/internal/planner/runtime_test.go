@@ -22,6 +22,7 @@ func TestRunTickSkipsSchedulingWhenLeaseNotAcquired(t *testing.T) {
 		&fakeSyncProvider{states: map[string]postgresrepo.SyncState{}},
 		fakeLeaseCoordinator{acquired: false},
 		&fakeTaskSink{},
+		&fakeCoverageProvider{},
 		&fakeTaskPublisher{},
 	)
 
@@ -57,6 +58,7 @@ func TestRunTickSeedsMissingPairsAndEnqueuesTasks(t *testing.T) {
 		syncProvider,
 		fakeLeaseCoordinator{acquired: true},
 		taskSink,
+		&fakeCoverageProvider{},
 		publisher,
 	)
 
@@ -105,6 +107,7 @@ func TestRunTickPublishesRealtimeForCaughtUpPairs(t *testing.T) {
 		},
 		fakeLeaseCoordinator{acquired: true},
 		taskSink,
+		&fakeCoverageProvider{},
 		publisher,
 	)
 
@@ -114,7 +117,7 @@ func TestRunTickPublishesRealtimeForCaughtUpPairs(t *testing.T) {
 
 	foundRealtime := false
 	for _, item := range taskSink.tasks {
-		if item.Type == task.TypeRealtime && item.Pair == "BTCEUR" && item.Interval == "1h" {
+		if item.Type == task.TypeRealtime && item.Pair == "BTCEUR" && item.Interval == "realtime" {
 			foundRealtime = true
 			break
 		}
@@ -202,4 +205,19 @@ func (f *fakeTaskPublisher) Publish(_ context.Context, tasks []task.Task) error 
 	f.publishCalls++
 	f.tasks = append([]task.Task{}, tasks...)
 	return nil
+}
+
+type fakeCoverageProvider struct {
+	coverage map[string]map[string]bool
+	err      error
+}
+
+func (f *fakeCoverageProvider) GetAllCompletedDays(_ context.Context) (map[string]map[string]bool, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.coverage == nil {
+		return make(map[string]map[string]bool), nil
+	}
+	return f.coverage, nil
 }

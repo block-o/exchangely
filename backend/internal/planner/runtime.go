@@ -24,6 +24,10 @@ type LeaseCoordinator interface {
 	AcquireOrRenew(ctx context.Context, name, holder string, ttl time.Duration) (lease.Lease, bool, error)
 }
 
+type CoverageProvider interface {
+	GetAllCompletedDays(ctx context.Context) (map[string]map[string]bool, error)
+}
+
 type TaskSink interface {
 	Enqueue(ctx context.Context, tasks []task.Task) ([]task.Task, error)
 }
@@ -43,6 +47,7 @@ type Runner struct {
 	sync       SyncStateProvider
 	leases     LeaseCoordinator
 	tasks      TaskSink
+	coverage   CoverageProvider
 	publisher  TaskPublisher
 	isLeader   bool
 }
@@ -56,6 +61,7 @@ func NewRunner(
 	sync SyncStateProvider,
 	leases LeaseCoordinator,
 	tasks TaskSink,
+	coverage CoverageProvider,
 	publisher TaskPublisher,
 ) *Runner {
 	return &Runner{
@@ -68,6 +74,7 @@ func NewRunner(
 		sync:       sync,
 		leases:     leases,
 		tasks:      tasks,
+		coverage:   coverage,
 		publisher:  publisher,
 	}
 }
@@ -137,9 +144,15 @@ func (r *Runner) runTick(ctx context.Context) error {
 		}
 	}
 
+	coverage, err := r.coverage.GetAllCompletedDays(ctx)
+	if err != nil {
+		return err
+	}
+
 	now := time.Now().UTC()
 	tasks := r.scheduler.BuildRealtimeTasks(pairs, adapted, now)
-	tasks = append(tasks, r.scheduler.BuildInitialBackfillTasks(pairs, adapted, now)...)
+	tasks = append(tasks, r.scheduler.BuildInitialBackfillTasks(pairs, adapted, coverage, now)...)
+	tasks = append(tasks, r.scheduler.BuildGapValidationTasks(pairs, adapted, coverage, now)...)
 	tasks = append(tasks, r.scheduler.BuildConsolidationTasks(pairs, adapted, now)...)
 	tasks = append(tasks, r.scheduler.BuildCleanupTask(now))   // daily task log pruning
 	tasks = append(tasks, r.scheduler.BuildNewsFetchTask(now)) // periodic news fetch

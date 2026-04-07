@@ -3,7 +3,7 @@ set -eu
 
 STACK_SERVICES="timescaledb kafka kafka-init backend"
 BASE_URL="${EXCHANGELY_E2E_BASE_URL:-http://127.0.0.1:8080}"
-DATABASE_URL="${EXCHANGELY_E2E_DATABASE_URL:-postgres://postgres:postgres@127.0.0.1:5432/exchangely?sslmode=disable}"
+DATABASE_URL="${EXCHANGELY_E2E_DATABASE_URL:-postgres://postgres:postgres@localhost:5432/exchangely?sslmode=disable}"
 KAFKA_BROKERS="${EXCHANGELY_E2E_KAFKA_BROKERS:-127.0.0.1:9092}"
 MARKET_TOPIC="${EXCHANGELY_E2E_KAFKA_MARKET_TOPIC:-exchangely.market.ticks}"
 KAFKA_CONTAINER="${EXCHANGELY_E2E_KAFKA_CONTAINER:-exchangely-kafka}"

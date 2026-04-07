@@ -116,22 +116,31 @@ func New(svcs Services, opts Options) http.Handler {
 		ctx := r.Context()
 		updates := svcs.Market.Subscribe()
 		defer svcs.Market.Unsubscribe(updates)
-
-		// Initial push
-		items, _ := svcs.Market.Tickers(ctx)
-		data, _ := json.Marshal(map[string]any{"tickers": items})
-		if err := writeSSEData(w, data); err != nil {
-			slog.Warn("initial ticker stream write failed", "error", err)
-			return
-		}
 		flusher.Flush()
 
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-updates:
-				items, _ := svcs.Market.Tickers(ctx)
+			case <-updates.Updates():
+				pairs := updates.DrainPendingPairs()
+				if len(pairs) == 0 {
+					continue
+				}
+
+				items := make([]any, 0, len(pairs))
+				for _, pairSymbol := range pairs {
+					item, err := svcs.Market.Ticker(ctx, pairSymbol)
+					if err != nil {
+						slog.Warn("ticker delta load failed", "pair", pairSymbol, "error", err)
+						continue
+					}
+					items = append(items, item)
+				}
+				if len(items) == 0 {
+					continue
+				}
+
 				data, _ := json.Marshal(map[string]any{"tickers": items})
 				if err := writeSSEData(w, data); err != nil {
 					slog.Warn("ticker stream write failed", "error", err)
@@ -487,7 +496,7 @@ paths:
     get:
       tags: [Market]
       summary: Realtime ticker SSE stream
-      description: Streams the same ticker read model as /api/v1/tickers, including freshest persisted realtime prices plus 1h, 24h, and 7d stats.
+      description: Streams delta ticker updates only. Each SSE event contains the freshest persisted ticker rows for the pairs that changed since the previous event; clients should bootstrap with /api/v1/tickers and then merge incoming deltas.
       responses:
         "200":
           description: Server-Sent Events stream

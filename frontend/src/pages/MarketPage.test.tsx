@@ -4,9 +4,11 @@ import { MarketPage } from "./MarketPage";
 import { SettingsProvider } from "../app/settings";
 import * as pairsApi from "../api/pairs";
 import * as historicalApi from "../api/historical";
+import * as newsApi from "../api/news";
 
 vi.mock("../api/pairs");
 vi.mock("../api/system");
+vi.mock("../api/news", () => ({ getNews: vi.fn() }));
 vi.mock("../api/historical", () => ({ fetchHistorical: vi.fn() }));
 
 class MockEventSource {
@@ -28,6 +30,7 @@ describe("MarketPage", () => {
     localStorage.clear();
     MockEventSource.instances = [];
     vi.mocked(historicalApi.fetchHistorical).mockResolvedValue({ data: [] });
+    vi.mocked(newsApi.getNews).mockResolvedValue([]);
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -86,24 +89,30 @@ describe("MarketPage", () => {
             data: [
               {
                 pair: "ETHEUR",
-                price: 2500,
-                market_cap: 301_750_000_000,
-                variation_24h: 0.8,
-                high_24h: 2550,
-                low_24h: 2450,
-                source: "mock",
-                last_update_unix: 1711929600,
-              },
-              {
-                pair: "BTCEUR",
-                price: 50000,
-                market_cap: 992_500_000_000,
-                variation_24h: 1.5,
-                high_24h: 51000,
-                low_24h: 49000,
-                source: "mock",
-                last_update_unix: 1711929600,
-              },
+                 price: 2500,
+                 market_cap: 301_750_000_000,
+                 variation_1h: 0.2,
+                 variation_24h: 0.8,
+                 variation_7d: 5.0,
+                 volume_24h: 1500000,
+                 high_24h: 2550,
+                 low_24h: 2450,
+                 source: "mock",
+                 last_update_unix: 1711929600,
+               },
+               {
+                 pair: "BTCEUR",
+                 price: 50000,
+                 market_cap: 992_500_000_000,
+                 variation_1h: -0.5,
+                 variation_24h: 1.5,
+                 variation_7d: -2.0,
+                 volume_24h: 1200000,
+                 high_24h: 51000,
+                 low_24h: 49000,
+                 source: "mock",
+                 last_update_unix: 1711929600,
+               },
             ],
           }),
         });
@@ -116,18 +125,23 @@ describe("MarketPage", () => {
       </SettingsProvider>
     );
 
-    // Assert EUR headers and base symbols output
-    await waitFor(() => {
-      expect(screen.getByText("Market Cap")).toBeInTheDocument();
-      expect(screen.getByText("Price")).toBeInTheDocument();
-      expect(screen.getByText("Bitcoin")).toBeInTheDocument();
-      expect(screen.getByText("Ethereum")).toBeInTheDocument();
-      expect(screen.getByText("BTC")).toBeInTheDocument();
-      expect(screen.getByText("ETH")).toBeInTheDocument();
-      expect(screen.getByText("€992.5B")).toBeInTheDocument();
-      expect(screen.getByText("€301.8B")).toBeInTheDocument();
-      expect(screen.getByText("€50,000")).toBeInTheDocument();
-    });
+     // Assert EUR headers and base symbols output
+     await waitFor(() => {
+       expect(screen.getByText("Market Cap")).toBeInTheDocument();
+       expect(screen.getByText("Price")).toBeInTheDocument();
+       expect(screen.getByText("1h %")).toBeInTheDocument();
+       expect(screen.getByText("7d %")).toBeInTheDocument();
+       expect(screen.getByText("24h Vol")).toBeInTheDocument();
+       expect(screen.getByText("Bitcoin")).toBeInTheDocument();
+       expect(screen.getByText("Ethereum")).toBeInTheDocument();
+       expect(screen.getByText("BTC")).toBeInTheDocument();
+       expect(screen.getByText("ETH")).toBeInTheDocument();
+       expect(screen.getByText("€992.5B")).toBeInTheDocument();
+       expect(screen.getByText("€301.8B")).toBeInTheDocument();
+       expect(screen.getByText("€50,000")).toBeInTheDocument();
+       expect(screen.getByText("+0.2%")).toBeInTheDocument();
+       expect(screen.getByText("-0.5%")).toBeInTheDocument();
+     });
 
     const assetCells = Array.from(container.querySelectorAll("tbody tr td.symbol")).map((cell) => cell.textContent);
     expect(assetCells).toEqual(["BitcoinBTC", "EthereumETH"]);
@@ -230,7 +244,10 @@ describe("MarketPage", () => {
               pair: "BTCEUR",
               price: 50100,
               market_cap: 994_485_000_000,
+              variation_1h: -0.4,
               variation_24h: 1.8,
+              variation_7d: -1.9,
+              volume_24h: 1250000,
               high_24h: 51100,
               low_24h: 49100,
               source: "stream",

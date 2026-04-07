@@ -182,9 +182,11 @@ export function MarketPage() {
                 <th>Asset</th>
                 <th>Market Cap</th>
                 <th>Price</th>
-                <th>24h Chg</th>
-                <th>24h High</th>
-                <th>24h Low</th>
+                <th>1h %</th>
+                <th>24h %</th>
+                <th>7d %</th>
+                <th>24h Vol</th>
+                <th>24h High/Low</th>
                 <th>Trend (24h)</th>
               </tr>
             </thead>
@@ -206,14 +208,23 @@ export function MarketPage() {
                     <td className="price">
                       {tk ? formatCurrencyNumber(tk.price, quoteCurrency) : "-"}
                     </td>
+                    <td className={tk && tk.variation_1h >= 0 ? "text-up" : "text-down"}>
+                      {tk ? `${tk.variation_1h >= 0 ? "+" : ""}${formatNumber(tk.variation_1h)}%` : "-"}
+                    </td>
                     <td className={var24h >= 0 ? "text-up" : "text-down"}>
                       {tk ? `${var24h >= 0 ? "+" : ""}${formatNumber(var24h)}%` : "-"}
                     </td>
-                    <td className="text-muted">
-                      {tk?.high_24h !== undefined ? formatCurrencyNumber(tk.high_24h, quoteCurrency) : "-"}
+                    <td className={tk && tk.variation_7d >= 0 ? "text-up" : "text-down"}>
+                      {tk ? `${tk.variation_7d >= 0 ? "+" : ""}${formatNumber(tk.variation_7d)}%` : "-"}
                     </td>
                     <td className="text-muted">
-                      {tk?.low_24h !== undefined ? formatCurrencyNumber(tk.low_24h, quoteCurrency) : "-"}
+                      {tk ? formatCompactCurrencyNumber(tk.volume_24h, quoteCurrency) : "-"}
+                    </td>
+                    <td className="text-muted" style={{ fontSize: '0.78rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <span>H: {tk?.high_24h !== undefined ? formatCurrencyNumber(tk.high_24h, quoteCurrency) : "-"}</span>
+                        <span>L: {tk?.low_24h !== undefined ? formatCurrencyNumber(tk.low_24h, quoteCurrency) : "-"}</span>
+                      </div>
                     </td>
                     <td>
                       <div className="chart-placeholder" style={{ width: '120px', margin: '0 auto', display: 'flex', alignItems: 'flex-end', gap: '2px' }}>

@@ -15,7 +15,7 @@ import (
 
 func TestHourlyBackfillTaskExecutesAndUpdatesProgress(t *testing.T) {
 	now := time.Date(2024, 1, 3, 12, 0, 0, 0, time.UTC)
-	scheduler := planner.NewScheduler(2 * time.Minute)
+	scheduler := planner.NewScheduler(2*time.Minute, 5*time.Minute)
 
 	tasks := scheduler.BuildInitialBackfillTasks([]pair.Pair{
 		{Symbol: "BTCEUR"},
@@ -74,7 +74,7 @@ func TestHourlyBackfillTaskExecutesAndUpdatesProgress(t *testing.T) {
 
 func TestDailyPromotionMakesPairRealtimeEligible(t *testing.T) {
 	now := time.Date(2024, 1, 3, 12, 0, 0, 0, time.UTC)
-	scheduler := planner.NewScheduler(2 * time.Minute)
+	scheduler := planner.NewScheduler(2*time.Minute, 5*time.Minute)
 
 	state := map[string]planner.SyncState{
 		"BTCEUR": {

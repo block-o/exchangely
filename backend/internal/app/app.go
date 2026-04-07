@@ -80,7 +80,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	taskRepo := postgresrepo.NewTaskRepository(db, instanceID)
 	warningDismissalRepo := postgresrepo.NewWarningDismissalRepository(db)
 	pairLocker := postgresrepo.NewAdvisoryPairLocker(db)
+	newsRepo := postgresrepo.NewNewsRepository(db)
 
+	newsService := service.NewNewsService(newsRepo)
 	systemService := service.NewSystemService(
 		postgresrepo.NewHealthChecker(cfg.DatabaseURL),
 		kafka.NewHealthChecker(cfg.KafkaBrokers),
@@ -98,6 +100,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Catalog: catalogService,
 		Market:  marketService,
 		System:  systemService,
+		News:    newsService,
 	}, router.Options{
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 	})
@@ -112,7 +115,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		cfg.PlannerLeaseName,
 		cfg.PlannerLeaseTTL,
 		cfg.PlannerTick,
-		planner.NewScheduler(cfg.RealtimePollInterval),
+		planner.NewScheduler(cfg.RealtimePollInterval, cfg.NewsFetchInterval),
 		catalogRepo,
 		syncRepo,
 		leaseRepo,
@@ -133,6 +136,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		task.TypeConsolidate: backfillExe,
 		task.TypeDataSanity:  validatorExe,
 		task.TypeCleanup:     cleanupExe,
+		task.TypeNewsFetch:   worker.NewNewsExecutor(newsService),
 	})
 
 	workerProcessor := worker.NewProcessor(

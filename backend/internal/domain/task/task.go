@@ -8,6 +8,7 @@ const (
 	TypeRealtime    = "live_ticker"
 	TypeDataSanity  = "integrity_check"
 	TypeCleanup     = "task_cleanup"
+	TypeNewsFetch   = "news_fetch"
 )
 
 type Task struct {

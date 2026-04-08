@@ -70,6 +70,7 @@ type ActiveWarning struct {
 	Title       string `json:"title"`
 	Detail      string `json:"detail"`
 	Fingerprint string `json:"fingerprint"`
+	Timestamp   int64  `json:"timestamp,omitempty"`
 }
 
 func NewSystemService(dbChecker, kafkaChecker Pinger, syncReader SyncReader, taskReader SystemTaskReader, warningStore WarningDismissalStore, leaseReader LeaseReader, leaseName string, pollInterval time.Duration) *SystemService {
@@ -433,96 +434,92 @@ func buildActiveWarnings(health HealthStatus, syncPairs []syncstatus.PairSyncSta
 		warnings = append(warnings, newWarning("system-health", "error", "System health degraded", detail))
 	}
 
-	hourlyPending := make([]string, 0)
 	for _, pair := range syncPairs {
 		if !pair.HourlyBackfillCompleted {
-			hourlyPending = append(hourlyPending, pair.Pair)
+			warnings = append(warnings, newWarning(
+				fmt.Sprintf("hourly-backfill-%s", pair.Pair),
+				"warning",
+				"Hourly backfill pending",
+				fmt.Sprintf("%s is still filling hourly history.", pair.Pair),
+			))
 		}
 	}
-	if len(hourlyPending) > 0 {
-		warnings = append(warnings, newWarning(
-			"hourly-backfill",
-			"warning",
-			"Hourly backfill pending",
-			fmt.Sprintf("%d pairs are still filling hourly history: %s.", len(hourlyPending), previewPairs(hourlyPending)),
-		))
-	}
 
-	dailyPending := make([]string, 0)
 	for _, pair := range syncPairs {
 		if pair.HourlyBackfillCompleted && !pair.DailyBackfillCompleted {
-			dailyPending = append(dailyPending, pair.Pair)
+			warnings = append(warnings, newWarning(
+				fmt.Sprintf("daily-backfill-%s", pair.Pair),
+				"warning",
+				"Daily backfill pending",
+				fmt.Sprintf("%s is not ready for consolidation yet.", pair.Pair),
+			))
 		}
 	}
-	if len(dailyPending) > 0 {
-		warnings = append(warnings, newWarning(
-			"daily-backfill",
-			"warning",
-			"Daily backfill pending",
-			fmt.Sprintf("%d pairs are not ready for consolidation yet: %s.", len(dailyPending), previewPairs(dailyPending)),
-		))
-	}
 
-	integrityFailures := make([]task.Task, 0)
-	otherFailures := make([]task.Task, 0)
 	for _, failedTask := range failedTasks {
+		var ts int64
+		if failedTask.CompletedAt != nil {
+			ts = failedTask.CompletedAt.Unix()
+		}
+
 		if failedTask.Type == task.TypeDataSanity {
-			integrityFailures = append(integrityFailures, failedTask)
-			continue
+			detail := fmt.Sprintf("Integrity check failed for %s", failedTask.Pair)
+			if failedTask.LastError != "" {
+				detail = fmt.Sprintf("%s (%s)", detail, truncateText(failedTask.LastError, 110))
+			}
+			warnings = append(warnings, newWarning(
+				fmt.Sprintf("integrity-failure-%s", failedTask.ID),
+				"error",
+				"Integrity check failure",
+				detail,
+				ts,
+			))
+		} else {
+			detail := fmt.Sprintf("%s failed", taskTypeLabel(failedTask.Type))
+			if failedTask.Pair != "" && failedTask.Pair != "*" {
+				detail = fmt.Sprintf("%s for %s", detail, failedTask.Pair)
+			}
+			if failedTask.LastError != "" {
+				detail = fmt.Sprintf("%s (%s)", detail, truncateText(failedTask.LastError, 110))
+			}
+			warnings = append(warnings, newWarning(
+				fmt.Sprintf("task-failure-%s", failedTask.ID),
+				"warning",
+				"Task failure",
+				detail,
+				ts,
+			))
 		}
-		otherFailures = append(otherFailures, failedTask)
 	}
 
-	if len(integrityFailures) > 0 {
-		latest := integrityFailures[0]
-		detail := fmt.Sprintf("%d recent integrity checks failed. Latest: %s", len(integrityFailures), latest.Pair)
-		if latest.LastError != "" {
-			detail = fmt.Sprintf("%s (%s)", detail, truncateText(latest.LastError, 110))
+	// Sort all warnings by timestamp descending (newest first), then by level (errors before warnings).
+	sort.Slice(warnings, func(i, j int) bool {
+		if warnings[i].Timestamp != warnings[j].Timestamp {
+			return warnings[i].Timestamp > warnings[j].Timestamp
 		}
-		warnings = append(warnings, newWarning(
-			"integrity-failures",
-			"error",
-			"Integrity check failures detected",
-			detail,
-		))
-	}
-
-	if len(otherFailures) > 0 {
-		latest := otherFailures[0]
-		detail := fmt.Sprintf("%d non-validator tasks failed recently. Latest: %s", len(otherFailures), taskTypeLabel(latest.Type))
-		if latest.Pair != "" && latest.Pair != "*" {
-			detail = fmt.Sprintf("%s for %s", detail, latest.Pair)
+		if warnings[i].Level != warnings[j].Level {
+			return warnings[i].Level == "error"
 		}
-		if latest.LastError != "" {
-			detail = fmt.Sprintf("%s (%s)", detail, truncateText(latest.LastError, 110))
-		}
-		warnings = append(warnings, newWarning(
-			"task-failures",
-			"warning",
-			"Task failures need review",
-			detail,
-		))
-	}
+		return warnings[i].ID < warnings[j].ID
+	})
 
 	return warnings
 }
 
-func newWarning(id, level, title, detail string) ActiveWarning {
+func newWarning(id, level, title, detail string, timestamp ...int64) ActiveWarning {
 	sum := sha256.Sum256([]byte(id + "|" + level + "|" + title + "|" + detail))
+	var ts int64
+	if len(timestamp) > 0 {
+		ts = timestamp[0]
+	}
 	return ActiveWarning{
 		ID:          id,
 		Level:       level,
 		Title:       title,
 		Detail:      detail,
 		Fingerprint: hex.EncodeToString(sum[:]),
+		Timestamp:   ts,
 	}
-}
-
-func previewPairs(pairs []string) string {
-	if len(pairs) <= 3 {
-		return joinStrings(pairs)
-	}
-	return fmt.Sprintf("%s +%d more", joinStrings(pairs[:3]), len(pairs)-3)
 }
 
 func truncateText(text string, limit int) string {

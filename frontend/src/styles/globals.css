@@ -578,6 +578,8 @@ h1, h2, h3, h4, h5, h6 {
 
 .page-transition-wrapper {
   animation: pageFadeIn 0.35s cubic-bezier(0.2, 0, 0, 1) forwards;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* News Ticker */

@@ -108,6 +108,18 @@ func TestActiveWarningsFiltersDismissedFingerprint(t *testing.T) {
 		t.Fatal("expected system-health warning to be present")
 	}
 
+	// Verify individual task failure warnings are present
+	foundIntegrityWarning := false
+	for _, warning := range warnings {
+		if warning.ID == "integrity-failure-failed-integrity" {
+			foundIntegrityWarning = true
+			break
+		}
+	}
+	if !foundIntegrityWarning {
+		t.Fatal("expected individual integrity failure warning to be present")
+	}
+
 	serviceWithDismissal := NewSystemService(
 		fakePinger{},
 		fakePinger{err: errors.New("kafka down")},

@@ -305,6 +305,7 @@ components:
         title: { type: string }
         detail: { type: string }
         fingerprint: { type: string }
+        timestamp: { type: integer, format: int64, description: "Unix timestamp of the event that produced this warning. Zero for infrastructure warnings." }
     NewsItem:
       type: object
       properties:

@@ -57,6 +57,10 @@ describe("SystemPanel", () => {
           return mockResponse(warningsResponse);
         }
 
+        if (url.includes("/tickers") && !url.includes("/tickers/stream")) {
+          return mockResponse({ data: [] });
+        }
+
         if (url.includes("/system/tasks") && !url.includes("/system/tasks/stream")) {
           return mockResponse({
             upcoming: [],
@@ -121,7 +125,7 @@ describe("SystemPanel", () => {
     expect(screen.queryByText("Actions")).not.toBeInTheDocument();
   });
 
-  it("renders warnings inside a horizontally scrollable rail", async () => {
+  it("renders warnings as a vertical list", async () => {
     warningsResponse = [
       {
         id: "system-health",
@@ -159,13 +163,7 @@ describe("SystemPanel", () => {
     expect(warningRail).not.toBeNull();
     expect(warningRail).toHaveStyle({
       display: "flex",
-      overflowX: "auto",
-      scrollSnapType: "x proximity",
-    });
-
-    expect(warningCards[0]).toHaveStyle({
-      flex: "0 0 min(320px, calc(100vw - 5rem))",
-      scrollSnapAlign: "start",
+      flexDirection: "column",
     });
   });
 });

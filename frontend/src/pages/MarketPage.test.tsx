@@ -14,12 +14,14 @@ vi.mock("../api/historical", () => ({ fetchHistorical: vi.fn() }));
 class MockEventSource {
   static instances: MockEventSource[] = [];
 
+  url: string;
   close = vi.fn();
   onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
 
-  constructor(_url: string) {
+  constructor(url: string) {
+    this.url = url;
     MockEventSource.instances.push(this);
   }
 }
@@ -231,7 +233,7 @@ describe("MarketPage", () => {
       expect(screen.getByText(/Last Updated: -/i)).toBeInTheDocument();
     });
 
-    const stream = MockEventSource.instances[0];
+    const stream = MockEventSource.instances.find(i => i.url.includes("/tickers/stream"));
     if (!stream?.onmessage) {
       throw new Error("expected EventSource onmessage handler to be registered");
     }
@@ -316,7 +318,7 @@ describe("MarketPage", () => {
       expect(screen.getByText("€50,000")).toBeInTheDocument();
     });
 
-    const stream = MockEventSource.instances[0];
+    const stream = MockEventSource.instances.find(i => i.url.includes("/tickers/stream"));
     const status = () => container.querySelector(".market-stream-status");
     if (!stream?.onopen || !stream.onerror) {
       throw new Error("expected EventSource handlers to be registered");
@@ -347,5 +349,44 @@ describe("MarketPage", () => {
     await waitFor(() => {
       expect(status()).toHaveClass("is-live");
     });
+  });
+
+  it("renders the news ticker above the market panel", async () => {
+    vi.mocked(pairsApi.fetchPairs).mockResolvedValue({
+      data: [{ symbol: "BTCEUR", base: "BTC", quote: "EUR" }],
+    });
+    vi.mocked(newsApi.getNews).mockResolvedValue([
+      {
+        id: "news-1",
+        title: "Bitcoin surges past 100k",
+        link: "https://example.com/1",
+        source: "CoinDesk",
+        published_at: new Date().toISOString(),
+      },
+    ]);
+
+    const { container } = render(
+      <SettingsProvider>
+        <MarketPage />
+      </SettingsProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Latest News")).toBeInTheDocument();
+      expect(screen.getAllByText("Bitcoin surges past 100k")[0]).toBeInTheDocument();
+    });
+
+    // News ticker container must clip its scrolling content
+    const tickerContainer = container.querySelector(".news-ticker-container");
+    expect(tickerContainer).toBeInTheDocument();
+
+    // The news ticker should appear before the market panel in DOM order
+    const marketPanel = container.querySelector("#market");
+    expect(marketPanel).toBeInTheDocument();
+    if (tickerContainer && marketPanel) {
+      const position = tickerContainer.compareDocumentPosition(marketPanel);
+      // Node.DOCUMENT_POSITION_FOLLOWING = 4 means marketPanel comes after tickerContainer
+      expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
   });
 });

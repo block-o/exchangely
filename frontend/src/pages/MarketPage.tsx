@@ -13,6 +13,7 @@ import {
   getBrowserTimezone,
 } from "../lib/format";
 import type { Ticker, Candle, Pair } from "../types/api";
+import { NewsTicker } from "../components/layout/NewsTicker";
 
 function parseTickerStreamPayload(payload: string): Ticker[] {
   const parsed = JSON.parse(payload);
@@ -166,6 +167,8 @@ export function MarketPage() {
   }, [assetsData]);
 
   return (
+    <>
+    <NewsTicker />
     <section id="market" className="panel">
       <div className="panel-header">
         <h2>Market Overview</h2>
@@ -287,5 +290,6 @@ export function MarketPage() {
         </div>
       ) : null}
     </section>
+    </>
   );
 }

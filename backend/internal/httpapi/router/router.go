@@ -686,6 +686,7 @@ components:
         title: { type: string }
         detail: { type: string }
         fingerprint: { type: string }
+        timestamp: { type: integer, format: int64 }
     NewsItem:
       type: object
       properties:

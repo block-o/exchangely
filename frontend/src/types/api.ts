@@ -23,6 +23,7 @@ export type ActiveWarning = {
   title: string;
   detail: string;
   fingerprint: string;
+  timestamp?: number;
 };
 
 export type Asset = {

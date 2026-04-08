@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { dismissWarning as dismissSystemWarning, fetchWarnings as fetchSystemWarnings } from "../api/system";
-import type { ActiveWarning } from "../types/api";
+import { API_BASE_URL } from "../api/client";
+import type { ActiveWarning, Ticker } from "../types/api";
 
 export interface Task {
   id: string;
@@ -70,6 +71,17 @@ function formatShortDate(isoString?: string) {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+  });
+}
+
+function formatUnixTimestamp(unix?: number) {
+  if (!unix) return "";
+  const d = new Date(unix * 1000);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -348,6 +360,181 @@ function FailureStatus({ reason }: { reason: string }) {
   );
 }
 
+// ── Live Ticker Status Panel ────────────────────────────────────────────────
+/** Threshold in seconds — if a ticker hasn't updated in this window, it's stale. */
+const TICKER_STALE_THRESHOLD = 300; // 5 minutes
+
+interface TickerStatus {
+  pair: string;
+  price: number;
+  lastUpdateUnix: number;
+  source: string;
+  healthy: boolean;
+}
+
+function LiveTickerPanel() {
+  const [tickers, setTickers] = useState<TickerStatus[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrap() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/tickers`);
+        const json = await res.json();
+        if (!cancelled) {
+          setTickers(mapTickers(json.data || []));
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    bootstrap();
+
+    // Subscribe to SSE for live delta updates
+    const es = new EventSource(`${API_BASE_URL}/tickers/stream`);
+    es.onmessage = (event) => {
+      try {
+        const parsed = JSON.parse(event.data);
+        const deltas: Ticker[] = parsed.tickers || [];
+        if (deltas.length === 0) return;
+
+        setTickers((prev) => {
+          const map = new Map(prev.map((t) => [t.pair, t]));
+          for (const d of deltas) {
+            map.set(d.pair, toTickerStatus(d));
+          }
+          return Array.from(map.values()).sort((a, b) => a.pair.localeCompare(b.pair));
+        });
+      } catch {
+        // ignore parse errors
+      }
+    };
+
+    return () => {
+      cancelled = true;
+      es.close();
+    };
+  }, []);
+
+  // Re-evaluate staleness every 30s
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const healthyCount = tickers.filter((t) => isHealthy(t.lastUpdateUnix)).length;
+  const staleCount = tickers.length - healthyCount;
+
+  return (
+    <div
+      style={{
+        marginTop: "1rem",
+        padding: "1rem",
+        backgroundColor: "var(--surface-color)",
+        borderRadius: "12px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "1rem",
+          gap: "1rem",
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <h3 style={{ fontSize: "1rem", margin: 0 }}>Live Ticker Status</h3>
+          <p style={{ margin: "0.35rem 0 0", opacity: 0.7, fontSize: "0.85rem" }}>
+            Per-pair realtime feed health. Tickers not updated in {TICKER_STALE_THRESHOLD / 60}m are flagged stale.
+          </p>
+        </div>
+        <div style={{ fontSize: "0.82rem", opacity: 0.7 }}>
+          {loading
+            ? "Loading…"
+            : staleCount > 0
+            ? `${healthyCount} healthy · ${staleCount} stale`
+            : `${tickers.length} healthy`}
+        </div>
+      </div>
+
+      {loading ? (
+        <p style={{ opacity: 0.6, fontSize: "0.9rem", margin: 0 }}>Loading ticker status…</p>
+      ) : tickers.length === 0 ? (
+        <p style={{ opacity: 0.6, fontSize: "0.9rem", margin: 0 }}>No tickers available yet.</p>
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+            gap: "0.6rem",
+          }}
+        >
+          {tickers.map((t) => {
+            const healthy = isHealthy(t.lastUpdateUnix);
+            return (
+              <div
+                key={t.pair}
+                style={{
+                  padding: "0.7rem 0.85rem",
+                  borderRadius: "10px",
+                  border: `1px solid ${healthy ? "rgba(80,200,120,0.3)" : "rgba(255,107,107,0.4)"}`,
+                  background: healthy ? "rgba(30,80,50,0.12)" : "rgba(120,28,28,0.15)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.3rem",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{t.pair}</span>
+                  <span
+                    style={{
+                      fontSize: "0.72rem",
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      color: healthy ? "rgba(80,200,120,0.9)" : "rgba(255,107,107,0.9)",
+                    }}
+                  >
+                    {healthy ? "● Live" : "● Stale"}
+                  </span>
+                </div>
+                <div style={{ fontSize: "0.8rem", opacity: 0.75 }}>
+                  Source: {t.source === "consolidated" ? "Consolidated" : t.source}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function isHealthy(lastUpdateUnix: number): boolean {
+  if (lastUpdateUnix <= 0) return false;
+  return Date.now() / 1000 - lastUpdateUnix < TICKER_STALE_THRESHOLD;
+}
+
+function toTickerStatus(t: Ticker): TickerStatus {
+  return {
+    pair: t.pair,
+    price: t.price,
+    lastUpdateUnix: t.last_update_unix,
+    source: t.source,
+    healthy: isHealthy(t.last_update_unix),
+  };
+}
+
+function mapTickers(data: Ticker[]): TickerStatus[] {
+  return data.map(toTickerStatus).sort((a, b) => a.pair.localeCompare(b.pair));
+}
+
 // ── Main Panel ──────────────────────────────────────────────────────────────
 export function SystemPanel() {
   const [data, setData] = useState<{ upcoming: Task[]; recent: Task[] }>({ upcoming: [], recent: [] });
@@ -392,7 +579,7 @@ export function SystemPanel() {
   const fetchTasks = async () => {
     const typeFilter = Array.from(recentFilter).join(",");
     const statusFilter = Array.from(recentStatusFilter).join(",");
-    const url = `${import.meta.env.VITE_API_BASE_URL}/system/tasks?upcoming_limit=${UPCOMING_LIMIT}&upcoming_page=${upcomingPage}&recent_limit=${RECENT_LIMIT}&recent_page=${recentPage}&type=${typeFilter}&status=${statusFilter}`;
+    const url = `${API_BASE_URL}/system/tasks?upcoming_limit=${UPCOMING_LIMIT}&upcoming_page=${upcomingPage}&recent_limit=${RECENT_LIMIT}&recent_page=${recentPage}&type=${typeFilter}&status=${statusFilter}`;
     
     try {
       const res = await fetch(url);
@@ -411,7 +598,7 @@ export function SystemPanel() {
 
   // Initial fetch and version check
   useEffect(() => {
-    fetch(import.meta.env.VITE_API_BASE_URL + "/system/version")
+    fetch(API_BASE_URL + "/system/version")
       .then((res) => res.json())
       .then((res) => setApiVersion(res.api_version))
       .catch(console.error);
@@ -428,7 +615,7 @@ export function SystemPanel() {
     return () => window.clearInterval(interval);
   }, []);
 
-  // Re-fetch when paging or the recent-task filter changes
+  // Re-fetch when paging or filters change
   useEffect(() => {
     fetchTasks();
   }, [upcomingPage, recentPage, recentFilter, recentStatusFilter]);
@@ -440,7 +627,7 @@ export function SystemPanel() {
     const typeFilter = Array.from(recentFilter).join(",");
     const statusFilter = Array.from(recentStatusFilter).join(",");
     const es = new EventSource(
-      `${import.meta.env.VITE_API_BASE_URL}/system/tasks/stream?upcoming_limit=${UPCOMING_LIMIT}&recent_limit=${RECENT_LIMIT}&type=${typeFilter}&status=${statusFilter}`
+      `${API_BASE_URL}/system/tasks/stream?upcoming_limit=${UPCOMING_LIMIT}&recent_limit=${RECENT_LIMIT}&type=${typeFilter}&status=${statusFilter}`
     );
     es.onmessage = (event) => {
       try {
@@ -458,7 +645,7 @@ export function SystemPanel() {
     return () => es.close();
   }, [upcomingPage, recentPage, recentFilter, recentStatusFilter]);
 
-  // Apply frontend filtering on top of whatever the API/SSE provides
+  // Apply frontend filtering for upcoming tasks (server doesn't filter upcoming by type)
   const filteredUpcoming = data.upcoming.filter(
     (t) => upcomingFilter.size === 0 || upcomingFilter.has(t.type)
   );
@@ -502,6 +689,7 @@ export function SystemPanel() {
         </div>
       </div>
 
+      {/* ─ Active Warnings ─ */}
       <div
         style={{
           marginTop: "1rem",
@@ -541,17 +729,14 @@ export function SystemPanel() {
           <div
             style={{
               display: "flex",
-              gap: "0.75rem",
-              overflowX: "auto",
-              paddingBottom: "0.25rem",
-              scrollSnapType: "x proximity",
+              flexDirection: "column",
+              gap: "0.6rem",
             }}
           >
             {warnings.map((warning) => (
               <article
                 key={warning.id}
                 style={{
-                  flex: "0 0 min(320px, calc(100vw - 5rem))",
                   padding: "0.9rem 1rem",
                   borderRadius: "10px",
                   border: `1px solid ${
@@ -559,7 +744,6 @@ export function SystemPanel() {
                   }`,
                   background:
                     warning.level === "error" ? "rgba(120,28,28,0.18)" : "rgba(140,96,0,0.14)",
-                  scrollSnapAlign: "start",
                 }}
               >
                 <div
@@ -571,7 +755,14 @@ export function SystemPanel() {
                     marginBottom: "0.45rem",
                   }}
                 >
-                  <strong style={{ fontSize: "0.92rem" }}>{warning.title}</strong>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                    <strong style={{ fontSize: "0.92rem" }}>{warning.title}</strong>
+                    {warning.timestamp ? (
+                      <span style={{ fontSize: "0.75rem", opacity: 0.55 }}>
+                        {formatUnixTimestamp(warning.timestamp)}
+                      </span>
+                    ) : null}
+                  </div>
                   <span
                     style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
                   >
@@ -615,6 +806,10 @@ export function SystemPanel() {
         )}
       </div>
 
+      {/* ─ Live Ticker Status ─ */}
+      <LiveTickerPanel />
+
+      {/* ─ Task Tables ─ */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "2rem", marginTop: "1rem" }}>
         {/* ─ Upcoming ─ */}
         <div
@@ -741,7 +936,7 @@ export function SystemPanel() {
                 selected={recentFilter}
                 onChange={(next) => {
                   setRecentFilter(next);
-                  setRecentPage(1); // Reset to page 1 on filter change
+                  setRecentPage(1);
                 }}
               />
             </div>

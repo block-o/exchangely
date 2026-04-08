@@ -75,14 +75,15 @@ func (r *MarketRepository) UpsertRawCandles(ctx context.Context, interval string
 
 	for _, item := range candles {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO raw_candles (pair_symbol, interval, bucket_start, source, open, high, low, close, volume, finalized, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+			INSERT INTO raw_candles (pair_symbol, interval, bucket_start, source, open, high, low, close, volume, v24h, finalized, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
 			ON CONFLICT (pair_symbol, interval, bucket_start, source) DO UPDATE
 			SET open = EXCLUDED.open,
 			    high = EXCLUDED.high,
 			    low = EXCLUDED.low,
 			    close = EXCLUDED.close,
 			    volume = EXCLUDED.volume,
+			    v24h = EXCLUDED.v24h,
 			    finalized = EXCLUDED.finalized,
 			    updated_at = NOW()
 		`,
@@ -95,6 +96,7 @@ func (r *MarketRepository) UpsertRawCandles(ctx context.Context, interval string
 			item.Low,
 			item.Close,
 			item.Volume,
+			item.Volume24H,
 			item.Finalized,
 		); err != nil {
 			return err
@@ -113,6 +115,7 @@ func (r *MarketRepository) RawCandles(ctx context.Context, pairSymbol, interval 
 		       low::DOUBLE PRECISION,
 		       close::DOUBLE PRECISION,
 		       volume::DOUBLE PRECISION,
+		       v24h::DOUBLE PRECISION,
 		       source,
 		       finalized
 		FROM raw_candles
@@ -141,6 +144,7 @@ func (r *MarketRepository) RawCandles(ctx context.Context, pairSymbol, interval 
 			&item.Low,
 			&item.Close,
 			&item.Volume,
+			&item.Volume24H,
 			&item.Source,
 			&item.Finalized,
 		); err != nil {
@@ -404,6 +408,20 @@ func tickerSnapshotQuery(filter string) string {
 			FROM latest_hourly h
 			LEFT JOIN latest_raw r ON r.pair_symbol = h.pair_symbol
 		),
+		native_v24h AS (
+			SELECT DISTINCT ON (pair_symbol, source)
+			       pair_symbol,
+			       v24h::DOUBLE PRECISION as source_v24h
+			FROM raw_candles
+			WHERE interval = '1h'
+			ORDER BY pair_symbol, source, bucket_start DESC, updated_at DESC
+		),
+		consolidated_native_v24h AS (
+			SELECT pair_symbol,
+			       SUM(source_v24h) as total_native_v24h
+			FROM native_v24h
+			GROUP BY pair_symbol
+		),
 		past AS (
 			SELECT DISTINCT ON (c.pair_symbol)
 			       c.pair_symbol,
@@ -435,7 +453,7 @@ func tickerSnapshotQuery(filter string) string {
 			SELECT c.pair_symbol,
 			       MAX(c.high) as max_24h,
 			       MIN(c.low) as min_24h,
-			       SUM(c.volume) as volume_24h
+			       SUM(c.volume * c.close) as bucket_sum_v24h
 			FROM candles_1h c
 			JOIN latest l ON c.pair_symbol = l.pair_symbol
 			WHERE c.bucket_start > to_timestamp(l.last_unix) - INTERVAL '24 hours'
@@ -450,13 +468,14 @@ func tickerSnapshotQuery(filter string) string {
 		       COALESCE(p7d.old_price, l.price) as old_price_7d,
 		       w.max_24h,
 		       w.min_24h,
-		       COALESCE(w.volume_24h, 0) as volume_24h,
+		       COALESCE(NULLIF(nv.total_native_v24h, 0), w.bucket_sum_v24h, 0) as volume_24h,
 		       COALESCE(asset.circulating_supply, 0)::DOUBLE PRECISION
 		FROM latest l
 		LEFT JOIN past p ON l.pair_symbol = p.pair_symbol
 		LEFT JOIN past_1h p1h ON l.pair_symbol = p1h.pair_symbol
 		LEFT JOIN past_7d p7d ON l.pair_symbol = p7d.pair_symbol
 		LEFT JOIN window_24h w ON l.pair_symbol = w.pair_symbol
+		LEFT JOIN consolidated_native_v24h nv ON l.pair_symbol = nv.pair_symbol
 		LEFT JOIN pairs pair ON pair.symbol = l.pair_symbol
 		LEFT JOIN assets asset ON asset.symbol = pair.base_asset
 		%s

@@ -48,8 +48,9 @@ func (c *Client) Supports(request backfill.Request) bool {
 		return false
 	}
 
-	currentDayStart := c.now().UTC().Truncate(24 * time.Hour)
-	return request.EndTime.UTC().After(currentDayStart)
+	// Binance klines API returns up to 1000 points. For 1h, that's ~41 days.
+	cutoff := c.now().UTC().AddDate(0, 0, -31)
+	return !request.EndTime.Before(cutoff)
 }
 
 func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]candle.Candle, error) {
@@ -60,13 +61,26 @@ func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]
 		return nil, err
 	}
 
+	symbol := strings.ToUpper(request.Base + request.Quote)
 	intervalStr := request.Interval
 	if intervalStr == "1h" {
 		intervalStr = "1m"
 	}
 
+	// If the request is for the latest data (within 2 hours of now),
+	// also fetch the native 24h volume from the 24hr ticker API.
+	var nativeV24H float64
+	if c.now().Sub(request.EndTime) < 2*time.Hour {
+		v, err := c.fetchNativeV24H(ctx, symbol)
+		if err == nil {
+			nativeV24H = v
+		} else {
+			slog.Debug("binance native v24h fetch failed", "pair", request.Pair, "error", err)
+		}
+	}
+
 	params := url.Values{}
-	params.Set("symbol", request.Base+request.Quote)
+	params.Set("symbol", symbol)
 	params.Set("interval", intervalStr)
 	params.Set("startTime", strconv.FormatInt(request.StartTime.UTC().UnixMilli(), 10))
 	params.Set("endTime", strconv.FormatInt(request.EndTime.UTC().UnixMilli(), 10))
@@ -104,7 +118,7 @@ func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]
 	}
 
 	items := make([]candle.Candle, 0, len(payload))
-	for _, row := range payload {
+	for i, row := range payload {
 		if len(row) < 6 {
 			continue
 		}
@@ -134,7 +148,7 @@ func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]
 			return nil, err
 		}
 
-		items = append(items, candle.Candle{
+		cndl := candle.Candle{
 			Pair:      request.Pair,
 			Interval:  request.Interval,
 			Timestamp: openTime / 1000,
@@ -145,10 +159,49 @@ func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]
 			Volume:    volume,
 			Source:    c.Name(),
 			Finalized: true,
-		})
+		}
+
+		// Only attach the native v24h to the latest candle in the payload
+		if nativeV24H > 0 && i == len(payload)-1 {
+			cndl.Volume24H = nativeV24H
+		}
+
+		items = append(items, cndl)
 	}
 
 	return items, nil
+}
+
+func (c *Client) fetchNativeV24H(ctx context.Context, symbol string) (float64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v3/ticker/24hr?symbol="+symbol, nil)
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusTeapot {
+		c.setCooldown()
+		return 0, fmt.Errorf("rate limited")
+	}
+	if resp.StatusCode >= 400 {
+		return 0, fmt.Errorf("binance ticker status %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		QuoteVolume string `json:"quoteVolume"` // quote asset volume
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return 0, err
+	}
+
+	return strconv.ParseFloat(payload.QuoteVolume, 64)
 }
 
 func (c *Client) cooldownError() error {

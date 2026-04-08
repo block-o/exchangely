@@ -23,6 +23,18 @@ func TestFetchCandlesParsesKrakenOHLC(t *testing.T) {
 			}`))
 			return
 		}
+		if r.URL.Path == "/0/public/Ticker" {
+			_, _ = w.Write([]byte(`{
+				"error": [],
+				"result": {
+					"XXBTZEUR": {
+						"v": ["10.0", "327000000.0"],
+						"p": ["60000.0", "60000.0"]
+					}
+				}
+			}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{
 			"error": [],
 			"result": {
@@ -121,6 +133,13 @@ func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
 			}`))
 			return
 		}
+		if r.URL.Path == "/0/public/Ticker" {
+			_, _ = w.Write([]byte(`{
+				"error": ["EGeneral:Too many requests"],
+				"result": {}
+			}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{
 			"error": ["EGeneral:Too many requests"],
 			"result": {}
@@ -155,8 +174,8 @@ func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "cooldown active") {
 		t.Fatalf("expected cooldown error, got %v", err)
 	}
-	if requests != 2 {
-		t.Fatalf("expected asset pair lookup and first ohlc call only, got %d requests", requests)
+	if requests != 3 {
+		t.Fatalf("expected asset pair lookup, ticker, and ohlc calls, got %d requests", requests)
 	}
 }
 
@@ -218,10 +237,10 @@ func TestSupportsOnlyRecentWindows(t *testing.T) {
 		Base:      "BTC",
 		Quote:     "EUR",
 		Interval:  "1h",
-		StartTime: time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC),
-		EndTime:   time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+		StartTime: time.Unix(0, 0),
+		EndTime:   time.Unix(0, 0),
 	}) {
-		t.Fatal("expected fully historical window to bypass live kraken")
+		t.Fatal("expected ancient historical window to be unsupported")
 	}
 }
 
@@ -579,4 +598,53 @@ func TestLoadPairMapMalformedJSON(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "invalid character") {
 		t.Errorf("expected json error, got %v", err)
 	}
+}
+func TestFetchNativeV24H(t *testing.T) {
+	t.Run("malformed json", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{invalid`))
+		}))
+		defer server.Close()
+		client := NewClient(server.URL, server.Client())
+		_, err := client.fetchNativeV24H(context.Background(), "XXBTZEUR")
+		if err == nil {
+			t.Error("expected error on malformed json")
+		}
+	})
+
+	t.Run("missing pair", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"error": [], "result": {"OTHER": {}}}`))
+		}))
+		defer server.Close()
+		client := NewClient(server.URL, server.Client())
+		_, err := client.fetchNativeV24H(context.Background(), "XXBTZEUR")
+		if err == nil || !strings.Contains(err.Error(), "missing or invalid") {
+			t.Errorf("expected missing pair error, got %v", err)
+		}
+	})
+
+	t.Run("invalid volume format", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"result": {"XXBTZEUR": {"v": ["1.0", "invalid"], "p": ["1.0", "1.0"]}}}`))
+		}))
+		defer server.Close()
+		client := NewClient(server.URL, server.Client())
+		_, err := client.fetchNativeV24H(context.Background(), "XXBTZEUR")
+		if err == nil {
+			t.Error("expected error on invalid volume format")
+		}
+	})
+
+	t.Run("invalid vwap format", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"result": {"XXBTZEUR": {"v": ["1.0", "1.0"], "p": ["1.0", "invalid"]}}}`))
+		}))
+		defer server.Close()
+		client := NewClient(server.URL, server.Client())
+		_, err := client.fetchNativeV24H(context.Background(), "XXBTZEUR")
+		if err == nil {
+			t.Error("expected error on invalid vwap format")
+		}
+	})
 }

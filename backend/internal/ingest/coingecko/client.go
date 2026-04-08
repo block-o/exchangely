@@ -105,25 +105,40 @@ func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]
 	}
 
 	var payload struct {
-		Prices [][]float64 `json:"prices"`
+		Prices       [][]float64 `json:"prices"`
+		TotalVolumes [][]float64 `json:"total_volumes"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil, err
 	}
 
+	// Create a map for volumes to easily join with prices by timestamp
+	volumes := make(map[int64]float64)
+	for _, v := range payload.TotalVolumes {
+		if len(v) < 2 {
+			continue
+		}
+		ts := normalizeTimestamp(int64(v[0]))
+		volumes[ts] = v[1]
+	}
+
 	items := make([]candle.Candle, 0, len(payload.Prices))
-	for _, sample := range payload.Prices {
+	for i, sample := range payload.Prices {
 		if len(sample) < 2 {
 			continue
 		}
 
-		ts := normalizeTimestamp(int64(sample[0]))
+		rawTs := int64(sample[0])
+		ts := normalizeTimestamp(rawTs)
 		if ts < request.StartTime.UTC().Unix() || ts >= end.Unix() {
 			continue
 		}
 		price := sample[1]
 
-		items = append(items, candle.Candle{
+		// CoinGecko total_volumes is the trailing 24h volume in the quote currency.
+		vQuote := volumes[ts]
+
+		cndl := candle.Candle{
 			Pair:      request.Pair,
 			Interval:  request.Interval,
 			Timestamp: ts,
@@ -131,10 +146,18 @@ func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]
 			High:      price,
 			Low:       price,
 			Close:     price,
-			Volume:    0,
+			Volume:    0, // CoinGecko doesn't provide bucket-specific volume easily
 			Source:    c.Name(),
 			Finalized: true,
-		})
+		}
+
+		// CoinGecko's total_volume is already a 24h trailing value.
+		// We only attach it if this is the latest point in the response.
+		if vQuote > 0 && i == len(payload.Prices)-1 {
+			cndl.Volume24H = vQuote
+		}
+
+		items = append(items, cndl)
 	}
 
 	if len(items) == 0 {

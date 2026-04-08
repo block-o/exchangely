@@ -8,6 +8,7 @@ import (
 
 	"github.com/block-o/exchangely/backend/internal/domain/lease"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
+	"github.com/block-o/exchangely/backend/internal/domain/ticker"
 	postgresrepo "github.com/block-o/exchangely/backend/internal/storage/postgres"
 )
 
@@ -191,5 +192,162 @@ func TestUpcomingTasksProjectionsHaveDescriptions(t *testing.T) {
 		if item.Description == "" {
 			t.Errorf("projected task %s (type=%s, pair=%s) has empty description", item.ID, item.Type, item.Pair)
 		}
+	}
+}
+
+type fakeTickerReader struct {
+	tickers []ticker.Ticker
+}
+
+func (f fakeTickerReader) Tickers(context.Context) ([]ticker.Ticker, error) {
+	return f.tickers, nil
+}
+
+func TestStaleTickerFeedWarning(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().Unix()
+	staleUnix := now - 600 // 10 minutes ago
+	freshUnix := now - 60  // 1 minute ago
+
+	svc := NewSystemService(
+		fakePinger{},
+		fakePinger{},
+		fakeSyncReader{},
+		fakeTaskReader{},
+		fakeWarningStore{},
+		fakeLeaseReader{},
+		"planner",
+		time.Minute,
+		fakeTickerReader{
+			tickers: []ticker.Ticker{
+				{Pair: "BTCEUR", LastUpdateUnix: freshUnix},
+				{Pair: "SOLEUR", LastUpdateUnix: staleUnix},
+				{Pair: "SOLUSD", LastUpdateUnix: staleUnix},
+			},
+		},
+	)
+
+	warnings, err := svc.ActiveWarnings(ctx)
+	if err != nil {
+		t.Fatalf("ActiveWarnings returned error: %v", err)
+	}
+
+	var staleWarning *ActiveWarning
+	for i, w := range warnings {
+		if w.ID == "stale-ticker-feeds" {
+			staleWarning = &warnings[i]
+			break
+		}
+	}
+
+	if staleWarning == nil {
+		t.Fatal("expected stale-ticker-feeds warning to be present")
+	}
+	if staleWarning.Level != "warning" {
+		t.Errorf("expected warning level, got %s", staleWarning.Level)
+	}
+	if !contains(staleWarning.Detail, "SOLEUR") || !contains(staleWarning.Detail, "SOLUSD") {
+		t.Errorf("expected stale pairs in detail, got: %s", staleWarning.Detail)
+	}
+	if contains(staleWarning.Detail, "BTCEUR") {
+		t.Errorf("fresh pair BTCEUR should not appear in stale warning detail: %s", staleWarning.Detail)
+	}
+}
+
+func TestNoStaleTickerWarningWhenAllFresh(t *testing.T) {
+	ctx := context.Background()
+	freshUnix := time.Now().Unix() - 60
+
+	svc := NewSystemService(
+		fakePinger{},
+		fakePinger{},
+		fakeSyncReader{},
+		fakeTaskReader{},
+		fakeWarningStore{},
+		fakeLeaseReader{},
+		"planner",
+		time.Minute,
+		fakeTickerReader{
+			tickers: []ticker.Ticker{
+				{Pair: "BTCEUR", LastUpdateUnix: freshUnix},
+				{Pair: "ETHEUR", LastUpdateUnix: freshUnix},
+			},
+		},
+	)
+
+	warnings, err := svc.ActiveWarnings(ctx)
+	if err != nil {
+		t.Fatalf("ActiveWarnings returned error: %v", err)
+	}
+
+	for _, w := range warnings {
+		if w.ID == "stale-ticker-feeds" {
+			t.Fatal("expected no stale-ticker-feeds warning when all tickers are fresh")
+		}
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func TestStreamSnapshotIncludesSyncStatus(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	syncReader := fakeSyncReader{
+		rows: []postgresrepo.SyncRow{
+			{
+				Pair:                    "BTCEUR",
+				HourlyBackfillCompleted: true,
+				DailyBackfillCompleted:  false,
+				HourlySyncedUnix:        1700000000,
+				DailySyncedUnix:         1700000000,
+				BackfillCompleted:       false,
+			},
+		},
+	}
+
+	svc := NewSystemService(
+		fakePinger{},
+		fakePinger{},
+		syncReader,
+		fakeTaskReader{},
+		fakeWarningStore{},
+		fakeLeaseReader{},
+		"planner",
+		time.Minute,
+	)
+
+	ch := make(chan TaskStreamSnapshot, 1)
+	go func() {
+		_ = svc.StreamTasks(ctx, ch, 10, 10, nil, nil)
+	}()
+
+	select {
+	case snap := <-ch:
+		if len(snap.SyncStatus) != 1 {
+			t.Fatalf("expected 1 sync status entry, got %d", len(snap.SyncStatus))
+		}
+		if snap.SyncStatus[0].Pair != "BTCEUR" {
+			t.Fatalf("expected pair BTCEUR, got %s", snap.SyncStatus[0].Pair)
+		}
+		if !snap.SyncStatus[0].HourlyBackfillCompleted {
+			t.Fatal("expected hourly backfill completed to be true")
+		}
+		if snap.SyncStatus[0].DailyBackfillCompleted {
+			t.Fatal("expected daily backfill completed to be false")
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for stream snapshot")
 	}
 }

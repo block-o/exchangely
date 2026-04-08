@@ -13,6 +13,7 @@ import (
 	"github.com/block-o/exchangely/backend/internal/domain/lease"
 	"github.com/block-o/exchangely/backend/internal/domain/syncstatus"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
+	"github.com/block-o/exchangely/backend/internal/domain/ticker"
 	postgresrepo "github.com/block-o/exchangely/backend/internal/storage/postgres"
 )
 
@@ -38,12 +39,18 @@ type WarningDismissalStore interface {
 	DismissedWarnings(ctx context.Context) (map[string]string, error)
 }
 
+// TickerReader provides read access to the latest ticker snapshots for warning generation.
+type TickerReader interface {
+	Tickers(ctx context.Context) ([]ticker.Ticker, error)
+}
+
 type SystemService struct {
 	dbChecker    Pinger
 	kafkaChecker Pinger
 	syncReader   SyncReader
 	taskReader   SystemTaskReader
 	warningStore WarningDismissalStore
+	tickerReader TickerReader
 	leaseName    string
 	leaseReader  LeaseReader
 	pollInterval time.Duration
@@ -58,10 +65,11 @@ type HealthStatus struct {
 }
 
 type TaskStreamSnapshot struct {
-	Upcoming      []task.Task `json:"upcoming"`
-	UpcomingTotal int         `json:"upcomingTotal"`
-	Recent        []task.Task `json:"recent"`
-	RecentTotal   int         `json:"recentTotal"`
+	Upcoming      []task.Task                 `json:"upcoming"`
+	UpcomingTotal int                         `json:"upcomingTotal"`
+	Recent        []task.Task                 `json:"recent"`
+	RecentTotal   int                         `json:"recentTotal"`
+	SyncStatus    []syncstatus.PairSyncStatus `json:"syncStatus,omitempty"`
 }
 
 type ActiveWarning struct {
@@ -73,13 +81,18 @@ type ActiveWarning struct {
 	Timestamp   int64  `json:"timestamp,omitempty"`
 }
 
-func NewSystemService(dbChecker, kafkaChecker Pinger, syncReader SyncReader, taskReader SystemTaskReader, warningStore WarningDismissalStore, leaseReader LeaseReader, leaseName string, pollInterval time.Duration) *SystemService {
+func NewSystemService(dbChecker, kafkaChecker Pinger, syncReader SyncReader, taskReader SystemTaskReader, warningStore WarningDismissalStore, leaseReader LeaseReader, leaseName string, pollInterval time.Duration, tickerReader ...TickerReader) *SystemService {
+	var tr TickerReader
+	if len(tickerReader) > 0 {
+		tr = tickerReader[0]
+	}
 	return &SystemService{
 		dbChecker:    dbChecker,
 		kafkaChecker: kafkaChecker,
 		syncReader:   syncReader,
 		taskReader:   taskReader,
 		warningStore: warningStore,
+		tickerReader: tr,
 		leaseName:    leaseName,
 		leaseReader:  leaseReader,
 		pollInterval: pollInterval,
@@ -293,7 +306,12 @@ func (s *SystemService) ActiveWarnings(ctx context.Context) ([]ActiveWarning, er
 		return nil, err
 	}
 
-	warnings := buildActiveWarnings(health, syncPairs, failedTasks)
+	var tickers []ticker.Ticker
+	if s.tickerReader != nil {
+		tickers, _ = s.tickerReader.Tickers(ctx) // best-effort; don't fail warnings on ticker read error
+	}
+
+	warnings := buildActiveWarnings(health, syncPairs, failedTasks, tickers)
 	if s.warningStore == nil {
 		return warnings, nil
 	}
@@ -333,19 +351,25 @@ func (s *SystemService) NotifyUpdate() {
 	}
 }
 
-func (s *SystemService) StreamTasks(ctx context.Context, ch chan<- TaskStreamSnapshot, upcomingLimit, recentLimit int, recentTypes, recentStatuses []string) error {
-	slog.Info("SSE client subscribed to task stream")
-
-	// Initial push for page 1 using the caller's requested limits/filters.
+func (s *SystemService) buildStreamSnapshot(ctx context.Context, upcomingLimit, recentLimit int, recentTypes, recentStatuses []string) TaskStreamSnapshot {
 	upcoming, upcomingTotal, _ := s.UpcomingTasks(ctx, upcomingLimit, 0)
 	recent, recentTotal, _ := s.RecentTasks(ctx, recentLimit, 0, recentTypes, recentStatuses)
-	select {
-	case ch <- TaskStreamSnapshot{
+	syncPairs, _ := s.SyncSnapshot(ctx)
+	return TaskStreamSnapshot{
 		Upcoming:      upcoming,
 		UpcomingTotal: upcomingTotal,
 		Recent:        recent,
 		RecentTotal:   recentTotal,
-	}:
+		SyncStatus:    syncPairs,
+	}
+}
+
+func (s *SystemService) StreamTasks(ctx context.Context, ch chan<- TaskStreamSnapshot, upcomingLimit, recentLimit int, recentTypes, recentStatuses []string) error {
+	slog.Info("SSE client subscribed to task stream")
+
+	// Initial push for page 1 using the caller's requested limits/filters.
+	select {
+	case ch <- s.buildStreamSnapshot(ctx, upcomingLimit, recentLimit, recentTypes, recentStatuses):
 	default:
 	}
 
@@ -371,27 +395,13 @@ func (s *SystemService) StreamTasks(ctx context.Context, ch chan<- TaskStreamSna
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-update:
-			upcoming, upcomingTotal, _ := s.UpcomingTasks(ctx, upcomingLimit, 0)
-			recent, recentTotal, _ := s.RecentTasks(ctx, recentLimit, 0, recentTypes, recentStatuses)
 			select {
-			case ch <- TaskStreamSnapshot{
-				Upcoming:      upcoming,
-				UpcomingTotal: upcomingTotal,
-				Recent:        recent,
-				RecentTotal:   recentTotal,
-			}:
+			case ch <- s.buildStreamSnapshot(ctx, upcomingLimit, recentLimit, recentTypes, recentStatuses):
 			default:
 			}
-		case <-time.After(3 * time.Second): // Poll internal state if no updates
-			upcoming, upcomingTotal, _ := s.UpcomingTasks(ctx, upcomingLimit, 0)
-			recent, recentTotal, _ := s.RecentTasks(ctx, recentLimit, 0, recentTypes, recentStatuses)
+		case <-time.After(3 * time.Second):
 			select {
-			case ch <- TaskStreamSnapshot{
-				Upcoming:      upcoming,
-				UpcomingTotal: upcomingTotal,
-				Recent:        recent,
-				RecentTotal:   recentTotal,
-			}:
+			case ch <- s.buildStreamSnapshot(ctx, upcomingLimit, recentLimit, recentTypes, recentStatuses):
 			default:
 			}
 		}
@@ -430,7 +440,11 @@ func (s *SystemService) Health(ctx context.Context) HealthStatus {
 	}
 }
 
-func buildActiveWarnings(health HealthStatus, syncPairs []syncstatus.PairSyncStatus, failedTasks []task.Task) []ActiveWarning {
+// tickerStaleThreshold is the duration after which a ticker feed is considered stale.
+// Matches the frontend TICKER_STALE_THRESHOLD (300s / 5 minutes).
+const tickerStaleThreshold = 5 * time.Minute
+
+func buildActiveWarnings(health HealthStatus, syncPairs []syncstatus.PairSyncStatus, failedTasks []task.Task, tickers []ticker.Ticker) []ActiveWarning {
 	warnings := make([]ActiveWarning, 0, 5)
 
 	if health.Status != "ok" {
@@ -506,6 +520,34 @@ func buildActiveWarnings(health HealthStatus, syncPairs []syncstatus.PairSyncSta
 				ts,
 			))
 		}
+	}
+
+	// Stale ticker feed warnings.
+	now := time.Now().Unix()
+	stalePairs := make([]string, 0)
+	for _, t := range tickers {
+		if t.LastUpdateUnix <= 0 {
+			continue
+		}
+		age := now - t.LastUpdateUnix
+		if age > int64(tickerStaleThreshold.Seconds()) {
+			stalePairs = append(stalePairs, t.Pair)
+		}
+	}
+	if len(stalePairs) > 0 {
+		sort.Strings(stalePairs)
+		detail := fmt.Sprintf(
+			"%d pair(s) have not received a ticker update in over %d minutes: %s.",
+			len(stalePairs),
+			int(tickerStaleThreshold.Minutes()),
+			joinStrings(stalePairs),
+		)
+		warnings = append(warnings, newWarning(
+			"stale-ticker-feeds",
+			"warning",
+			"Stale ticker feeds",
+			detail,
+		))
 	}
 
 	// Sort all warnings by timestamp descending (newest first), then by level (errors before warnings).

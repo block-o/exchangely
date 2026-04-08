@@ -81,7 +81,7 @@ flowchart LR
 - **Historical OHLCV**: Automated backfill and gap management for hourly and daily resolutions.
 - **Real-time Dashboards**: Live ticker updates via SSE (Server-Sent Events).
 - **Market News**: Curated news feed from major industry sources (CoinDesk, Cointelegraph, TheBlock).
-- **Operations Center**: Real-time task monitoring and system health visibility.
+- **Operations Center**: Coin-grouped coverage view showing live feed health and historical backfill status per base asset, real-time task monitoring, and system health warnings.
 
 ## Configuration
 

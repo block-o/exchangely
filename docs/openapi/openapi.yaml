@@ -206,10 +206,32 @@ paths:
                   recentTotal: { type: integer }
   /api/v1/system/tasks/stream:
     get:
-      summary: Realtime task SSE stream
+      tags: [System]
+      summary: Realtime task and sync-status SSE stream
+      description: >
+        Streams task queue snapshots enriched with per-pair sync status.
+        Each SSE event contains upcoming/recent tasks plus the current
+        backfill progress for every pair, allowing the Historical Coverage
+        tab to update in real time as backfill tasks complete.
       responses:
         "200":
           description: Server-Sent Events stream
+          content:
+            text/event-stream:
+              schema:
+                type: object
+                properties:
+                  upcoming:
+                    type: array
+                    items: { $ref: "#/components/schemas/Task" }
+                  upcomingTotal: { type: integer }
+                  recent:
+                    type: array
+                    items: { $ref: "#/components/schemas/Task" }
+                  recentTotal: { type: integer }
+                  syncStatus:
+                    type: array
+                    items: { $ref: "#/components/schemas/SyncStatus" }
   /api/v1/system/warnings:
     get:
       summary: Active system warnings

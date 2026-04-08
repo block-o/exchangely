@@ -60,7 +60,8 @@ Key implementation files:
 - `backend/internal/worker/processor.go`: worker claim/execute path.
 - `backend/internal/httpapi/router/router.go`: REST and SSE endpoints.
 - `backend/internal/storage/postgres/*`: persistence, task state, sync state, leases, locks.
-- `frontend/src/components/SystemPanel.tsx`: operations dashboard, warnings, task/system views.
+- `frontend/src/components/SystemPanel.tsx`: operations dashboard with three tabs — Overview (warnings + version), Coverage (coin-grouped live + historical status), and Audit (task tables).
+- `frontend/src/components/system/CoverageTab.tsx`: unified coin-grouped view merging live ticker health and historical backfill status, grouped by base asset with collapsible cards per coin.
 - `docker-compose.yml`: local topology and default environment wiring.
 
 Current task types:
@@ -111,7 +112,7 @@ Completed work already reflected in the repo includes:
 - Single Go binary runtime with planner/worker/API roles.
 - Kafka task flow and Timescale-backed sync/task lifecycle.
 - SSE-driven ticker and task updates for the frontend.
-- Operations dashboard with active warnings.
+- Operations dashboard with three tabs: Overview (warnings + version), Coverage (coin-grouped live + historical status), and Audit (task history). The Coverage tab groups pairs by base asset (e.g., BTC → BTCEUR, BTCUSD) in collapsible cards showing live feed health, backfill resolution badges, and earliest data per quote.
 - CryptoDataDownload and CoinGecko integrations.
 - Real-time news ingestion from RSS sources (CoinDesk, Cointelegraph, TheBlock).
 - Compose-based smoke/e2e coverage.
@@ -220,6 +221,7 @@ E2E notes:
 - `frontend/src/api/*`: frontend API clients.
 - `frontend/src/pages/*`: top-level screens.
 - `frontend/src/components/*`: UI building blocks.
+- `frontend/src/components/system/*`: system operations tab components (OverviewTab, CoverageTab, AuditTab, shared utilities).
 - `docs/openapi/openapi.yaml`: API contract documentation.
 - `docs/ui/market_dashboard.png`: current dashboard reference image.
 

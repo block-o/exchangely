@@ -642,6 +642,7 @@ components:
         price: { type: number, format: double }
         market_cap: { type: number, format: double }
         variation_24h: { type: number, format: double }
+        volume_24h: { type: number, format: double, description: "Trailing 24h quote-currency turnover for this pair. Prefers provider-native 24h snapshots and otherwise estimates from stored hourly candles." }
         high_24h: { type: number, format: double }
         low_24h: { type: number, format: double }
         last_update_unix: { type: integer, format: int64 }

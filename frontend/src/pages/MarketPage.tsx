@@ -6,6 +6,7 @@ import { useApi } from "../hooks/useApi";
 import { useSettings } from "../app/settings";
 import {
   formatCompactCurrencyNumber,
+  formatCompactNumber,
   formatCurrencyNumber,
   formatNumber,
   formatUnix,
@@ -185,7 +186,7 @@ export function MarketPage() {
                 <th>1h %</th>
                 <th>24h %</th>
                 <th>7d %</th>
-                <th>24h Vol</th>
+                <th title="Total volume across multiple sources (Kraken, Binance, etc.)">24h Vol *</th>
                 <th>24h High/Low</th>
                 <th>Trend (24h)</th>
               </tr>

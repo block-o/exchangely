@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
 )
 
@@ -216,5 +217,134 @@ func TestCoverageRepository_Integration(t *testing.T) {
 	}
 	if !coverage[pair][day.Format("2006-01-02")] {
 		t.Fatal("expected day to be marked complete")
+	}
+}
+
+func TestMarketRepositoryTickerVolume24HFallsBackToQuoteTurnover(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	repo := NewMarketRepository(db)
+	ctx := context.Background()
+
+	_, _ = db.Exec("DELETE FROM raw_candles WHERE pair_symbol = 'BTCEUR'")
+	_, _ = db.Exec("DELETE FROM candles_1h WHERE pair_symbol = 'BTCEUR'")
+	_, _ = db.Exec("DELETE FROM pairs WHERE symbol = 'BTCEUR'")
+	_, _ = db.Exec("DELETE FROM assets WHERE symbol IN ('BTC', 'EUR')")
+
+	_, err := db.Exec(`
+		INSERT INTO assets (symbol, name, asset_type, circulating_supply)
+		VALUES
+			('BTC', 'Bitcoin', 'crypto', 19000000),
+			('EUR', 'Euro', 'fiat', 0)
+	`)
+	if err != nil {
+		t.Fatalf("seed assets failed: %v", err)
+	}
+
+	_, err = db.Exec(`
+		INSERT INTO pairs (symbol, base_asset, quote_asset)
+		VALUES ('BTCEUR', 'BTC', 'EUR')
+	`)
+	if err != nil {
+		t.Fatalf("seed pair failed: %v", err)
+	}
+
+	windowStart := time.Date(2026, 4, 7, 20, 0, 0, 0, time.UTC)
+	if err := repo.UpsertCandles(ctx, "1h", []candle.Candle{{
+		Pair:      "BTCEUR",
+		Interval:  "1h",
+		Timestamp: windowStart.Unix(),
+		Open:      59000,
+		High:      60000,
+		Low:       58000,
+		Close:     59800,
+		Volume:    5.5,
+		Source:    "consolidated",
+		Finalized: true,
+	}}); err != nil {
+		t.Fatalf("seed hourly candle failed: %v", err)
+	}
+
+	item, err := repo.Ticker(ctx, "BTCEUR")
+	if err != nil {
+		t.Fatalf("Ticker failed: %v", err)
+	}
+
+	want := 5.5 * 59800.0
+	if item.Volume24H != want {
+		t.Fatalf("expected fallback quote turnover %f, got %f", want, item.Volume24H)
+	}
+}
+
+func TestMarketRepositoryTickerVolume24HPrefersNativeSnapshot(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	repo := NewMarketRepository(db)
+	ctx := context.Background()
+
+	_, _ = db.Exec("DELETE FROM raw_candles WHERE pair_symbol = 'BTCEUR'")
+	_, _ = db.Exec("DELETE FROM candles_1h WHERE pair_symbol = 'BTCEUR'")
+	_, _ = db.Exec("DELETE FROM pairs WHERE symbol = 'BTCEUR'")
+	_, _ = db.Exec("DELETE FROM assets WHERE symbol IN ('BTC', 'EUR')")
+
+	_, err := db.Exec(`
+		INSERT INTO assets (symbol, name, asset_type, circulating_supply)
+		VALUES
+			('BTC', 'Bitcoin', 'crypto', 19000000),
+			('EUR', 'Euro', 'fiat', 0)
+	`)
+	if err != nil {
+		t.Fatalf("seed assets failed: %v", err)
+	}
+
+	_, err = db.Exec(`
+		INSERT INTO pairs (symbol, base_asset, quote_asset)
+		VALUES ('BTCEUR', 'BTC', 'EUR')
+	`)
+	if err != nil {
+		t.Fatalf("seed pair failed: %v", err)
+	}
+
+	windowStart := time.Date(2026, 4, 7, 20, 0, 0, 0, time.UTC)
+	if err := repo.UpsertCandles(ctx, "1h", []candle.Candle{{
+		Pair:      "BTCEUR",
+		Interval:  "1h",
+		Timestamp: windowStart.Unix(),
+		Open:      59000,
+		High:      60000,
+		Low:       58000,
+		Close:     59800,
+		Volume:    5.5,
+		Source:    "consolidated",
+		Finalized: true,
+	}}); err != nil {
+		t.Fatalf("seed hourly candle failed: %v", err)
+	}
+
+	if err := repo.UpsertRawCandles(ctx, "1h", []candle.Candle{{
+		Pair:      "BTCEUR",
+		Interval:  "1h",
+		Timestamp: windowStart.Unix(),
+		Open:      59000,
+		High:      60000,
+		Low:       58000,
+		Close:     59800,
+		Volume:    5.5,
+		Volume24H: 410000,
+		Source:    "kraken",
+		Finalized: false,
+	}}); err != nil {
+		t.Fatalf("seed raw candle failed: %v", err)
+	}
+
+	item, err := repo.Ticker(ctx, "BTCEUR")
+	if err != nil {
+		t.Fatalf("Ticker failed: %v", err)
+	}
+
+	if item.Volume24H != 410000 {
+		t.Fatalf("expected native volume snapshot 410000, got %f", item.Volume24H)
 	}
 }

@@ -131,7 +131,7 @@ describe("MarketPage", () => {
        expect(screen.getByText("Price")).toBeInTheDocument();
        expect(screen.getByText("1h %")).toBeInTheDocument();
        expect(screen.getByText("7d %")).toBeInTheDocument();
-       expect(screen.getByText("24h Vol")).toBeInTheDocument();
+       expect(screen.getByText(/24h Vol/)).toBeInTheDocument();
        expect(screen.getByText("Bitcoin")).toBeInTheDocument();
        expect(screen.getByText("Ethereum")).toBeInTheDocument();
        expect(screen.getByText("BTC")).toBeInTheDocument();
@@ -141,6 +141,8 @@ describe("MarketPage", () => {
        expect(screen.getByText("€50,000")).toBeInTheDocument();
        expect(screen.getByText("+0.2%")).toBeInTheDocument();
        expect(screen.getByText("-0.5%")).toBeInTheDocument();
+       expect(screen.getByText("€1.2M")).toBeInTheDocument();
+       expect(screen.getByText("€1.5M")).toBeInTheDocument();
      });
 
     const assetCells = Array.from(container.querySelectorAll("tbody tr td.symbol")).map((cell) => cell.textContent);
@@ -260,6 +262,7 @@ describe("MarketPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("€50,100")).toBeInTheDocument();
+      expect(screen.getByText("€1.3M")).toBeInTheDocument();
       expect(screen.getByText(/Last Updated:/i)).toBeInTheDocument();
       expect(screen.queryByText(/Last Updated: -/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/Source Updated:/i)).not.toBeInTheDocument();

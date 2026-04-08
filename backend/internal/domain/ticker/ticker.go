@@ -14,7 +14,9 @@ type Ticker struct {
 	Variation24H float64 `json:"variation_24h"`
 	Variation7D  float64 `json:"variation_7d"`
 
-	// Volume24H is the sum of traded volume over the trailing 24 hours.
+	// Volume24H is the trailing 24h quote-currency turnover for this pair.
+	// It prefers provider-native 24h snapshots and otherwise estimates from
+	// stored hourly candles.
 	Volume24H float64 `json:"volume_24h"`
 
 	// 24h Price bounds.

@@ -180,7 +180,7 @@ func TestBackfillExecutorPublishesRealtimeCandlesToEvents(t *testing.T) {
 	syncRepo := &fakeSyncWriter{}
 	source := &fakeMarketSource{
 		items: []candle.Candle{
-			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 102, Low: 99, Close: 101, Volume: 4, Source: "coingecko", Finalized: false},
+			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 102, Low: 99, Close: 101, Volume: 4, Volume24H: 400000, Source: "coingecko", Finalized: false},
 		},
 	}
 	publisher := &fakeMarketPublisher{}
@@ -200,8 +200,12 @@ func TestBackfillExecutorPublishesRealtimeCandlesToEvents(t *testing.T) {
 	if len(publisher.items) != 1 {
 		t.Fatalf("expected 1 published candle, got %d", len(publisher.items))
 	}
-	if publisher.items[0].Finalized {
-		t.Fatalf("expected realtime candle to be marked non-finalized, got %+v", publisher.items[0])
+	got := publisher.items[0]
+	if got.Finalized {
+		t.Fatalf("expected realtime candle to be marked non-finalized, got %+v", got)
+	}
+	if got.Source != "coingecko" || got.Volume24H != 400000 {
+		t.Fatalf("expected realtime publisher to preserve source metadata, got %+v", got)
 	}
 	if len(candleRepo.rawItems) != 0 {
 		t.Fatalf("expected realtime path to rely on event publishing, got raw items %+v", candleRepo.rawItems)
@@ -220,9 +224,9 @@ func TestBackfillExecutorConsolidatesMultipleRealtimeCandles(t *testing.T) {
 	source := &fakeMarketSource{
 		items: []candle.Candle{
 			// two non-finalized updates for the same window, followed by a finalized one
-			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 101, Low: 99, Close: 100, Volume: 1, Source: "coingecko", Finalized: false},
-			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 103, Low: 98, Close: 102, Volume: 2, Source: "coingecko", Finalized: false},
-			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 104, Low: 97, Close: 103, Volume: 3, Source: "coingecko", Finalized: true},
+			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 101, Low: 99, Close: 100, Volume: 1, Volume24H: 100000, Source: "coingecko", Finalized: false},
+			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 103, Low: 98, Close: 102, Volume: 2, Volume24H: 150000, Source: "coingecko", Finalized: false},
+			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 104, Low: 97, Close: 103, Volume: 3, Volume24H: 200000, Source: "coingecko", Finalized: true},
 		},
 	}
 	publisher := &fakeMarketPublisher{}
@@ -238,15 +242,15 @@ func TestBackfillExecutorConsolidatesMultipleRealtimeCandles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute failed: %v", err)
 	}
-	if len(publisher.items) != 1 {
-		t.Fatalf("expected 1 consolidated published candle, got %d", len(publisher.items))
+	if len(publisher.items) != 3 {
+		t.Fatalf("expected 3 raw published candles, got %d", len(publisher.items))
 	}
-	got := publisher.items[0]
+	got := publisher.items[len(publisher.items)-1]
 	if !got.Finalized {
-		t.Fatalf("expected consolidated realtime candle to be finalized, got %+v", got)
+		t.Fatalf("expected final realtime snapshot to be marked finalized, got %+v", got)
 	}
-	if got.High != 104 || got.Low != 97 || got.Close != 103 || got.Volume != 3 {
-		t.Fatalf("unexpected consolidated candle values: %+v", got)
+	if got.High != 104 || got.Low != 97 || got.Close != 103 || got.Volume != 3 || got.Volume24H != 200000 {
+		t.Fatalf("unexpected published candle values: %+v", got)
 	}
 	if got.Pair != "BTCUSD" || got.Interval != "1h" || got.Timestamp != 1711929600 {
 		t.Fatalf("unexpected candle identity: %+v", got)
@@ -264,12 +268,12 @@ func TestBackfillExecutorConsolidatesMultipleRealtimeCandles(t *testing.T) {
 
 func TestBackfillExecutorRealtimeWithoutPublisher(t *testing.T) {
 	// Tests the path when TypeRealtime is used but no Kafka publisher is configured.
-	// It should return consolidated candles for Execute to upsert into the DB.
+	// It should fall back to the raw->consolidated DB path used by the realtime consumer.
 	candleRepo := &fakeCandleStore{}
 	syncRepo := &fakeSyncWriter{}
 	source := &fakeMarketSource{
 		items: []candle.Candle{
-			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 105, Low: 95, Close: 102, Volume: 5, Source: "s1", Finalized: true},
+			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 105, Low: 95, Close: 102, Volume: 5, Volume24H: 250000, Source: "s1", Finalized: true},
 		},
 	}
 	executor := NewBackfillExecutor(candleRepo, syncRepo, source, nil, nil)
@@ -289,8 +293,14 @@ func TestBackfillExecutorRealtimeWithoutPublisher(t *testing.T) {
 	if len(candleRepo.items) != 1 {
 		t.Fatalf("expected 1 consolidated candle in DB, got %d", len(candleRepo.items))
 	}
+	if len(candleRepo.rawItems) != 1 {
+		t.Fatalf("expected 1 raw realtime candle in DB, got %d", len(candleRepo.rawItems))
+	}
 	if candleRepo.items[0].Volume != 5 {
 		t.Fatalf("unexpected candle volume: %v", candleRepo.items[0].Volume)
+	}
+	if candleRepo.rawItems[0].Volume24H != 250000 {
+		t.Fatalf("expected raw realtime metadata to be preserved, got %+v", candleRepo.rawItems[0])
 	}
 }
 

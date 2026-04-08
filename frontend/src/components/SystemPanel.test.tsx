@@ -269,15 +269,16 @@ describe("SystemPanel", () => {
     render(<SystemPanel />);
     fireEvent.click(screen.getByRole("tab", { name: "Coverage" }));
 
+    // Wait for auto-expand to reveal feed badges (first 5 coins auto-expand)
     await waitFor(() => {
       expect(screen.getByText("BTC")).toBeInTheDocument();
     });
 
-    // Expand the card to see the feed badges
-    const card = screen.getByLabelText("BTC coverage details");
-    if (card.getAttribute("aria-expanded") === "false") {
-      fireEvent.click(card);
-    }
+    // Ensure the card is expanded (auto-expand should handle it, click if not)
+    await waitFor(() => {
+      const card = screen.getByLabelText("BTC coverage details");
+      expect(card.getAttribute("aria-expanded")).toBe("true");
+    });
 
     await waitFor(() => {
       // Both tickers have last_update_unix = now, so both should show Live

@@ -1,159 +1,170 @@
 # Exchangely Agent Guide
 
-This file is the primary operating guide for future agent work in this repository.
+This file is the primary operating guide for future agent work in this repository. It describes what Exchangely is, how it works, and how to work in this codebase.
 
 ## Document Roles
 
-- `AGENTS.md`: durable project-specific execution guide. Future work should start here.
-- `PLAN.md`: shared scratchpad. Keep it current, lightweight, and disposable. Use it for active tasks, temporary notes, checkpoints, and decisions in progress. Do not turn it into a permanent spec.
-- `PROJECT.md`: original project brief and historical scope. Keep it as source context, but do not treat it as the day-to-day operating contract once this file exists.
-- `README.md`: high-level overview and quick-start entrypoint for humans.
+- `AGENTS.md` (this file): Project bible. What Exchangely is, architecture, current state, working rules, validation commands. Start here.
+- `ROADMAP.md`: Forward-looking phased roadmap with checkboxes. What we're building next.
+- `README.md`: Human-facing overview and quick-start guide.
 
 If these documents disagree:
 
 1. Current code and tests define actual behavior.
-2. `AGENTS.md` defines how agents should work in this repo.
-3. `PLAN.md` reflects current intent and active priorities, but it may lag and must be refreshed during work.
-4. `PROJECT.md` explains the original ask and enduring product direction.
-5. `README.md` is overview material, not the detailed implementation contract.
+2. `AGENTS.md` defines how agents should work in this repo and describes the current system.
+3. `ROADMAP.md` defines what to build next.
+4. `README.md` is overview material, not the detailed implementation contract.
 
-## Project Snapshot
+---
 
-Exchangely is an educational event-driven crypto market data platform focused on historical OHLCV coverage for curated crypto/fiat and crypto/stablecoin pairs.
+## What Is Exchangely
 
-Current implementation shape:
+Exchangely is an event-driven crypto market data platform focused on historical OHLCV coverage for curated crypto/fiat and crypto/stablecoin pairs. It started as a "poor man's CoinGecko" for historical data availability and is evolving into a full-featured exchange rate platform with user accounts, portfolio tracking, price alerts, and a public API.
 
-- Backend: Go service with a single runtime that can enable API, planner, and worker roles through `BACKEND_ROLE`.
-- Frontend: React + Vite dashboard consuming REST plus SSE streams.
-- Persistence: TimescaleDB/PostgreSQL is the authoritative source of truth.
-- Transport: Kafka distributes task and market events, but it is not the coordination authority.
-- Local topology: Docker Compose runs TimescaleDB, Kafka, topic init, backend, and frontend.
+## Core Stack
 
-Important current sources/providers:
+- **Backend**: Go single-binary (API + planner + worker roles via `BACKEND_ROLE`)
+- **Frontend**: React + Vite dashboard with SSE-driven realtime updates
+- **Persistence**: TimescaleDB/PostgreSQL (authoritative source of truth)
+- **Transport**: Kafka (task distribution + market events, not coordination authority)
+- **Infrastructure**: Docker Compose local topology, GitHub Actions CI
 
-- Historical/realtime adapters currently include Binance, Binance Vision, Kraken, CryptoDataDownload, and CoinGecko.
-- Default quote assets are `EUR` and `USD`.
+## Architecture Principles
 
-## Non-Negotiable System Invariants
-
-These rules are easy to break accidentally. Preserve them unless the user explicitly changes the architecture.
+These are non-negotiable unless the user explicitly changes the architecture.
 
 - PostgreSQL/Timescale owns system state. Do not move scheduling truth, sync state, or coordination responsibility into Kafka.
 - Planner leadership is lease-based and DB-backed. Keep leadership and scheduling resilient to multiple instances.
 - Workers must never mutate the same trading pair concurrently. Pair-level locking is a hard requirement.
-- Historical backfill walks backwards from yesterday toward the past. There is no fixed start date; the system keeps walking back until providers return no data. The per-tick limit (`BACKEND_PLANNER_BACKFILL_BATCH_PERCENT`) caps how many backfill tasks are emitted per planner cycle.
-- A daily backfill probe task extends each pair one hour further into the past, ensuring new providers or newly available upstream data is discovered even after regular backfill stops finding data.
+- Historical backfill walks backwards from yesterday toward the past. No fixed start date; the system keeps walking back until providers return no data. `BACKEND_PLANNER_BACKFILL_BATCH_PERCENT` caps backfill tasks per planner cycle.
+- A daily backfill probe task extends each pair one hour further into the past, discovering new provider data even after regular backfill exhausts known sources.
 - `1h` is the preferred canonical historical resolution. Historical fetch granularity must never be coarser than `1d`.
 - Month/year rollups, if added, must be derived from canonical stored candles, not provider-native month archives.
-- Realtime tasks use a stable ID per pair (`live_ticker:{PAIR}:realtime`). The Enqueue logic guarantees at most one pending/running realtime task per pair. Do not add poll-window timestamps to realtime task IDs.
+- Realtime tasks use a stable ID per pair (`live_ticker:{PAIR}:realtime`). Enqueue logic guarantees at most one pending/running realtime task per pair. Do not add poll-window timestamps to realtime task IDs.
 - Prefer SSE for live UI updates when a stream already exists. Do not replace stream-driven flows with aggressive polling.
 - The backend is intentionally one binary with role gating. Preserve that unless a deliberate architecture change is requested.
 - Keep the project educational and local-first. Do not quietly harden it toward production assumptions without discussing the tradeoff.
+
+---
+
+## Current Data Providers
+
+| Provider            | Capabilities          | Notes                                      |
+|---------------------|-----------------------|--------------------------------------------|
+| Binance             | Historical + Realtime | OHLC + native `/ticker/24hr`               |
+| Binance Vision      | Historical            | Bulk CSV archives                          |
+| Kraken              | Historical + Realtime | OHLC + native `/Ticker`                    |
+| CoinGecko           | Realtime              | `/simple/price` for live quotes            |
+| CryptoDataDownload  | Historical            | Hourly/daily CSV fallback                  |
+
+Default quote assets: `EUR` and `USD`.
+
+
+## What's Built (Current State)
+
+### Backend
+- Single Go binary with planner/worker/API role gating
+- DB-backed task & lease lifecycle with structured `slog` logging
+- Backwards backfill strategy (yesterday → past, no fixed start date)
+- Daily backfill probe: one task per pair per day extending coverage into the past
+- Realtime dedup: stable per-pair task IDs, at most one live_ticker per pair
+- Hourly + daily consolidation pipeline (`FromRaw` → `DailyFromHourly`)
+- Advisory pair-level locking for concurrent worker safety
+- Multi-layered ticker caching (per-ticker invalidation + time-based global)
+- SSE delta streaming for tickers (only changed pairs emitted)
+- Task cleanup executor with configurable retention (duration + count)
+- Integrity check tasks for cross-source validation
+- Gap validation tasks
+- News feed ingestion from RSS sources (CoinDesk, Cointelegraph, TheBlock)
+- Provider capability system (`CapHistorical`, `CapRealtime`) with registry pre-filtering
+- Planner throughput control (backfill batch budget, realtime-first scheduling)
+- Worker throughput control (historical-sweep cap per batch)
+- Load testing suite integrated into CI
+
+### Frontend
+- Premium dark-themed dashboard with SSE-driven realtime market updates
+- Market Overview with 1h%, 24h%, 7d%, 24h volume, high/low, trend sparklines
+- Operations panel with three tabs: Overview (warnings + version), Coverage (coin-grouped), Audit (task history)
+- Coverage tab: pairs grouped by base asset in collapsible cards with live feed health, backfill badges, earliest data
+- Horizontal scrolling news ticker from RSS feeds
+- Vitest testing stack
+- Dynamic `__APP_VERSION__` injection
+
+### API Surface
+- `GET /api/v1/health`
+- `GET /api/v1/assets`
+- `GET /api/v1/pairs`
+- `GET /api/v1/historical/{pair}` (with `interval`, `start_time`, `end_time`)
+- `GET /api/v1/ticker/{pair}`
+- `GET /api/v1/tickers`
+- `GET /api/v1/tickers/stream` (SSE)
+- `GET /api/v1/system/sync-status`
+- `GET /api/v1/system/tasks`
+- `GET /api/v1/system/tasks/stream` (SSE)
+- `GET /api/v1/system/version`
+- `GET /api/v1/news`
+- `GET /api/v1/news/stream` (SSE)
+
+When changing API behavior, update `docs/openapi/openapi.yaml` if the contract changes materially.
+
+### DevOps
+- GitHub Actions CI (Go 1.24 + Node.js 24)
+- Docker Compose topology (TimescaleDB, Kafka, backend, frontend)
+- Compose-based smoke/e2e tests (`make e2e`)
+- Configurable asset catalog via YAML
+
+### Task Types
+
+| Type                  | Description                                                    |
+|-----------------------|----------------------------------------------------------------|
+| `historical_backfill` | Walks backwards from yesterday; also used for daily probes     |
+| `live_ticker`         | Stable ID per pair; at most one pending/running per pair       |
+| `integrity_check`     | Cross-source validation for caught-up pairs                    |
+| `consolidation`       | Hourly → daily aggregation (future: monthly, yearly)           |
+| `task_cleanup`        | Scheduled pruning of completed/failed task logs                |
+| `news_fetch`          | RSS feed ingestion from crypto news sources                    |
+| `gap_validation`      | Detects missing data windows in synced ranges                  |
+
+---
 
 ## Current Runtime Model
 
 Key implementation files:
 
+- `backend/cmd/server/main.go`: backend entrypoint.
+- `backend/cmd/migrate/main.go`: migration entrypoint.
 - `backend/internal/app/app.go`: application wiring, enabled sources, runtime roles.
 - `backend/internal/planner/runtime.go`: leader lease renewal and task scheduling loop.
 - `backend/internal/planner/scheduler.go`: task generation logic (backfill, realtime, probes, cleanup).
 - `backend/internal/worker/processor.go`: worker claim/execute path.
 - `backend/internal/httpapi/router/router.go`: REST and SSE endpoints.
 - `backend/internal/storage/postgres/*`: persistence, task state, sync state, leases, locks.
-- `frontend/src/components/SystemPanel.tsx`: operations dashboard with three tabs — Overview (warnings + version), Coverage (coin-grouped live + historical status), and Audit (task tables).
-- `frontend/src/components/system/CoverageTab.tsx`: unified coin-grouped view merging live ticker health and historical backfill status, grouped by base asset with collapsible cards per coin.
+- `frontend/src/components/SystemPanel.tsx`: operations dashboard with three tabs.
+- `frontend/src/components/system/CoverageTab.tsx`: coin-grouped coverage view.
 - `docker-compose.yml`: local topology and default environment wiring.
 
-Current task types:
+## Useful File Map
 
-- `historical_backfill` — walks backwards from yesterday; also used for daily probes.
-- `live_ticker` — stable ID per pair; at most one pending/running per pair at any time.
-- `integrity_check`
-- `consolidation`
-- `task_cleanup`
-- `news_fetch`
-- `gap_validation`
+- `backend/internal/service/*`: application services used by the HTTP layer.
+- `backend/internal/ingest/*`: market data providers and registry.
+- `backend/internal/messaging/kafka/*`: Kafka producers, consumers, health checks.
+- `backend/tests/integration/*`: integration coverage.
+- `backend/tests/e2e/*`: compose-backed end-to-end tests.
+- `frontend/src/api/*`: frontend API clients.
+- `frontend/src/pages/*`: top-level screens.
+- `frontend/src/components/*`: UI building blocks.
+- `frontend/src/components/system/*`: system operations tab components (OverviewTab, CoverageTab, AuditTab, shared utilities).
+- `docs/openapi/openapi.yaml`: API contract documentation.
+- `docs/ui/market_dashboard.png`: current dashboard reference image.
 
-Current notable API surface:
-
-- `GET /api/v1/health`
-- `GET /api/v1/assets`
-- `GET /api/v1/pairs`
-- `GET /api/v1/historical/{pair}`
-- `GET /api/v1/ticker/{pair}`
-- `GET /api/v1/tickers`
-- `GET /api/v1/tickers/stream`
-- `GET /api/v1/system/sync-status`
-- `GET /api/v1/system/tasks`
-- `GET /api/v1/system/tasks/stream`
-- `GET /api/v1/system/version`
-- `GET /api/v1/news`
-- `GET /api/v1/news/stream`
-
-When changing API behavior, update `docs/openapi/openapi.yaml` if the contract changes materially.
-
-## Active Priorities From PLAN
-
-`PLAN.md` is the active working memory. Read it before major work and update it when you materially change direction.
-
-At the time this guide was written, the main near-term priorities are:
-
-- Finish the health/data integrity validator flow by persisting findings and exposing them cleanly through the API/UI.
-- Continue provider expansion, with Yahoo Finance still pending.
-- Split ingestion responsibilities more cleanly into backfill vs realtime paths.
-- Add month/year rollups from canonical candles.
-- Expand into fiat/forex pairs later.
-- Improve rate-limit handling, source balancing, and cache/circuit-breaker behavior.
-- Upgrade chart rendering quality in the frontend.
-- Add stronger integration coverage, likely with Testcontainers.
-
-Completed work already reflected in the repo includes:
-
-- Single Go binary runtime with planner/worker/API roles.
-- Kafka task flow and Timescale-backed sync/task lifecycle.
-- SSE-driven ticker and task updates for the frontend.
-- Operations dashboard with three tabs: Overview (warnings + version), Coverage (coin-grouped live + historical status), and Audit (task history). The Coverage tab groups pairs by base asset (e.g., BTC → BTCEUR, BTCUSD) in collapsible cards showing live feed health, backfill resolution badges, and earliest data per quote.
-- CryptoDataDownload and CoinGecko integrations.
-- Real-time news ingestion from RSS sources (CoinDesk, Cointelegraph, TheBlock).
-- Compose-based smoke/e2e coverage.
-- Backwards backfill strategy (yesterday → past) with no fixed start date.
-- Realtime dedup: at most one `live_ticker` task per pair in the queue.
-- Daily backfill probe: one task per pair per day to extend coverage into the past.
-- Ticker query uses `FULL OUTER JOIN` so pairs appear as soon as raw candles land (before hourly consolidation).
-- `BACKEND_DEFAULT_BACKFILL_START` removed; `backfill_start_at` column dropped from `pairs` table.
-
-## How To Use PLAN.md
-
-Use `PLAN.md` as a scratchpad, not as permanent documentation.
-
-Good uses:
-
-- Active todo lists
-- Investigation notes
-- Decision checkpoints
-- Work-in-progress rollout plans
-- Temporary coordination between agents/models
-
-Bad uses:
-
-- Stable architecture rules
-- Long-term onboarding instructions
-- Canonical API or domain behavior
-- Permanent project scope
-
-When you finish meaningful work:
-
-- Mark completed items.
-- Add any newly discovered follow-up tasks.
-- Remove stale or misleading notes.
-- Keep the file readable by the next agent.
+---
 
 ## Repo-Specific Working Rules
 
 Before starting substantial changes:
 
 - Read this file.
-- Read the relevant section of `PLAN.md`.
+- Check `ROADMAP.md` for current priorities.
 - Inspect the actual implementation files you will touch.
 
 When changing backend behavior:
@@ -174,9 +185,11 @@ When changing frontend behavior:
 When changing configuration:
 
 - Update `backend/internal/config/config.go`.
-- Update `docker-compose.yml` if the local stack should expose the setting.
+- Update the Configuration table in `README.md` to reflect the new variable, default, and description.
+- Update `docker-compose.yml` if the local stack should expose the setting (add the env var with `${VAR:-default}` syntax).
+- Update `.env.example` if the variable is commonly overridden.
 - Update example config files when relevant.
-- Mention new operational knobs in `README.md` or `AGENTS.md` if they matter to future work.
+- Mention new operational knobs in `AGENTS.md` if they matter to future work.
 
 When changing schema or persistence behavior:
 
@@ -188,8 +201,7 @@ When changing schema or persistence behavior:
 
 Use the repo's existing commands instead of inventing one-off workflows.
 
-- `make backend-fmt`
-- `make backend-fmt-fix`
+- `make backend-fmt` / `make backend-fmt-fix`
 - `make backend-vet`
 - `make backend-lint`
 - `make backend-build`
@@ -204,44 +216,14 @@ Use the repo's existing commands instead of inventing one-off workflows.
 - `docker compose up --build`
 - `docker compose down -v`
 
-E2E notes:
+E2E notes: `make e2e` uses `scripts/compose-smoke.sh`. The smoke flow validates the live Compose stack plus Kafka topics/consumer groups.
 
-- `make e2e` uses `scripts/compose-smoke.sh`.
-- The smoke flow validates the live Compose stack plus Kafka topics/consumer groups.
-
-## Useful File Map
-
-- `backend/cmd/server/main.go`: backend entrypoint.
-- `backend/cmd/migrate/main.go`: migration entrypoint.
-- `backend/internal/service/*`: application services used by the HTTP layer.
-- `backend/internal/ingest/*`: market data providers and registry.
-- `backend/internal/messaging/kafka/*`: Kafka producers, consumers, health checks.
-- `backend/tests/integration/*`: integration coverage.
-- `backend/tests/e2e/*`: compose-backed end-to-end tests.
-- `frontend/src/api/*`: frontend API clients.
-- `frontend/src/pages/*`: top-level screens.
-- `frontend/src/components/*`: UI building blocks.
-- `frontend/src/components/system/*`: system operations tab components (OverviewTab, CoverageTab, AuditTab, shared utilities).
-- `docs/openapi/openapi.yaml`: API contract documentation.
-- `docs/ui/market_dashboard.png`: current dashboard reference image.
-
-## Guidance On PROJECT.md
-
-Do not copy `PROJECT.md` wholesale into ongoing work. Its value is the original scope and product intent:
-
-- crypto market history availability
-- event-driven architecture
-- planner/worker/coordinator mindset
-- historical + realtime data flows
-- Dockerized local stack
-
-Those durable ideas are already distilled here. Keep `PROJECT.md` as historical context unless the user explicitly asks to retire or rewrite it.
+---
 
 ## Practical Default For Future Agents
 
 If you are unsure where to put new information:
 
-- Put stable repo-specific rules in `AGENTS.md`.
-- Put active work tracking and temporary notes in `PLAN.md`.
-- Put user-facing setup or overview material in `README.md`.
-- Leave `PROJECT.md` as the original brief unless explicitly asked to migrate or replace it.
+- Stable repo-specific rules and project state → `AGENTS.md`
+- Roadmap items and feature plans → `ROADMAP.md`
+- User-facing setup or overview → `README.md`

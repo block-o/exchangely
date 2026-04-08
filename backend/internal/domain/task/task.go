@@ -1,6 +1,9 @@
 package task
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 const (
 	TypeBackfill      = "historical_backfill"
@@ -20,8 +23,33 @@ type Task struct {
 	WindowStart time.Time  `json:"window_start"`
 	WindowEnd   time.Time  `json:"window_end"`
 	Status      string     `json:"status,omitempty"`
+	Description string     `json:"description,omitempty"`
 	LastError   string     `json:"last_error,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	RetryCount  int        `json:"retry_count"`
 	RetryAt     *time.Time `json:"retry_at,omitempty"`
+}
+
+// BuildDescription returns a human-readable summary for a task based on its type
+// and fields. Task types where the description would be redundant (e.g. live_ticker)
+// return an empty string.
+func BuildDescription(t Task) string {
+	fmtTime := func(ts time.Time) string { return ts.UTC().Format("Jan 2 2006 15:04") }
+
+	switch t.Type {
+	case TypeBackfill:
+		return fmt.Sprintf("%s candles %s → %s", t.Interval, fmtTime(t.WindowStart), fmtTime(t.WindowEnd))
+	case TypeConsolidate:
+		return fmt.Sprintf("Rebuild daily candle for %s", fmtTime(t.WindowStart))
+	case TypeDataSanity:
+		return fmt.Sprintf("Verify %s coverage %s → %s", t.Interval, fmtTime(t.WindowStart), fmtTime(t.WindowEnd))
+	case TypeGapValidation:
+		return fmt.Sprintf("Gap check %s", fmtTime(t.WindowStart))
+	case TypeCleanup:
+		return "Prune completed/failed task log"
+	case TypeNewsFetch:
+		return "Fetch latest crypto news"
+	default:
+		return ""
+	}
 }

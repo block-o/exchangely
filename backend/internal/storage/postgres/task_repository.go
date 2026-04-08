@@ -50,12 +50,13 @@ func (r *TaskRepository) Enqueue(ctx context.Context, tasks []task.Task) ([]task
 	enqueued := make([]task.Task, 0, len(tasks))
 	for _, item := range tasks {
 		result, err := tx.ExecContext(ctx, `
-			INSERT INTO tasks (id, task_type, pair_symbol, interval, window_start, window_end, status, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), NOW())
+			INSERT INTO tasks (id, task_type, pair_symbol, interval, window_start, window_end, description, status, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', NOW(), NOW())
 			ON CONFLICT (id) DO UPDATE
 			SET status = 'pending',
 			    window_start = EXCLUDED.window_start,
 			    window_end = EXCLUDED.window_end,
+			    description = EXCLUDED.description,
 			    retry_count = 0,
 			    retry_at = NULL,
 			    last_error = NULL,
@@ -64,7 +65,7 @@ func (r *TaskRepository) Enqueue(ctx context.Context, tasks []task.Task) ([]task
 			    completed_at = NULL,
 			    updated_at = NOW()
 			WHERE tasks.status IN ('completed', 'failed')
-		`, item.ID, item.Type, item.Pair, item.Interval, item.WindowStart.UTC(), item.WindowEnd.UTC())
+		`, item.ID, item.Type, item.Pair, item.Interval, item.WindowStart.UTC(), item.WindowEnd.UTC(), item.Description)
 		if err != nil {
 			return nil, err
 		}
@@ -190,7 +191,7 @@ func (r *TaskRepository) pendingByType(ctx context.Context, limit int, backfillO
 	}
 
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, task_type, pair_symbol, interval, window_start, window_end
+		SELECT id, task_type, pair_symbol, interval, window_start, window_end, description
 		FROM tasks
 		WHERE status = 'pending'
 		  AND (retry_at IS NULL OR retry_at <= NOW())
@@ -215,7 +216,7 @@ func (r *TaskRepository) pendingByType(ctx context.Context, limit int, backfillO
 	var items []task.Task
 	for rows.Next() {
 		var item task.Task
-		if err := rows.Scan(&item.ID, &item.Type, &item.Pair, &item.Interval, &item.WindowStart, &item.WindowEnd); err != nil {
+		if err := rows.Scan(&item.ID, &item.Type, &item.Pair, &item.Interval, &item.WindowStart, &item.WindowEnd, &item.Description); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -233,7 +234,7 @@ func (r *TaskRepository) UpcomingTasks(ctx context.Context, limit, offset int) (
 	}
 
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, task_type, pair_symbol, interval, window_start, window_end, status, created_at
+		SELECT id, task_type, pair_symbol, interval, window_start, window_end, status, description, created_at
 		FROM tasks
 		WHERE status IN ('pending', 'running')
 		ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END,
@@ -258,7 +259,7 @@ func (r *TaskRepository) UpcomingTasks(ctx context.Context, limit, offset int) (
 	for rows.Next() {
 		var item task.Task
 		var createdAt time.Time
-		if err := rows.Scan(&item.ID, &item.Type, &item.Pair, &item.Interval, &item.WindowStart, &item.WindowEnd, &item.Status, &createdAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Type, &item.Pair, &item.Interval, &item.WindowStart, &item.WindowEnd, &item.Status, &item.Description, &createdAt); err != nil {
 			return nil, 0, err
 		}
 		items = append(items, item)

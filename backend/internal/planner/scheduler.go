@@ -85,14 +85,16 @@ func (s *Scheduler) BuildInitialBackfillTasksLimited(pairs []pair.Pair, state ma
 				if pairCoverage[dayKey] {
 					continue
 				}
-				tasks = append(tasks, task.Task{
+				t := task.Task{
 					ID:          taskID(task.TypeBackfill, trackedPair.Symbol, "1h", windowStart, windowCursor),
 					Type:        task.TypeBackfill,
 					Pair:        trackedPair.Symbol,
 					Interval:    "1h",
 					WindowStart: windowStart,
 					WindowEnd:   windowCursor,
-				})
+				}
+				t.Description = task.BuildDescription(t)
+				tasks = append(tasks, t)
 				if limit > 0 && len(tasks) >= limit {
 					return tasks
 				}
@@ -116,14 +118,16 @@ func (s *Scheduler) BuildInitialBackfillTasksLimited(pairs []pair.Pair, state ma
 				if pairCoverage[dayKey] {
 					continue
 				}
-				tasks = append(tasks, task.Task{
+				t := task.Task{
 					ID:          taskID(task.TypeBackfill, trackedPair.Symbol, "1d", windowStart, windowCursor),
 					Type:        task.TypeBackfill,
 					Pair:        trackedPair.Symbol,
 					Interval:    "1d",
 					WindowStart: windowStart,
 					WindowEnd:   windowCursor,
-				})
+				}
+				t.Description = task.BuildDescription(t)
+				tasks = append(tasks, t)
 				if limit > 0 && len(tasks) >= limit {
 					return tasks
 				}
@@ -161,14 +165,16 @@ func (s *Scheduler) BuildGapValidationTasks(pairs []pair.Pair, state map[string]
 			}
 
 			// Add gap validation task for this day
-			tasks = append(tasks, task.Task{
+			t := task.Task{
 				ID:          taskID(task.TypeGapValidation, trackedPair.Symbol, "1d", cursor, cursor.Add(24*time.Hour)),
 				Type:        task.TypeGapValidation,
 				Pair:        trackedPair.Symbol,
 				Interval:    "1d",
 				WindowStart: cursor,
 				WindowEnd:   cursor.Add(24 * time.Hour),
-			})
+			}
+			t.Description = task.BuildDescription(t)
+			tasks = append(tasks, t)
 
 			// Limit the number of validation tasks per tick to avoid flooding (e.g. max 5 per pair)
 			if len(tasks) > 50 { // total across all pairs
@@ -185,7 +191,7 @@ func (s *Scheduler) BuildGapValidationTasks(pairs []pair.Pair, state map[string]
 func (s *Scheduler) BuildCleanupTask(now time.Time) task.Task {
 	dayStart := now.UTC().Truncate(24 * time.Hour)
 	dayEnd := dayStart.Add(24 * time.Hour)
-	return task.Task{
+	t := task.Task{
 		ID:          fmt.Sprintf("%s:daily:%d", task.TypeCleanup, dayStart.Unix()),
 		Type:        task.TypeCleanup,
 		Pair:        "*", // global
@@ -193,13 +199,15 @@ func (s *Scheduler) BuildCleanupTask(now time.Time) task.Task {
 		WindowStart: dayStart,
 		WindowEnd:   dayEnd,
 	}
+	t.Description = task.BuildDescription(t)
+	return t
 }
 
 // BuildNewsFetchTask emits a task_news_fetch task based on the configured interval.
 func (s *Scheduler) BuildNewsFetchTask(now time.Time) task.Task {
 	windowStart := now.UTC().Truncate(s.newsFetchInterval)
 	windowEnd := windowStart.Add(s.newsFetchInterval)
-	return task.Task{
+	t := task.Task{
 		ID:          fmt.Sprintf("%s:periodic:%d", task.TypeNewsFetch, windowStart.Unix()),
 		Type:        task.TypeNewsFetch,
 		Pair:        "*", // global
@@ -207,6 +215,8 @@ func (s *Scheduler) BuildNewsFetchTask(now time.Time) task.Task {
 		WindowStart: windowStart,
 		WindowEnd:   windowEnd,
 	}
+	t.Description = task.BuildDescription(t)
+	return t
 }
 
 // BuildConsolidationTasks emits one daily consolidation task per pair for the last fully-closed UTC day.
@@ -222,14 +232,16 @@ func (s *Scheduler) BuildConsolidationTasks(pairs []pair.Pair, state map[string]
 			continue
 		}
 
-		tasks = append(tasks, task.Task{
+		t := task.Task{
 			ID:          taskID(task.TypeConsolidate, trackedPair.Symbol, "1d", prevDay, currentDay),
 			Type:        task.TypeConsolidate,
 			Pair:        trackedPair.Symbol,
 			Interval:    "1d",
 			WindowStart: prevDay,
 			WindowEnd:   currentDay,
-		})
+		}
+		t.Description = task.BuildDescription(t)
+		tasks = append(tasks, t)
 	}
 
 	return tasks
@@ -267,14 +279,16 @@ func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncS
 
 		prevHour := currentHour.Add(-time.Hour)
 		if pairState.HourlyBackfillCompleted || (!pairState.HourlyRealtimeStartedAt.IsZero() && !prevHour.Before(pairState.HourlyRealtimeStartedAt.UTC())) {
-			tasks = append(tasks, task.Task{
+			t := task.Task{
 				ID:          taskID(task.TypeDataSanity, trackedPair.Symbol, "1h", prevHour, currentHour),
 				Type:        task.TypeDataSanity,
 				Pair:        trackedPair.Symbol,
 				Interval:    "1h",
 				WindowStart: prevHour,
 				WindowEnd:   currentHour,
-			})
+			}
+			t.Description = task.BuildDescription(t)
+			tasks = append(tasks, t)
 		}
 	}
 
@@ -310,6 +324,7 @@ func (s *Scheduler) BuildBackfillProbeTasks(pairs []pair.Pair, state map[string]
 			Interval:    "1h",
 			WindowStart: probeStart,
 			WindowEnd:   probeEnd,
+			Description: fmt.Sprintf("1h probe candle %s → %s", probeStart.UTC().Format("Jan 2 2006 15:04"), probeEnd.UTC().Format("Jan 2 2006 15:04")),
 		})
 	}
 

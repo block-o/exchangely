@@ -11,6 +11,7 @@ export interface Task {
   window_start: string;
   window_end: string;
   status?: string;
+  description?: string;
   last_error?: string;
   completed_at?: string;
 }
@@ -854,7 +855,7 @@ export function SystemPanel() {
                     <th style={{ textAlign: "left" }}>Type</th>
                     <th>Pair</th>
                     <th>Cadence</th>
-                    <th>Status / Window</th>
+                    <th>Detail</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -876,7 +877,9 @@ export function SystemPanel() {
                       <td>{t.pair}</td>
                       <td style={{ opacity: 0.7 }}>{t.interval}</td>
                       <td style={{ opacity: 0.85, fontSize: "0.8rem" }}>
-                        {t.status === "running"
+                        {t.description
+                          ? t.description
+                          : t.status === "running"
                           ? "Ongoing"
                           : t.status === "scheduled"
                           ? t.type === "historical_backfill"
@@ -951,6 +954,7 @@ export function SystemPanel() {
                   <tr>
                     <th style={{ textAlign: "left" }}>Type</th>
                     <th>Pair</th>
+                    <th>Detail</th>
                     <th>Updated At</th>
                     <th>Status</th>
                   </tr>
@@ -972,6 +976,9 @@ export function SystemPanel() {
                         </span>
                       </td>
                       <td>{t.pair}</td>
+                      <td style={{ opacity: 0.7, fontSize: "0.78rem" }}>
+                        {t.description || "—"}
+                      </td>
                       <td style={{ opacity: 0.75, fontSize: "0.8rem", whiteSpace: "nowrap" }}>
                         {formatDateTime(t.completed_at)}
                       </td>

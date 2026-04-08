@@ -57,14 +57,15 @@ func (c *Client) Name() string {
 }
 
 // Supports returns true if the request quote is EUR or USD and the interval
-// is 1h or 1d. It only supports requests within the current day for live OHLC.
+// is 1h or 1d.
 func (c *Client) Supports(request backfill.Request) bool {
 	if (request.Quote != "EUR" && request.Quote != "USD") || (request.Interval != "1h" && request.Interval != "1d") {
 		return false
 	}
 
-	currentDayStart := c.now().UTC().Truncate(24 * time.Hour)
-	return request.EndTime.UTC().After(currentDayStart)
+	// Kraken OHLC returns up to 720 points. For 1h, that's 30 days.
+	cutoff := c.now().UTC().AddDate(0, 0, -31)
+	return !request.EndTime.Before(cutoff)
 }
 
 // FetchCandles retrieves OHLC data from the Kraken public API and maps it
@@ -85,6 +86,18 @@ func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]
 	interval, err := krakenInterval(request.Interval)
 	if err != nil {
 		return nil, err
+	}
+
+	// If the request is for the latest data (within 2 hours of now),
+	// also fetch the native 24h volume from the Ticker API.
+	var nativeV24H float64
+	if c.now().Sub(request.EndTime) < 2*time.Hour {
+		v, err := c.fetchNativeV24H(ctx, pairCode)
+		if err == nil {
+			nativeV24H = v
+		} else {
+			slog.Debug("kraken native v24h fetch failed", "pair", request.Pair, "error", err)
+		}
 	}
 
 	params := url.Values{}
@@ -140,7 +153,7 @@ func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]
 	}
 
 	items := make([]candle.Candle, 0, len(rows))
-	for _, row := range rows {
+	for i, row := range rows {
 		if len(row) < 7 {
 			continue
 		}
@@ -174,7 +187,7 @@ func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]
 			return nil, err
 		}
 
-		items = append(items, candle.Candle{
+		cndl := candle.Candle{
 			Pair:      request.Pair,
 			Interval:  request.Interval,
 			Timestamp: ts,
@@ -185,10 +198,67 @@ func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]
 			Volume:    volume,
 			Source:    c.Name(),
 			Finalized: true,
-		})
+		}
+
+		// Only attach the native v24h to the latest candle in the payload
+		if nativeV24H > 0 && i == len(rows)-1 {
+			cndl.Volume24H = nativeV24H
+		}
+
+		items = append(items, cndl)
 	}
 
 	return items, nil
+}
+
+func (c *Client) fetchNativeV24H(ctx context.Context, pairCode string) (float64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/0/public/Ticker?pair="+pairCode, nil)
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		c.setCooldown()
+		return 0, fmt.Errorf("rate limited")
+	}
+
+	var payload struct {
+		Error  []string `json:"error"`
+		Result map[string]struct {
+			V []string `json:"v"` // volume [today, last 24 hours]
+			P []string `json:"p"` // vwap [today, last 24 hours]
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return 0, err
+	}
+	if len(payload.Error) > 0 {
+		return 0, fmt.Errorf("kraken ticker error: %s", strings.Join(payload.Error, ", "))
+	}
+
+	data, ok := payload.Result[pairCode]
+	if !ok || len(data.V) < 2 || len(data.P) < 2 {
+		return 0, fmt.Errorf("kraken ticker result missing or invalid for %s", pairCode)
+	}
+
+	vol, err := strconv.ParseFloat(data.V[1], 64)
+	if err != nil {
+		return 0, err
+	}
+	vwap, err := strconv.ParseFloat(data.P[1], 64)
+	if err != nil {
+		return 0, err
+	}
+
+	return vol * vwap, nil
 }
 
 // resolvePairCode maps a user-facing pair (e.g., BTCEUR) to Kraken's internal

@@ -28,6 +28,7 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - **Performance Optimization**: Implemented a multi-layered caching system for ticker endpoints (per-ticker invalidation + time-based global cache) to significantly reduce database load during high concurrency.
 - **Testing Infrastructure**: Added a dedicated Go-based load testing suite (`make load-test`) integrated into CI, ensuring performance stability for ticker read models under heavy request volume.
 - **Market Metrics**: Extended the ticker read model and Dashboard UI with 1h%, 7d%, and 24h volume metrics; synchronized OpenAPI 3.0 specifications for all market data entities.
+- **24h Volume Semantics**: Realtime ticker publishing now preserves provider-native 24h volume snapshots into `raw_candles`, and the ticker fallback path estimates quote-currency turnover from hourly candles instead of leaking base-asset units.
 
 ## Roadmap & Missing Features
 - [x] Add Active Warnings area on top of the task status panel so current platform risks such as degraded health, pending backfills, and recent task failures are visible without digging through task history.

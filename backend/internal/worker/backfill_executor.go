@@ -183,35 +183,39 @@ func (e *BackfillExecutor) materializeCandles(ctx context.Context, item task.Tas
 	}
 }
 
-// publishRealtime fetches latest snapshots for a live window, consolidates them (last snapshot wins),
-// and pushes them to the event bus for low-latency delivery. To avoid database pressure
-// during live ticker bursts, it typically skips the raw audit persistence if the event
-// bus is available.
+// publishRealtime fetches the latest per-source snapshots for a live window and forwards them
+// to Kafka without pre-consolidation so provider-native metadata such as trailing 24h volume
+// survives into raw_candles. When Kafka is unavailable, it falls back to the same raw->hourly
+// materialization path used by the realtime consumer.
 func (e *BackfillExecutor) publishRealtime(ctx context.Context, item task.Task) ([]candle.Candle, error) {
 	sourceCandles, err := e.fetchSourceCandles(ctx, item)
 	if err != nil {
 		return nil, err
 	}
 
-	consolidated, err := consolidate.FromRaw(item.Interval, sourceCandles)
-	if err != nil {
-		return nil, err
-	}
-
 	if e.events != nil {
-		if err := e.events.PublishCandles(ctx, consolidated); err != nil {
+		if err := e.events.PublishCandles(ctx, sourceCandles); err != nil {
 			return nil, err
 		}
 		slog.Debug("realtime task published market events",
 			"task_id", item.ID,
 			"pair", item.Pair,
 			"interval", item.Interval,
-			"candle_count", len(consolidated),
+			"candle_count", len(sourceCandles),
 		)
 		return nil, nil
 	}
 
-	return consolidated, nil
+	if err := e.candles.UpsertRawCandles(ctx, item.Interval, sourceCandles); err != nil {
+		return nil, err
+	}
+
+	rawCandles, err := e.candles.RawCandles(ctx, item.Pair, item.Interval, item.WindowStart, item.WindowEnd)
+	if err != nil {
+		return nil, err
+	}
+
+	return consolidate.FromRaw(item.Interval, rawCandles)
 }
 
 func (e *BackfillExecutor) materializeHourly(ctx context.Context, item task.Task) ([]candle.Candle, error) {

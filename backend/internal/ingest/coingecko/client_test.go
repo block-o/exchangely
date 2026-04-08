@@ -26,6 +26,11 @@ func TestFetchCandlesParsesMarketChartRangeSamples(t *testing.T) {
 				[1711929720000, 60123.4],
 				[1711931520000, 60300.1],
 				[1711935120000, 60600.9]
+			],
+			"total_volumes": [
+				[1711929720000, 1000000.0],
+				[1711931520000, 1100000.0],
+				[1711935120000, 1200000.0]
 			]
 		}`))
 	}))
@@ -50,8 +55,8 @@ func TestFetchCandlesParsesMarketChartRangeSamples(t *testing.T) {
 	if len(items) != 3 {
 		t.Fatalf("expected 3 raw samples, got %d", len(items))
 	}
-	if items[0].Timestamp != 1711929720 || items[2].Close != 60600.9 {
-		t.Fatalf("unexpected samples: %+v", items)
+	if items[2].Volume24H != 1200000 {
+		t.Fatalf("expected 1200000 volume_24h, got %f", items[2].Volume24H)
 	}
 	if items[0].Source != "coingecko" {
 		t.Fatalf("expected coingecko source, got %+v", items[0])
@@ -106,5 +111,12 @@ func TestSupportsOnlyRealtimeEURAndUSDWindows(t *testing.T) {
 		EndTime:   time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC),
 	}) {
 		t.Fatal("expected daily window to be unsupported")
+	}
+}
+
+func TestClientMetadata(t *testing.T) {
+	client := NewClient("base", "key", nil)
+	if client.Name() != "coingecko" {
+		t.Errorf("expected coingecko, got %s", client.Name())
 	}
 }

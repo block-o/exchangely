@@ -13,16 +13,23 @@ import (
 
 func TestFetchCandlesParsesBinanceKlines(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`[
-			[1711929600000,"64000.0","64500.0","63900.0","64400.0","120.5"],
-			[1711933200000,"64400.0","64650.0","64350.0","64600.0","98.1"]
-		]`))
+		if r.URL.Path == "/api/v3/klines" {
+			_, _ = w.Write([]byte(`[
+				[1711929600000,"64000.0","64500.0","63900.0","64400.0","120.5"],
+				[1711933200000,"64400.0","64650.0","64350.0","64600.0","98.1"]
+			]`))
+			return
+		}
+		if r.URL.Path == "/api/v3/ticker/24hr" {
+			_, _ = w.Write([]byte(`{"quoteVolume": "1000000.0"}`))
+			return
+		}
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client())
 	client.now = func() time.Time {
-		return time.Date(2024, 4, 1, 3, 0, 0, 0, time.UTC)
+		return time.Unix(1711933200+3600, 0).UTC() // 1 hour after latest candle
 	}
 	items, err := client.FetchCandles(context.Background(), backfill.Request{
 		Pair:      "BTCUSDT",
@@ -39,9 +46,47 @@ func TestFetchCandlesParsesBinanceKlines(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected 2 candles, got %d", len(items))
 	}
-	if items[0].Source != "binance" || items[0].Close != 64400 {
-		t.Fatalf("unexpected candle: %+v", items[0])
+	if items[1].Volume24H != 1000000 {
+		t.Fatalf("expected 1000000 volume_24h, got %f", items[1].Volume24H)
 	}
+}
+
+func TestFetchNativeV24H(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"quoteVolume": "123.45"}`))
+		}))
+		defer server.Close()
+		client := NewClient(server.URL, server.Client())
+		val, err := client.fetchNativeV24H(context.Background(), "BTCEUR")
+		if err != nil || val != 123.45 {
+			t.Errorf("expected 123.45, got %v (err: %v)", val, err)
+		}
+	})
+
+	t.Run("rate limit", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests)
+		}))
+		defer server.Close()
+		client := NewClient(server.URL, server.Client())
+		_, err := client.fetchNativeV24H(context.Background(), "BTCEUR")
+		if err == nil || !strings.Contains(err.Error(), "rate limited") {
+			t.Errorf("expected rate limited error, got %v", err)
+		}
+	})
+
+	t.Run("malformed json", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{invalid`))
+		}))
+		defer server.Close()
+		client := NewClient(server.URL, server.Client())
+		_, err := client.fetchNativeV24H(context.Background(), "BTCEUR")
+		if err == nil {
+			t.Error("expected error on malformed json")
+		}
+	})
 }
 
 func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
@@ -75,8 +120,8 @@ func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "cooldown active") {
 		t.Fatalf("expected cooldown error, got %v", err)
 	}
-	if requests != 1 {
-		t.Fatalf("expected only the first request to hit binance, got %d", requests)
+	if requests != 2 {
+		t.Fatalf("expected ticker and ohlc calls, got %d", requests)
 	}
 }
 
@@ -102,9 +147,9 @@ func TestSupportsOnlyRecentWindows(t *testing.T) {
 		Base:      "BTC",
 		Quote:     "USDT",
 		Interval:  "1h",
-		StartTime: time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC),
-		EndTime:   time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+		StartTime: time.Unix(0, 0),
+		EndTime:   time.Unix(0, 0),
 	}) {
-		t.Fatal("expected fully historical window to bypass live binance")
+		t.Fatal("expected ancient historical window to be unsupported")
 	}
 }

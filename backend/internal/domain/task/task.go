@@ -3,7 +3,7 @@ package task
 import "time"
 
 const (
-	TypeBackfill      = "historical_sweep"
+	TypeBackfill      = "historical_backfill"
 	TypeConsolidate   = "consolidation"
 	TypeRealtime      = "live_ticker"
 	TypeDataSanity    = "integrity_check"

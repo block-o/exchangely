@@ -16,14 +16,14 @@ import (
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
-	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
+	"github.com/block-o/exchangely/backend/internal/ingest/provider"
 )
 
 // rateLimitCooldown is the default wait time after a 429 response or
 // Kraken "Too many requests" error payload.
 const rateLimitCooldown = 30 * time.Second
 
-// Client implements the backfill.Source interface for the Kraken API.
+// Client implements the provider.Source interface for the Kraken API.
 // It uses a local cache for pair mapping to minimize redundant AssetPairs calls.
 type Client struct {
 	baseURL    string
@@ -56,24 +56,146 @@ func (c *Client) Name() string {
 	return "kraken"
 }
 
+func (c *Client) Capabilities() provider.Capability {
+	return provider.CapHistorical | provider.CapRealtime
+}
+
 // Supports returns true if the request quote is EUR or USD and the interval
-// is 1h or 1d.
-func (c *Client) Supports(request backfill.Request) bool {
-	if (request.Quote != "EUR" && request.Quote != "USD") || (request.Interval != "1h" && request.Interval != "1d") {
+// is 1h, 1d, or ticker.
+func (c *Client) Supports(request provider.Request) bool {
+	if request.Quote != "EUR" && request.Quote != "USD" {
 		return false
 	}
-
-	// Kraken OHLC returns up to 720 points. For 1h, that's 30 days.
-	cutoff := c.now().UTC().AddDate(0, 0, -31)
-	return !request.EndTime.Before(cutoff)
+	switch request.Interval {
+	case "1h", "1d":
+		// Kraken OHLC returns up to 720 points. For 1h, that's 30 days.
+		cutoff := c.now().UTC().AddDate(0, 0, -31)
+		return !request.EndTime.Before(cutoff)
+	case "ticker":
+		return true
+	default:
+		return false
+	}
 }
 
 // FetchCandles retrieves OHLC data from the Kraken public API and maps it
-// into the canonical exchangely domain model.
-func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]candle.Candle, error) {
+// into the canonical exchangely domain model. For "ticker" interval requests
+// it uses the Ticker endpoint instead.
+func (c *Client) FetchCandles(ctx context.Context, request provider.Request) ([]candle.Candle, error) {
 	if !c.Supports(request) {
 		return nil, fmt.Errorf("unsupported request %s %s", request.Pair, request.Interval)
 	}
+	if request.Interval == "ticker" {
+		return c.fetchTicker(ctx, request)
+	}
+	return c.fetchOHLC(ctx, request)
+}
+
+// fetchTicker uses the Kraken Ticker endpoint to build a single-candle snapshot
+// representing the current market state for a pair.
+func (c *Client) fetchTicker(ctx context.Context, request provider.Request) ([]candle.Candle, error) {
+	if err := c.cooldownError(); err != nil {
+		return nil, err
+	}
+
+	pairCode, err := c.resolvePairCode(ctx, request.Pair)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/0/public/Ticker?pair="+pairCode, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		c.setCooldown()
+		return nil, fmt.Errorf("kraken ticker rate limited")
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("kraken ticker status %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		Error  []string `json:"error"`
+		Result map[string]struct {
+			A []string `json:"a"` // ask [price, whole lot volume, lot volume]
+			B []string `json:"b"` // bid [price, whole lot volume, lot volume]
+			C []string `json:"c"` // last trade [price, lot volume]
+			V []string `json:"v"` // volume [today, last 24 hours]
+			P []string `json:"p"` // vwap [today, last 24 hours]
+			L []string `json:"l"` // low [today, last 24 hours]
+			H []string `json:"h"` // high [today, last 24 hours]
+			O string   `json:"o"` // today's opening price
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	if len(payload.Error) > 0 {
+		msg := strings.Join(payload.Error, ", ")
+		if strings.Contains(msg, "Too many requests") {
+			c.setCooldown()
+		}
+		return nil, fmt.Errorf("kraken ticker error: %s", msg)
+	}
+
+	data, ok := payload.Result[pairCode]
+	if !ok || len(data.C) < 1 || len(data.H) < 2 || len(data.L) < 2 || len(data.V) < 2 || len(data.P) < 2 {
+		return nil, fmt.Errorf("kraken ticker result missing or invalid for %s", pairCode)
+	}
+
+	last, err := strconv.ParseFloat(data.C[0], 64)
+	if err != nil {
+		return nil, fmt.Errorf("kraken ticker parse last: %w", err)
+	}
+	open, err := strconv.ParseFloat(data.O, 64)
+	if err != nil {
+		return nil, fmt.Errorf("kraken ticker parse open: %w", err)
+	}
+	high, err := strconv.ParseFloat(data.H[1], 64)
+	if err != nil {
+		return nil, fmt.Errorf("kraken ticker parse high: %w", err)
+	}
+	low, err := strconv.ParseFloat(data.L[1], 64)
+	if err != nil {
+		return nil, fmt.Errorf("kraken ticker parse low: %w", err)
+	}
+	vol, err := strconv.ParseFloat(data.V[1], 64)
+	if err != nil {
+		return nil, fmt.Errorf("kraken ticker parse volume: %w", err)
+	}
+	vwap, err := strconv.ParseFloat(data.P[1], 64)
+	if err != nil {
+		return nil, fmt.Errorf("kraken ticker parse vwap: %w", err)
+	}
+
+	now := c.now().UTC()
+	return []candle.Candle{{
+		Pair:      request.Pair,
+		Interval:  "ticker",
+		Timestamp: now.Truncate(time.Minute).Unix(),
+		Open:      open,
+		High:      high,
+		Low:       low,
+		Close:     last,
+		Volume:    vol,
+		Volume24H: vol * vwap,
+		Source:    c.Name(),
+		Finalized: false,
+	}}, nil
+}
+
+// fetchOHLC retrieves OHLC candle data from the Kraken public API.
+func (c *Client) fetchOHLC(ctx context.Context, request provider.Request) ([]candle.Candle, error) {
 	if err := c.cooldownError(); err != nil {
 		return nil, err
 	}

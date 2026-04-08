@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
-	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
+	"github.com/block-o/exchangely/backend/internal/ingest/provider"
 )
 
 type Client struct {
@@ -43,20 +43,119 @@ func (c *Client) Name() string {
 	return "binance"
 }
 
-func (c *Client) Supports(request backfill.Request) bool {
-	if request.Quote != "USDT" || (request.Interval != "1h" && request.Interval != "1d") {
-		return false
-	}
-
-	// Binance klines API returns up to 1000 points. For 1h, that's ~41 days.
-	cutoff := c.now().UTC().AddDate(0, 0, -31)
-	return !request.EndTime.Before(cutoff)
+func (c *Client) Capabilities() provider.Capability {
+	return provider.CapHistorical | provider.CapRealtime
 }
 
-func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]candle.Candle, error) {
+func (c *Client) Supports(request provider.Request) bool {
+	if request.Quote != "USDT" {
+		return false
+	}
+	switch request.Interval {
+	case "1h", "1d":
+		// Binance klines API returns up to 1000 points. For 1h, that's ~41 days.
+		cutoff := c.now().UTC().AddDate(0, 0, -31)
+		return !request.EndTime.Before(cutoff)
+	case "ticker":
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *Client) FetchCandles(ctx context.Context, request provider.Request) ([]candle.Candle, error) {
 	if !c.Supports(request) {
 		return nil, fmt.Errorf("unsupported request %s %s", request.Pair, request.Interval)
 	}
+	if request.Interval == "ticker" {
+		return c.fetchTicker(ctx, request)
+	}
+	return c.fetchOHLC(ctx, request)
+}
+
+// fetchTicker uses the Binance 24hr ticker endpoint to build a single-candle
+// snapshot representing the current market state for a pair.
+func (c *Client) fetchTicker(ctx context.Context, request provider.Request) ([]candle.Candle, error) {
+	if err := c.cooldownError(); err != nil {
+		return nil, err
+	}
+
+	symbol := strings.ToUpper(request.Base + request.Quote)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v3/ticker/24hr?symbol="+symbol, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusTeapot {
+		c.setCooldown()
+		return nil, fmt.Errorf("binance ticker rate limited")
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("binance ticker status %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		OpenPrice   string `json:"openPrice"`
+		HighPrice   string `json:"highPrice"`
+		LowPrice    string `json:"lowPrice"`
+		LastPrice   string `json:"lastPrice"`
+		Volume      string `json:"volume"`
+		QuoteVolume string `json:"quoteVolume"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	open, err := strconv.ParseFloat(payload.OpenPrice, 64)
+	if err != nil {
+		return nil, fmt.Errorf("binance ticker parse open: %w", err)
+	}
+	high, err := strconv.ParseFloat(payload.HighPrice, 64)
+	if err != nil {
+		return nil, fmt.Errorf("binance ticker parse high: %w", err)
+	}
+	low, err := strconv.ParseFloat(payload.LowPrice, 64)
+	if err != nil {
+		return nil, fmt.Errorf("binance ticker parse low: %w", err)
+	}
+	last, err := strconv.ParseFloat(payload.LastPrice, 64)
+	if err != nil {
+		return nil, fmt.Errorf("binance ticker parse last: %w", err)
+	}
+	vol, err := strconv.ParseFloat(payload.Volume, 64)
+	if err != nil {
+		return nil, fmt.Errorf("binance ticker parse volume: %w", err)
+	}
+	quoteVol, err := strconv.ParseFloat(payload.QuoteVolume, 64)
+	if err != nil {
+		return nil, fmt.Errorf("binance ticker parse quote volume: %w", err)
+	}
+
+	now := c.now().UTC()
+	return []candle.Candle{{
+		Pair:      request.Pair,
+		Interval:  "ticker",
+		Timestamp: now.Truncate(time.Minute).Unix(),
+		Open:      open,
+		High:      high,
+		Low:       low,
+		Close:     last,
+		Volume:    vol,
+		Volume24H: quoteVol,
+		Source:    c.Name(),
+		Finalized: false,
+	}}, nil
+}
+
+func (c *Client) fetchOHLC(ctx context.Context, request provider.Request) ([]candle.Candle, error) {
 	if err := c.cooldownError(); err != nil {
 		return nil, err
 	}

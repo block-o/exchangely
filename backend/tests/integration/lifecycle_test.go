@@ -8,7 +8,7 @@ import (
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/domain/pair"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
-	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
+	"github.com/block-o/exchangely/backend/internal/ingest/provider"
 	"github.com/block-o/exchangely/backend/internal/planner"
 	"github.com/block-o/exchangely/backend/internal/worker"
 )
@@ -52,7 +52,7 @@ func TestHourlyBackfillTaskExecutesAndUpdatesProgress(t *testing.T) {
 			},
 		},
 	}
-	executor := worker.NewBackfillExecutor(store, sync, source, nil, nil)
+	executor := worker.NewBackfillExecutor(store, sync, source, nil)
 
 	if err := executor.Execute(context.Background(), tasks[0]); err != nil {
 		t.Fatalf("execute failed: %v", err)
@@ -121,7 +121,7 @@ func TestDailyPromotionMakesPairRealtimeEligible(t *testing.T) {
 		},
 	}
 	sync := &integrationSyncWriter{}
-	executor := worker.NewBackfillExecutor(store, sync, nil, nil, nil)
+	executor := worker.NewBackfillExecutor(store, sync, nil, nil)
 
 	if err := executor.Execute(context.Background(), tasks[0]); err != nil {
 		t.Fatalf("daily execute failed: %v", err)
@@ -203,7 +203,7 @@ type integrationMarketSource struct {
 	err   error
 }
 
-func (s *integrationMarketSource) FetchCandles(_ context.Context, _ backfill.Request) ([]candle.Candle, error) {
+func (s *integrationMarketSource) FetchCandles(_ context.Context, _ provider.Request) ([]candle.Candle, error) {
 	if s.err != nil {
 		return nil, s.err
 	}

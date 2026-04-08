@@ -62,7 +62,7 @@ Key implementation files:
 
 Current task types:
 
-- `historical_sweep`
+- `historical_backfill`
 - `live_ticker`
 - `integrity_check`
 - `consolidation`

@@ -153,3 +153,41 @@ func TestSupportsOnlyRecentWindows(t *testing.T) {
 		t.Fatal("expected ancient historical window to be unsupported")
 	}
 }
+
+func TestSupportsEURAndUSD(t *testing.T) {
+	client := NewClient("https://api.binance.com", http.DefaultClient)
+	client.now = func() time.Time {
+		return time.Date(2026, 4, 2, 15, 0, 0, 0, time.UTC)
+	}
+
+	recent := time.Date(2026, 4, 2, 14, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 2, 15, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		quote    string
+		interval string
+		want     bool
+	}{
+		{"EUR", "ticker", true},
+		{"USD", "ticker", true},
+		{"USDT", "ticker", true},
+		{"EUR", "1h", true},
+		{"USD", "1d", true},
+		{"GBP", "ticker", false},
+		{"JPY", "1h", false},
+	}
+
+	for _, tc := range cases {
+		got := client.Supports(provider.Request{
+			Pair:      "BTC" + tc.quote,
+			Base:      "BTC",
+			Quote:     tc.quote,
+			Interval:  tc.interval,
+			StartTime: recent,
+			EndTime:   end,
+		})
+		if got != tc.want {
+			t.Errorf("Supports(quote=%s, interval=%s) = %v, want %v", tc.quote, tc.interval, got, tc.want)
+		}
+	}
+}

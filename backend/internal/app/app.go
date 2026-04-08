@@ -93,6 +93,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		leaseRepo,
 		cfg.PlannerLeaseName,
 		cfg.RealtimePollInterval,
+		marketRepo,
 	)
 	taskRepo.SetNotifier(systemService)
 	marketService := service.NewMarketService(marketRepo, cfg.TickerCacheSize, cfg.TickersCacheTTL)
@@ -210,6 +211,12 @@ func buildSources(cfg config.Config) sourceSet {
 		sources.registrySources = append(sources.registrySources, source)
 		sources.enabledNames = append(sources.enabledNames, source.Name())
 	}
+	if cfg.EnableBinance {
+		source := binance.NewClient("", nil)
+		sources.registrySources = append(sources.registrySources, source)
+		sources.validatorSources = append(sources.validatorSources, source)
+		sources.enabledNames = append(sources.enabledNames, source.Name())
+	}
 	if cfg.EnableKraken {
 		source := kraken.NewClient("", nil)
 		sources.registrySources = append(sources.registrySources, source)
@@ -218,12 +225,6 @@ func buildSources(cfg config.Config) sourceSet {
 	}
 	if cfg.EnableCoinGecko {
 		source := coingecko.NewClient("", cfg.CoinGeckoAPIKey, nil)
-		sources.registrySources = append(sources.registrySources, source)
-		sources.validatorSources = append(sources.validatorSources, source)
-		sources.enabledNames = append(sources.enabledNames, source.Name())
-	}
-	if cfg.EnableBinance {
-		source := binance.NewClient("", nil)
 		sources.registrySources = append(sources.registrySources, source)
 		sources.validatorSources = append(sources.validatorSources, source)
 		sources.enabledNames = append(sources.enabledNames, source.Name())

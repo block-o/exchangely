@@ -48,7 +48,10 @@ func (c *Client) Capabilities() provider.Capability {
 }
 
 func (c *Client) Supports(request provider.Request) bool {
-	if request.Quote != "USDT" {
+	switch request.Quote {
+	case "USDT", "EUR", "USD":
+		// Binance lists major crypto pairs against all three quote assets.
+	default:
 		return false
 	}
 	switch request.Interval {

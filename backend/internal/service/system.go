@@ -108,6 +108,10 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 		if dbTasks[i].Type == task.TypeRealtime {
 			dbTasks[i].Interval = pollIntervalStr
 		}
+		// Backfill description for tasks enqueued before the column existed.
+		if dbTasks[i].Description == "" {
+			dbTasks[i].Description = task.BuildDescription(dbTasks[i])
+		}
 	}
 
 	// 2. Fetch the sync states so we can project future runs.
@@ -121,7 +125,7 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 		projectedCount := 0
 		if !pendingIndex[pairType{"*", task.TypeCleanup}] {
 			dayStart := time.Now().UTC().Truncate(24 * time.Hour)
-			dbTasks = append(dbTasks, task.Task{
+			t := task.Task{
 				ID:          "proj-cleanup",
 				Type:        task.TypeCleanup,
 				Pair:        "*",
@@ -129,7 +133,9 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 				Status:      "scheduled",
 				WindowStart: dayStart,
 				WindowEnd:   dayStart.Add(24 * time.Hour),
-			})
+			}
+			t.Description = task.BuildDescription(t)
+			dbTasks = append(dbTasks, t)
 			projectedCount++
 		}
 
@@ -146,7 +152,7 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 			if !row.HourlyBackfillCompleted {
 				if !pendingIndex[pairType{row.Pair, task.TypeBackfill}] && nextGapStart < hourlyCutover {
 					nextGapEnd := minInt64(nextGapStart+3600, hourlyCutover)
-					dbTasks = append(dbTasks, task.Task{
+					t := task.Task{
 						ID:          "proj-backfill-" + row.Pair,
 						Type:        task.TypeBackfill,
 						Pair:        row.Pair,
@@ -154,7 +160,9 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 						Status:      "scheduled",
 						WindowStart: time.Unix(nextGapStart, 0).UTC(),
 						WindowEnd:   time.Unix(nextGapEnd, 0).UTC(),
-					})
+					}
+					t.Description = task.BuildDescription(t)
+					dbTasks = append(dbTasks, t)
 					projectedCount++
 				}
 			}
@@ -180,7 +188,7 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 			prevHour := currentHour.Add(-time.Hour)
 			if !pendingIndex[pairType{row.Pair, task.TypeDataSanity}] &&
 				(row.HourlyBackfillCompleted || (row.HourlyRealtimeStartedUnix > 0 && prevHour.Unix() >= row.HourlyRealtimeStartedUnix)) {
-				dbTasks = append(dbTasks, task.Task{
+				t := task.Task{
 					ID:          "proj-integrity-" + row.Pair,
 					Type:        task.TypeDataSanity,
 					Pair:        row.Pair,
@@ -188,14 +196,16 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 					Status:      "scheduled",
 					WindowStart: prevHour,
 					WindowEnd:   currentHour,
-				})
+				}
+				t.Description = task.BuildDescription(t)
+				dbTasks = append(dbTasks, t)
 				projectedCount++
 			}
 
 			if row.DailyBackfillCompleted && !pendingIndex[pairType{row.Pair, task.TypeConsolidate}] {
 				currentDay := time.Now().UTC().Truncate(24 * time.Hour)
 				prevDay := currentDay.Add(-24 * time.Hour)
-				dbTasks = append(dbTasks, task.Task{
+				t := task.Task{
 					ID:          "proj-consolidation-" + row.Pair,
 					Type:        task.TypeConsolidate,
 					Pair:        row.Pair,
@@ -203,7 +213,9 @@ func (s *SystemService) UpcomingTasks(ctx context.Context, limit, offset int) ([
 					Status:      "scheduled",
 					WindowStart: prevDay,
 					WindowEnd:   currentDay,
-				})
+				}
+				t.Description = task.BuildDescription(t)
+				dbTasks = append(dbTasks, t)
 				projectedCount++
 			}
 		}
@@ -260,6 +272,10 @@ func (s *SystemService) RecentTasks(ctx context.Context, limit, offset int, type
 	for i := range tasks {
 		if tasks[i].Type == task.TypeRealtime {
 			tasks[i].Interval = pollIntervalStr
+		}
+		// Backfill description for tasks enqueued before the column existed.
+		if tasks[i].Description == "" {
+			tasks[i].Description = task.BuildDescription(tasks[i])
 		}
 	}
 	return tasks, total, nil

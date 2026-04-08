@@ -142,3 +142,54 @@ func TestActiveWarningsFiltersDismissedFingerprint(t *testing.T) {
 		}
 	}
 }
+
+func TestUpcomingTasksProjectionsHaveDescriptions(t *testing.T) {
+	ctx := context.Background()
+
+	syncReader := fakeSyncReader{
+		rows: []postgresrepo.SyncRow{
+			{
+				Pair:                    "BTCEUR",
+				HourlySyncedUnix:        time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC).Unix(),
+				HourlyBackfillCompleted: false,
+			},
+			{
+				Pair:                    "ETHUSD",
+				HourlySyncedUnix:        time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC).Unix(),
+				HourlyBackfillCompleted: true,
+				DailyBackfillCompleted:  true,
+			},
+		},
+	}
+
+	svc := NewSystemService(
+		fakePinger{},
+		fakePinger{},
+		syncReader,
+		fakeTaskReader{},
+		fakeWarningStore{},
+		fakeLeaseReader{},
+		"planner",
+		5*time.Second,
+	)
+
+	tasks, _, err := svc.UpcomingTasks(ctx, 50, 0)
+	if err != nil {
+		t.Fatalf("UpcomingTasks returned error: %v", err)
+	}
+
+	if len(tasks) == 0 {
+		t.Fatal("expected projected tasks, got none")
+	}
+
+	// Projected cleanup, backfill, integrity, and consolidation tasks should have descriptions.
+	// Realtime tasks intentionally have empty descriptions.
+	for _, item := range tasks {
+		if item.Type == task.TypeRealtime {
+			continue // intentionally empty
+		}
+		if item.Description == "" {
+			t.Errorf("projected task %s (type=%s, pair=%s) has empty description", item.ID, item.Type, item.Pair)
+		}
+	}
+}

@@ -348,3 +348,194 @@ func TestMarketRepositoryTickerVolume24HPrefersNativeSnapshot(t *testing.T) {
 		t.Fatalf("expected native volume snapshot 410000, got %f", item.Volume24H)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Enqueue dedup — realtime task at-most-once guarantee
+// ---------------------------------------------------------------------------
+
+// TestEnqueueRealtimeDedup verifies the at-most-one-per-pair guarantee:
+//  1. First enqueue inserts the task (pending).
+//  2. Second enqueue while pending is a no-op (not re-enqueued).
+//  3. After the task is claimed (running), enqueue is still a no-op.
+//  4. After the task is completed, enqueue re-activates it as pending.
+//  5. After the task fails permanently, enqueue re-activates it as pending.
+func TestEnqueueRealtimeDedup(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	repo := NewTaskRepository(db, "test-worker")
+	ctx := context.Background()
+
+	_, _ = db.Exec("DELETE FROM tasks")
+
+	now := time.Now().UTC().Truncate(time.Hour)
+	rt := task.Task{
+		ID:          "live_ticker:BTCEUR:realtime",
+		Type:        task.TypeRealtime,
+		Pair:        "BTCEUR",
+		Interval:    "realtime",
+		WindowStart: now,
+		WindowEnd:   now.Add(time.Hour),
+	}
+
+	// 1. First enqueue — should insert.
+	enqueued, err := repo.Enqueue(ctx, []task.Task{rt})
+	if err != nil {
+		t.Fatalf("first enqueue failed: %v", err)
+	}
+	if len(enqueued) != 1 {
+		t.Fatalf("expected 1 enqueued task, got %d", len(enqueued))
+	}
+
+	assertTaskStatus(t, db, rt.ID, "pending")
+
+	// 2. Second enqueue while pending — should be a no-op.
+	enqueued, err = repo.Enqueue(ctx, []task.Task{rt})
+	if err != nil {
+		t.Fatalf("second enqueue failed: %v", err)
+	}
+	if len(enqueued) != 0 {
+		t.Fatalf("expected 0 enqueued (pending dedup), got %d", len(enqueued))
+	}
+
+	// 3. Claim the task (simulate worker picking it up).
+	claimed, err := repo.Claim(ctx, rt.ID)
+	if err != nil || !claimed {
+		t.Fatalf("claim failed: claimed=%v err=%v", claimed, err)
+	}
+	assertTaskStatus(t, db, rt.ID, "running")
+
+	// Enqueue while running — should be a no-op.
+	enqueued, err = repo.Enqueue(ctx, []task.Task{rt})
+	if err != nil {
+		t.Fatalf("enqueue while running failed: %v", err)
+	}
+	if len(enqueued) != 0 {
+		t.Fatalf("expected 0 enqueued (running dedup), got %d", len(enqueued))
+	}
+
+	// 4. Complete the task.
+	if err := repo.Complete(ctx, rt.ID); err != nil {
+		t.Fatalf("complete failed: %v", err)
+	}
+	assertTaskStatus(t, db, rt.ID, "completed")
+
+	// Enqueue after completion — should re-activate as pending.
+	nextHour := now.Add(time.Hour)
+	rtRefreshed := rt
+	rtRefreshed.WindowStart = nextHour
+	rtRefreshed.WindowEnd = nextHour.Add(time.Hour)
+
+	enqueued, err = repo.Enqueue(ctx, []task.Task{rtRefreshed})
+	if err != nil {
+		t.Fatalf("enqueue after completion failed: %v", err)
+	}
+	if len(enqueued) != 1 {
+		t.Fatalf("expected 1 re-enqueued task after completion, got %d", len(enqueued))
+	}
+	assertTaskStatus(t, db, rt.ID, "pending")
+
+	// Verify the window was updated.
+	var ws, we time.Time
+	err = db.QueryRow("SELECT window_start, window_end FROM tasks WHERE id = $1", rt.ID).Scan(&ws, &we)
+	if err != nil {
+		t.Fatalf("query window failed: %v", err)
+	}
+	if !ws.UTC().Equal(nextHour.UTC()) {
+		t.Fatalf("expected updated window_start %s, got %s", nextHour.UTC(), ws.UTC())
+	}
+
+	// 5. Claim + fail permanently, then re-enqueue.
+	_, _ = repo.Claim(ctx, rt.ID)
+	// Set retry_count high so Fail marks it as 'failed' permanently.
+	_, _ = db.Exec("UPDATE tasks SET retry_count = 100 WHERE id = $1", rt.ID)
+	if err := repo.Fail(ctx, rt.ID, "permanent failure"); err != nil {
+		t.Fatalf("fail failed: %v", err)
+	}
+	assertTaskStatus(t, db, rt.ID, "failed")
+
+	enqueued, err = repo.Enqueue(ctx, []task.Task{rt})
+	if err != nil {
+		t.Fatalf("enqueue after failure failed: %v", err)
+	}
+	if len(enqueued) != 1 {
+		t.Fatalf("expected 1 re-enqueued task after failure, got %d", len(enqueued))
+	}
+	assertTaskStatus(t, db, rt.ID, "pending")
+
+	// Verify retry state was reset.
+	var retryCount int
+	err = db.QueryRow("SELECT retry_count FROM tasks WHERE id = $1", rt.ID).Scan(&retryCount)
+	if err != nil {
+		t.Fatalf("query retry_count failed: %v", err)
+	}
+	if retryCount != 0 {
+		t.Fatalf("expected retry_count reset to 0, got %d", retryCount)
+	}
+}
+
+// TestEnqueueDedupDoesNotAffectDifferentIDs verifies that the dedup logic
+// only applies to tasks with the same ID — different IDs are independent.
+func TestEnqueueDedupDoesNotAffectDifferentIDs(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	repo := NewTaskRepository(db, "test-worker")
+	ctx := context.Background()
+
+	_, _ = db.Exec("DELETE FROM tasks")
+
+	now := time.Now().UTC().Truncate(time.Hour)
+	btc := task.Task{
+		ID:          "live_ticker:BTCEUR:realtime",
+		Type:        task.TypeRealtime,
+		Pair:        "BTCEUR",
+		Interval:    "realtime",
+		WindowStart: now,
+		WindowEnd:   now.Add(time.Hour),
+	}
+	eth := task.Task{
+		ID:          "live_ticker:ETHUSD:realtime",
+		Type:        task.TypeRealtime,
+		Pair:        "ETHUSD",
+		Interval:    "realtime",
+		WindowStart: now,
+		WindowEnd:   now.Add(time.Hour),
+	}
+
+	enqueued, err := repo.Enqueue(ctx, []task.Task{btc, eth})
+	if err != nil {
+		t.Fatalf("enqueue failed: %v", err)
+	}
+	if len(enqueued) != 2 {
+		t.Fatalf("expected 2 enqueued tasks, got %d", len(enqueued))
+	}
+
+	// Complete BTC, leave ETH pending.
+	_, _ = repo.Claim(ctx, btc.ID)
+	_ = repo.Complete(ctx, btc.ID)
+
+	// Re-enqueue both — only BTC should be re-activated.
+	enqueued, err = repo.Enqueue(ctx, []task.Task{btc, eth})
+	if err != nil {
+		t.Fatalf("re-enqueue failed: %v", err)
+	}
+	if len(enqueued) != 1 {
+		t.Fatalf("expected 1 re-enqueued (BTC only), got %d", len(enqueued))
+	}
+	if enqueued[0].ID != btc.ID {
+		t.Fatalf("expected BTC to be re-enqueued, got %q", enqueued[0].ID)
+	}
+}
+
+func assertTaskStatus(t *testing.T, db *sql.DB, taskID, expected string) {
+	t.Helper()
+	var status string
+	err := db.QueryRow("SELECT status FROM tasks WHERE id = $1", taskID).Scan(&status)
+	if err != nil {
+		t.Fatalf("query status for %q failed: %v", taskID, err)
+	}
+	if status != expected {
+		t.Fatalf("expected task %q status %q, got %q", taskID, expected, status)
+	}
+}

@@ -392,21 +392,21 @@ func tickerSnapshotQuery(filter string) string {
 			ORDER BY pair_symbol, bucket_start DESC, updated_at DESC
 		),
 		latest AS (
-			SELECT h.pair_symbol,
+			SELECT COALESCE(h.pair_symbol, r.pair_symbol) as pair_symbol,
 			       CASE
-			           WHEN r.raw_unix IS NOT NULL AND r.raw_unix > h.hourly_unix THEN r.raw_price
+			           WHEN r.raw_unix IS NOT NULL AND (h.hourly_unix IS NULL OR r.raw_unix > h.hourly_unix) THEN r.raw_price
 			           ELSE h.hourly_price
 			       END as price,
 			       CASE
-			           WHEN r.raw_unix IS NOT NULL AND r.raw_unix > h.hourly_unix THEN r.raw_unix
+			           WHEN r.raw_unix IS NOT NULL AND (h.hourly_unix IS NULL OR r.raw_unix > h.hourly_unix) THEN r.raw_unix
 			           ELSE h.hourly_unix
 			       END as last_unix,
 			       CASE
-			           WHEN r.raw_unix IS NOT NULL AND r.raw_unix > h.hourly_unix THEN r.raw_source
+			           WHEN r.raw_unix IS NOT NULL AND (h.hourly_unix IS NULL OR r.raw_unix > h.hourly_unix) THEN r.raw_source
 			           ELSE h.hourly_source
 			       END as source
 			FROM latest_hourly h
-			LEFT JOIN latest_raw r ON r.pair_symbol = h.pair_symbol
+			FULL OUTER JOIN latest_raw r ON r.pair_symbol = h.pair_symbol
 		),
 		native_v24h AS (
 			SELECT DISTINCT ON (pair_symbol, source)
@@ -432,13 +432,26 @@ func tickerSnapshotQuery(filter string) string {
 			ORDER BY c.pair_symbol, c.bucket_start DESC
 		),
 		past_1h AS (
-			SELECT DISTINCT ON (c.pair_symbol)
-			       c.pair_symbol,
-			       c.close::DOUBLE PRECISION as old_price
-			FROM candles_1h c
-			JOIN latest l ON c.pair_symbol = l.pair_symbol
-			WHERE c.bucket_start <= to_timestamp(l.last_unix) - INTERVAL '1 hour'
-			ORDER BY c.pair_symbol, c.bucket_start DESC
+			SELECT DISTINCT ON (pair_symbol)
+			       pair_symbol,
+			       old_price
+			FROM (
+				SELECT c.pair_symbol,
+				       c.close::DOUBLE PRECISION as old_price,
+				       c.bucket_start
+				FROM candles_1h c
+				JOIN latest l ON c.pair_symbol = l.pair_symbol
+				WHERE c.bucket_start <= to_timestamp(l.last_unix) - INTERVAL '1 hour'
+				UNION ALL
+				SELECT r.pair_symbol,
+				       r.close::DOUBLE PRECISION as old_price,
+				       r.bucket_start
+				FROM raw_candles r
+				JOIN latest l ON r.pair_symbol = l.pair_symbol
+				WHERE r.interval = '1h'
+				  AND r.bucket_start <= to_timestamp(l.last_unix) - INTERVAL '1 hour'
+			) combined
+			ORDER BY pair_symbol, bucket_start DESC
 		),
 		past_7d AS (
 			SELECT DISTINCT ON (c.pair_symbol)

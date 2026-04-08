@@ -86,8 +86,6 @@ services:
       BACKEND_TASK_RETENTION_PERIOD: ${BACKEND_TASK_RETENTION_PERIOD:-24h}
       BACKEND_TASK_MAX_LOG_COUNT: ${BACKEND_TASK_MAX_LOG_COUNT:-1000}
       BACKEND_REALTIME_POLL_INTERVAL: ${BACKEND_REALTIME_POLL_INTERVAL:-10s}
-      # The earliest date for which the system will attempt to fetch historical data
-      BACKEND_DEFAULT_BACKFILL_START: ${BACKEND_DEFAULT_BACKFILL_START:-2017-01-01T00:00:00Z}
       # Max individual tickers to cache in-memory (default 100)
       BACKEND_TICKER_CACHE_SIZE: ${BACKEND_TICKER_CACHE_SIZE:-100}
       # TTL for the global tickers snapshot (default 30s)

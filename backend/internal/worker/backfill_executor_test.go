@@ -253,11 +253,12 @@ func TestBackfillExecutorIntervalUtilities(t *testing.T) {
 		t.Error("expected error for unsupported interval")
 	}
 
-	// Test backfillComplete for hourly
+	// Test backfillComplete — with backwards backfill, individual tasks never
+	// self-declare completion; the planner detects exhaustion instead.
 	now := time.Now().UTC()
 	task1h := task.Task{Interval: "1h", WindowEnd: now.Truncate(time.Hour)}
-	if !backfillComplete(task1h) {
-		t.Error("expected hourly task at now to be complete")
+	if backfillComplete(task1h) {
+		t.Error("expected backfillComplete to always return false (planner handles completion)")
 	}
 	task1hOld := task.Task{Interval: "1h", WindowEnd: now.Add(-2 * time.Hour)}
 	if backfillComplete(task1hOld) {
@@ -266,8 +267,8 @@ func TestBackfillExecutorIntervalUtilities(t *testing.T) {
 
 	// Test backfillComplete for daily
 	task1d := task.Task{Interval: "1d", WindowEnd: now.Truncate(24 * time.Hour)}
-	if !backfillComplete(task1d) {
-		t.Error("expected daily task at now to be complete")
+	if backfillComplete(task1d) {
+		t.Error("expected backfillComplete to always return false for daily tasks too")
 	}
 }
 

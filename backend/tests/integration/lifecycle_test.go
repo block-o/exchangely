@@ -15,17 +15,21 @@ import (
 
 func TestHourlyBackfillTaskExecutesAndUpdatesProgress(t *testing.T) {
 	now := time.Date(2024, 1, 3, 12, 0, 0, 0, time.UTC)
-	scheduler := planner.NewScheduler(2*time.Minute, 5*time.Minute)
+	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute)
 
-	tasks := scheduler.BuildInitialBackfillTasks([]pair.Pair{
+	// Backwards backfill: cursor starts at yesterday (Jan 2 00:00) and walks backwards.
+	// HourlyLastSynced at Jan 2 00:00 means we've fetched down to that point.
+	// We limit to 1 task to test a single execution.
+	tasks := scheduler.BuildInitialBackfillTasksLimited([]pair.Pair{
 		{Symbol: "BTCEUR"},
 	}, map[string]planner.SyncState{
 		"BTCEUR": {
-			HourlyLastSynced:        now.Add(-1 * time.Hour),
+			// HourlyLastSynced at Jan 2 00:00 means we've fetched down to that point.
+			HourlyLastSynced:        time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
 			HourlyBackfillCompleted: false,
 			DailyBackfillCompleted:  false,
 		},
-	}, make(map[string]map[string]bool), now)
+	}, make(map[string]map[string]bool), now, 1)
 
 	if len(tasks) != 1 {
 		t.Fatalf("expected exactly one hourly task, got %d", len(tasks))
@@ -74,17 +78,21 @@ func TestHourlyBackfillTaskExecutesAndUpdatesProgress(t *testing.T) {
 
 func TestDailyPromotionMakesPairRealtimeEligible(t *testing.T) {
 	now := time.Date(2024, 1, 3, 12, 0, 0, 0, time.UTC)
-	scheduler := planner.NewScheduler(2*time.Minute, 5*time.Minute)
+	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute)
 
+	// Backwards daily backfill: cursor starts at yesterday (Jan 2) and walks backwards.
+	// DailyLastSynced at Jan 2 means we've fetched down to that point.
+	// We limit to 1 task to test a single execution.
 	state := map[string]planner.SyncState{
 		"BTCEUR": {
 			HourlyLastSynced:        time.Date(2024, 1, 2, 23, 0, 0, 0, time.UTC),
 			HourlyBackfillCompleted: true,
+			DailyLastSynced:         time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
 			DailyBackfillCompleted:  false,
 		},
 	}
 
-	tasks := scheduler.BuildInitialBackfillTasks([]pair.Pair{{Symbol: "BTCEUR"}}, state, make(map[string]map[string]bool), now)
+	tasks := scheduler.BuildInitialBackfillTasksLimited([]pair.Pair{{Symbol: "BTCEUR"}}, state, make(map[string]map[string]bool), now, 1)
 	if len(tasks) != 1 {
 		t.Fatalf("expected one daily task, got %d", len(tasks))
 	}

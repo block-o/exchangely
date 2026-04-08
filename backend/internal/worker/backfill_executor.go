@@ -266,15 +266,10 @@ func intervalDuration(interval string) (time.Duration, error) {
 	}
 }
 
+// backfillComplete returns true when the task window indicates the backfill has
+// reached its boundary. With backwards backfill the planner stops generating tasks
+// once the floor is reached, so individual tasks never self-declare completion.
+// Consolidation tasks also never declare completion on their own.
 func backfillComplete(item task.Task) bool {
-	if item.Type == task.TypeConsolidate {
-		return false
-	}
-	now := time.Now().UTC()
-	switch item.Interval {
-	case "1d":
-		return !item.WindowEnd.Before(now.Truncate(24 * time.Hour))
-	default:
-		return !item.WindowEnd.Before(now.Truncate(time.Hour))
-	}
+	return false
 }

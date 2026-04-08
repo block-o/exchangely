@@ -52,7 +52,18 @@ func (r *TaskRepository) Enqueue(ctx context.Context, tasks []task.Task) ([]task
 		result, err := tx.ExecContext(ctx, `
 			INSERT INTO tasks (id, task_type, pair_symbol, interval, window_start, window_end, status, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), NOW())
-			ON CONFLICT (id) DO NOTHING
+			ON CONFLICT (id) DO UPDATE
+			SET status = 'pending',
+			    window_start = EXCLUDED.window_start,
+			    window_end = EXCLUDED.window_end,
+			    retry_count = 0,
+			    retry_at = NULL,
+			    last_error = NULL,
+			    claimed_by = NULL,
+			    claimed_at = NULL,
+			    completed_at = NULL,
+			    updated_at = NOW()
+			WHERE tasks.status IN ('completed', 'failed')
 		`, item.ID, item.Type, item.Pair, item.Interval, item.WindowStart.UTC(), item.WindowEnd.UTC())
 		if err != nil {
 			return nil, err

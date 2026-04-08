@@ -68,7 +68,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	catalogRepo := postgresrepo.NewCatalogRepository(db)
-	catalogService := service.NewCatalogService(catalogRepo, cfg.DefaultQuoteAssets, cfg.DefaultBackfillStart)
+	catalogService := service.NewCatalogService(catalogRepo, cfg.DefaultQuoteAssets)
 	if err := catalogService.Seed(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("seed catalog: %w", err)

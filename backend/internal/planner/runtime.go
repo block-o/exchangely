@@ -168,6 +168,7 @@ func (r *Runner) runTick(ctx context.Context) error {
 
 	followUpTasks := make([]task.Task, 0, len(backfillTasks)+4)
 	followUpTasks = append(followUpTasks, backfillTasks...)
+	followUpTasks = append(followUpTasks, r.scheduler.BuildBackfillProbeTasks(pairs, adapted, now)...)
 	followUpTasks = append(followUpTasks, r.scheduler.BuildGapValidationTasks(pairs, adapted, coverage, now)...)
 	followUpTasks = append(followUpTasks, r.scheduler.BuildConsolidationTasks(pairs, adapted, now)...)
 	followUpTasks = append(followUpTasks, r.scheduler.BuildCleanupTask(now))   // daily task log pruning

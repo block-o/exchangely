@@ -10,10 +10,12 @@ This project is being built for educational purposes only. It is not intended fo
 
 ## Architecture
 
-Historical series and live ticker are now intentionally decoupled. Historical backfill remains
-canonical and gap-focused, while live ticker starts immediately per pair and establishes a live
-cutover hour; hourly backfill then catches up only up to that cutover, and newer windows are
-owned by the realtime feed plus consolidation.
+Historical series and live ticker are now intentionally decoupled. Historical backfill walks
+backwards from yesterday into the past with no fixed start date, fetching the most recent
+data first so charts are useful immediately. Live ticker starts immediately per pair with
+at most one task in the queue at a time; once a worker completes a ticker task, the next
+planner tick re-enqueues it. A daily backfill probe extends each pair one hour further
+into the past to discover newly available upstream data.
 
 ```mermaid
 flowchart LR
@@ -85,7 +87,10 @@ flowchart LR
 
 The following environment variables can be used to tune the system:
 
-- `BACKEND_ROLE`: Comma-separated list of roles (`api,planner,worker`). Default: `api,planner,worker`.
+- `BACKEND_ROLE`: Comma-separated list of roles (`api,planner,worker`). Default: `all`.
+- `BACKEND_REALTIME_POLL_INTERVAL`: How often the planner emits realtime ticker tasks per pair (e.g., `5s`, `30s`). Default: `5s`.
+- `BACKEND_PLANNER_BACKFILL_BATCH_PERCENT`: Percentage of worker batch size allocated to backfill tasks per planner tick. Default: `50`.
+- `BACKEND_WORKER_BACKFILL_BATCH_PERCENT`: Percentage of worker batch size allocated to backfill tasks per worker poll. Default: `50`.
 - `BACKEND_NEWS_FETCH_INTERVAL`: Frequency of news updates (e.g., `5m`, `1h`). Default: `5m`.
 - `DATABASE_URL`: TimescaleDB connection string.
 - `KAFKA_BROKERS`: List of Kafka broker addresses.

@@ -51,9 +51,6 @@ type Config struct {
 	TickersCacheTTL time.Duration
 	// NewsFetchInterval defines how often the worker should fetch news from RSS feeds.
 	NewsFetchInterval time.Duration
-	// DefaultBackfillStart defines the earliest date for which the system will attempt
-	// to fetch historical data for newly discovered pairs.
-	DefaultBackfillStart time.Time
 }
 
 func Load() Config {
@@ -78,10 +75,10 @@ func Load() Config {
 		PlannerLeaseName:          getenv("BACKEND_PLANNER_LEASE_NAME", "planner_leader"),
 		PlannerLeaseTTL:           parseDuration(getenv("BACKEND_PLANNER_LEASE_TTL", "15s")),
 		PlannerTick:               parseDuration(getenv("BACKEND_PLANNER_TICK", "10s")),
-		RealtimePollInterval:      parseDuration(getenv("BACKEND_REALTIME_POLL_INTERVAL", "2m")),
+		RealtimePollInterval:      parseDuration(getenv("BACKEND_REALTIME_POLL_INTERVAL", "5s")),
 		WorkerPollInterval:        parseDuration(getenv("BACKEND_WORKER_POLL_INTERVAL", "5s")),
 		WorkerBatchSize:           parseInt(getenv("BACKEND_WORKER_BATCH_SIZE", "100"), 100),
-		PlannerBackfillBatchPct:   parsePercent(getenv("BACKEND_PLANNER_BACKFILL_BATCH_PERCENT", "20"), 50),
+		PlannerBackfillBatchPct:   parsePercent(getenv("BACKEND_PLANNER_BACKFILL_BATCH_PERCENT", "50"), 50),
 		WorkerBackfillBatchPct:    parsePercent(getenv("BACKEND_WORKER_BACKFILL_BATCH_PERCENT", "50"), 50),
 		CoinGeckoAPIKey:           getenv("BACKEND_COINGECKO_API_KEY", ""),
 		CDDAvailabilityBaseURL:    getenv("BACKEND_CDD_AVAILABILITY_BASE_URL", ""),
@@ -93,7 +90,6 @@ func Load() Config {
 		TickerCacheSize:           parseInt(getenv("BACKEND_TICKER_CACHE_SIZE", "100"), 100),
 		TickersCacheTTL:           parseDuration(getenv("BACKEND_TICKERS_CACHE_TTL", "30s")),
 		NewsFetchInterval:         parseDuration(getenv("BACKEND_NEWS_FETCH_INTERVAL", "5m")),
-		DefaultBackfillStart:      parseTime(getenv("BACKEND_DEFAULT_BACKFILL_START", "2017-01-01T00:00:00Z")),
 	}
 }
 
@@ -163,15 +159,6 @@ func parseBool(value string, fallback bool) bool {
 	}
 
 	return parsed
-}
-
-func parseTime(value string) time.Time {
-	t, err := time.Parse(time.RFC3339, value)
-	if err != nil {
-		// Default to 2017-01-01 if invalid
-		return time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
-	}
-	return t
 }
 
 func parsePercent(value string, fallback int) int {

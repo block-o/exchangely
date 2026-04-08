@@ -36,6 +36,9 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - [x] Add **CryptoDataDownload** as a dedicated backfill provider for historical hourly/daily CSV fallback alongside the existing exchange adapters.
 - [x] Add **CoinGecko** as an additional realtime ticker provider, using live market-chart samples for supported realtime quote windows.
 - [x] **Refactored Ingest**: Split the `ingest` module cleanly into two distinct submodules: `backfill` and `realtime`.
+- [x] **Provider/Executor Architecture Overhaul**: Renamed `ingest/backfill` package to `ingest/provider` to reflect its role as the general-purpose source contract layer. Split `BackfillExecutor` into dedicated `BackfillExecutor` (historical + consolidation) and `RealtimeExecutor` (live ticker via Kafka). Added `Capability` hints (`CapHistorical`, `CapRealtime`) to the `Source` interface so the registry pre-filters providers by role. Realtime providers now use native ticker APIs (Kraken `/Ticker`, Binance `/ticker/24hr`, CoinGecko `/simple/price`) instead of reusing the OHLC candle endpoints.
+- [x] **Task Type Rename**: Renamed `historical_sweep` → `historical_backfill` across backend, frontend, AGENTS.md, and added DB migration `000014` to update existing rows.
+- [x] **Improved Observability**: Registry log lines now include `task_id`, `fetch_mode` (historical/realtime/any), and `window_start`/`window_end` on every market source fetch log entry.
 - [x] **Extend Market view**: Integrated 1h%, 7d%, and 24h Volume metrics into the SQL read model and Dashboard UI with color-coded trends.
 - [x] **Extend the supported coins to be configurable in the backend**: Reconciliation logic is implemented (unused coins/pairs are pruned from DB on startup), but the coin list is currently hardcoded in `CatalogService`.
 - [x] **Caching Layer**: Implemented multi-layered ticker caching with per-ticker invalidation and time-based global snapshots.
@@ -53,6 +56,8 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 ## Current Focus
 **Provider Expansion & Historical Optimization**
 Finalizing the **Yahoo Finance (Yfinance)** provider integration and designing the **month/year rollup** scheduled consolidation architecture to optimize longer-term historical storage.
+
+Recently completed: provider/executor architecture overhaul (capability-based registry, dedicated ticker APIs for realtime, `BackfillExecutor`/`RealtimeExecutor` split, `historical_sweep` → `historical_backfill` rename).
 
 Operational rule updates:
 - Historical source fetch granularity must never be coarser than **1 day**, and **1 hour** remains the preferred canonical backfill resolution.

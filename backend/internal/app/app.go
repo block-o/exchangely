@@ -14,12 +14,12 @@ import (
 	"github.com/block-o/exchangely/backend/internal/config"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
 	"github.com/block-o/exchangely/backend/internal/httpapi/router"
-	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
 	"github.com/block-o/exchangely/backend/internal/ingest/binance"
 	"github.com/block-o/exchangely/backend/internal/ingest/binancevision"
 	"github.com/block-o/exchangely/backend/internal/ingest/coingecko"
 	"github.com/block-o/exchangely/backend/internal/ingest/cryptodatadownload"
 	"github.com/block-o/exchangely/backend/internal/ingest/kraken"
+	"github.com/block-o/exchangely/backend/internal/ingest/provider"
 	"github.com/block-o/exchangely/backend/internal/ingest/realtime"
 	kafka "github.com/block-o/exchangely/backend/internal/messaging/kafka"
 	"github.com/block-o/exchangely/backend/internal/planner"
@@ -43,11 +43,11 @@ type App struct {
 	enabledSources  []string
 }
 
-// sourceSet keeps the runtime wiring explicit: backfill uses a registry with ordered fallback,
+// sourceSet keeps the runtime wiring explicit: the registry uses ordered fallback,
 // while validation only receives providers trusted for cross-source comparisons.
 type sourceSet struct {
-	registrySources  []backfill.Source
-	validatorSources []backfill.Source
+	registrySources  []provider.Source
+	validatorSources []provider.Source
 	enabledNames     []string
 }
 
@@ -109,7 +109,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	taskPublisher := kafka.NewTaskPublisher(cfg.KafkaBrokers, cfg.KafkaTasksTopic)
 	marketPublisher := kafka.NewMarketEventPublisher(cfg.KafkaBrokers, cfg.KafkaMarketTopic)
 	sources := buildSources(cfg)
-	sourceRegistry := backfill.NewRegistry(sources.registrySources...)
+	sourceRegistry := provider.NewRegistry(sources.registrySources...)
 	realtimeIngest := realtime.NewIngestService(marketRepo, marketService)
 	plannerRunner := planner.NewRunner(
 		instanceID,
@@ -126,7 +126,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		taskPublisher,
 	)
 
-	backfillExe := worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry, marketPublisher, marketService)
+	backfillExe := worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry.WithCapability(provider.CapHistorical), marketService)
+	realtimeExe := worker.NewRealtimeExecutor(marketRepo, syncRepo, sourceRegistry.WithCapability(provider.CapRealtime), marketPublisher, marketService)
 	validatorExe := worker.NewValidatorExecutor(sources.validatorSources, worker.ValidatorOptions{
 		MinSources:       cfg.IntegrityMinSources,
 		MaxDivergencePct: cfg.IntegrityMaxDivergencePct,
@@ -136,7 +137,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	routerExe := worker.NewRouterExecutor(map[string]worker.Executor{
 		task.TypeBackfill:      backfillExe,
-		task.TypeRealtime:      backfillExe,
+		task.TypeRealtime:      realtimeExe,
 		task.TypeConsolidate:   backfillExe,
 		task.TypeDataSanity:    validatorExe,
 		task.TypeCleanup:       cleanupExe,
@@ -189,12 +190,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}, nil
 }
 
-// buildSources translates provider flags into the two ingest paths introduced by the refactor:
-// backfill registry fallback and validator peer comparison.
+// buildSources translates provider flags into the two ingest paths:
+// registry fallback and validator peer comparison.
 func buildSources(cfg config.Config) sourceSet {
 	sources := sourceSet{
-		registrySources:  make([]backfill.Source, 0, 5),
-		validatorSources: make([]backfill.Source, 0, 3),
+		registrySources:  make([]provider.Source, 0, 5),
+		validatorSources: make([]provider.Source, 0, 3),
 		enabledNames:     make([]string, 0, 5),
 	}
 
@@ -205,7 +206,7 @@ func buildSources(cfg config.Config) sourceSet {
 		sources.enabledNames = append(sources.enabledNames, source.Name())
 	}
 	if cfg.EnableCryptoDataDownload {
-		source := cryptodatadownload.NewClient("", nil)
+		source := cryptodatadownload.NewClient("", cfg.CDDAvailabilityBaseURL, nil)
 		sources.registrySources = append(sources.registrySources, source)
 		sources.enabledNames = append(sources.enabledNames, source.Name())
 	}

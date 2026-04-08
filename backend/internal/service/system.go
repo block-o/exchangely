@@ -550,7 +550,7 @@ func joinStrings(values []string) string {
 func taskTypeLabel(taskType string) string {
 	switch taskType {
 	case task.TypeBackfill:
-		return "Historical Sweep"
+		return "Historical Backfill"
 	case task.TypeRealtime:
 		return "Live Ticker"
 	case task.TypeDataSanity:

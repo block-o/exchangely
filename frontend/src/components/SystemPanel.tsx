@@ -27,7 +27,7 @@ interface TasksResponse {
 
 // All known task types in display order
 const TASK_TYPES = [
-  "historical_sweep",
+  "historical_backfill",
   "live_ticker",
   "integrity_check",
   "consolidation",
@@ -35,7 +35,7 @@ const TASK_TYPES = [
 ];
 
 const TYPE_LABELS: Record<string, string> = {
-  historical_sweep: "Historical Sweep",
+  historical_backfill: "Historical Backfill",
   live_ticker: "Live Ticker",
   integrity_check: "Integrity Check",
   consolidation: "Consolidation",
@@ -684,7 +684,7 @@ export function SystemPanel() {
                         {t.status === "running"
                           ? "Ongoing"
                           : t.status === "scheduled"
-                          ? t.type === "historical_sweep"
+                          ? t.type === "historical_backfill"
                             ? `Backfill: ${formatShortDate(t.window_start)} → ${formatShortDate(t.window_end)}`
                             : `Next: ${formatShortDate(t.window_start)}`
                           : taskStatusLabel(t.status)}

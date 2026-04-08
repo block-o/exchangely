@@ -53,7 +53,7 @@ func (p *MarketEventPublisher) PublishCandles(ctx context.Context, candles []can
 	}
 
 	first := candles[0]
-	slog.Info("market events published",
+	slog.Debug("market events published",
 		"pair", first.Pair,
 		"interval", first.Interval,
 		"candle_count", len(candles),
@@ -206,7 +206,7 @@ func (c *MarketEventConsumer) handleBatch(ctx context.Context, messages []kafkag
 		}
 
 		first := items[0]
-		slog.Info("market event batch consumed",
+		slog.Debug("market event batch consumed",
 			"pair", first.Pair,
 			"interval", first.Interval,
 			"candle_count", len(items),

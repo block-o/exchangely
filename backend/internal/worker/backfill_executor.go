@@ -10,7 +10,7 @@ import (
 	"github.com/block-o/exchangely/backend/internal/consolidate"
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
-	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
+	"github.com/block-o/exchangely/backend/internal/ingest/provider"
 )
 
 var ErrHourlyDataUnavailable = errors.New("hourly data unavailable for daily consolidation")
@@ -30,42 +30,33 @@ type SyncProgressWriter interface {
 }
 
 // BackfillExecutor materializes task windows into persisted candles and sync progress updates.
-// It handles binary separation of duties:
+// It handles historical backfill and daily consolidation:
 //  1. Historical Backfill: Fetches source items, consolidates them, and saves to both raw and
 //     consolidated Postgres tables.
-//  2. Realtime Ticker: Fetches latest data and publishes directly to Kafka for live consumption,
-//     optionally bypassing or duplicating to the raw audit store.
+//  2. Daily Consolidation: Rolls up stored hourly candles into daily candles.
 type BackfillExecutor struct {
 	candles  CandleStore
 	sync     SyncProgressWriter
 	sources  MarketSource
-	events   MarketEventPublisher
 	notifier MarketNotifier
 }
 
 type MarketSource interface {
-	FetchCandles(ctx context.Context, request backfill.Request) ([]candle.Candle, error)
-}
-
-// MarketEventPublisher sends candle data to Kafka for downstream consumption (realtime flow).
-type MarketEventPublisher interface {
-	PublishCandles(ctx context.Context, candles []candle.Candle) error
+	FetchCandles(ctx context.Context, request provider.Request) ([]candle.Candle, error)
 }
 
 // MarketNotifier pushes a signal to the SSE EventBus when new data is committed to Postgres.
-// This is the worker-side counterpart to MarketService.NotifyUpdate().
-// The backfill executor calls it after every successful candle write or realtime cutover update.
+// The executor calls it after every successful candle write.
 type MarketNotifier interface {
 	NotifyUpdate(pairSymbol string)
 }
 
-// NewBackfillExecutor returns the worker-side executor for backfill, daily consolidation, and realtime tasks.
-func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources MarketSource, events MarketEventPublisher, notifier MarketNotifier) *BackfillExecutor {
+// NewBackfillExecutor returns the worker-side executor for backfill and daily consolidation tasks.
+func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources MarketSource, notifier MarketNotifier) *BackfillExecutor {
 	return &BackfillExecutor{
 		candles:  candles,
 		sync:     sync,
 		sources:  sources,
-		events:   events,
 		notifier: notifier,
 	}
 }
@@ -76,8 +67,8 @@ func NewBackfillExecutor(candles CandleStore, sync SyncProgressWriter, sources M
 func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 	startedAt := time.Now()
 	switch item.Type {
-	case task.TypeBackfill, task.TypeConsolidate, task.TypeRealtime:
-		slog.InfoContext(ctx, "task execution active",
+	case task.TypeBackfill, task.TypeConsolidate:
+		slog.DebugContext(ctx, "task execution active",
 			"task_id", item.ID,
 			"type", item.Type,
 			"pair", item.Pair,
@@ -105,7 +96,7 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 		if err := e.updateSyncProgress(ctx, item); err != nil {
 			return err
 		}
-		slog.Info("task execution produced no candles",
+		slog.Warn("task execution produced no candles",
 			"task_id", item.ID,
 			"type", item.Type,
 			"pair", item.Pair,
@@ -141,20 +132,6 @@ func (e *BackfillExecutor) Execute(ctx context.Context, item task.Task) error {
 }
 
 func (e *BackfillExecutor) updateSyncProgress(ctx context.Context, item task.Task) error {
-	if item.Type == task.TypeRealtime {
-		if err := e.sync.MarkRealtimeStarted(ctx, item.Pair, item.WindowStart.UTC()); err != nil {
-			slog.Warn("task realtime cutover update failed",
-				"task_id", item.ID,
-				"type", item.Type,
-				"pair", item.Pair,
-				"interval", item.Interval,
-				"error", err,
-			)
-			return err
-		}
-		return nil
-	}
-
 	if err := e.sync.UpsertProgress(ctx, item.Pair, item.Interval, item.WindowEnd.UTC(), backfillComplete(item)); err != nil {
 		slog.Warn("task sync progress update failed",
 			"task_id", item.ID,
@@ -169,53 +146,14 @@ func (e *BackfillExecutor) updateSyncProgress(ctx context.Context, item task.Tas
 }
 
 // materializeCandles determines the specific fetch/consolidation strategy based on
-// task type and interval (hourly, daily, or realtime).
+// task type and interval (hourly or daily).
 func (e *BackfillExecutor) materializeCandles(ctx context.Context, item task.Task) ([]candle.Candle, error) {
-	if item.Type == task.TypeRealtime {
-		return e.publishRealtime(ctx, item)
-	}
-
 	switch item.Interval {
 	case "1d":
 		return e.materializeDaily(ctx, item)
 	default:
 		return e.materializeHourly(ctx, item)
 	}
-}
-
-// publishRealtime fetches the latest per-source snapshots for a live window and forwards them
-// to Kafka without pre-consolidation so provider-native metadata such as trailing 24h volume
-// survives into raw_candles. When Kafka is unavailable, it falls back to the same raw->hourly
-// materialization path used by the realtime consumer.
-func (e *BackfillExecutor) publishRealtime(ctx context.Context, item task.Task) ([]candle.Candle, error) {
-	sourceCandles, err := e.fetchSourceCandles(ctx, item)
-	if err != nil {
-		return nil, err
-	}
-
-	if e.events != nil {
-		if err := e.events.PublishCandles(ctx, sourceCandles); err != nil {
-			return nil, err
-		}
-		slog.Debug("realtime task published market events",
-			"task_id", item.ID,
-			"pair", item.Pair,
-			"interval", item.Interval,
-			"candle_count", len(sourceCandles),
-		)
-		return nil, nil
-	}
-
-	if err := e.candles.UpsertRawCandles(ctx, item.Interval, sourceCandles); err != nil {
-		return nil, err
-	}
-
-	rawCandles, err := e.candles.RawCandles(ctx, item.Pair, item.Interval, item.WindowStart, item.WindowEnd)
-	if err != nil {
-		return nil, err
-	}
-
-	return consolidate.FromRaw(item.Interval, rawCandles)
 }
 
 func (e *BackfillExecutor) materializeHourly(ctx context.Context, item task.Task) ([]candle.Candle, error) {
@@ -226,10 +164,14 @@ func (e *BackfillExecutor) materializeHourly(ctx context.Context, item task.Task
 	if len(sourceCandles) == 0 {
 		return nil, nil
 	}
-	if item.Type != task.TypeRealtime {
-		if err := validateCoverage(item.Interval, item.WindowStart, item.WindowEnd, sourceCandles); err != nil {
-			return nil, err
-		}
+	if err := validateCoverage(item.Interval, item.WindowStart, item.WindowEnd, sourceCandles); err != nil {
+		slog.Warn("incomplete source coverage, continuing with available candles",
+			"pair", item.Pair,
+			"interval", item.Interval,
+			"window_start", item.WindowStart.UTC().Format(time.RFC3339),
+			"window_end", item.WindowEnd.UTC().Format(time.RFC3339),
+			"error", err,
+		)
 	}
 
 	if err := e.candles.UpsertRawCandles(ctx, item.Interval, sourceCandles); err != nil {
@@ -263,7 +205,7 @@ func (e *BackfillExecutor) materializeDaily(ctx context.Context, item task.Task)
 }
 
 func (e *BackfillExecutor) fetchSourceCandles(ctx context.Context, item task.Task) ([]candle.Candle, error) {
-	base, quote, err := backfill.ParsePairSymbol(item.Pair)
+	base, quote, err := provider.ParsePairSymbol(item.Pair)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrMarketSourceUnavailable, err)
 	}
@@ -272,16 +214,12 @@ func (e *BackfillExecutor) fetchSourceCandles(ctx context.Context, item task.Tas
 		return nil, fmt.Errorf("%w: no source registry configured", ErrMarketSourceUnavailable)
 	}
 
-	reqInterval := item.Interval
-	if reqInterval == "realtime" {
-		reqInterval = "1h"
-	}
-
-	items, err := e.sources.FetchCandles(ctx, backfill.Request{
+	items, err := e.sources.FetchCandles(ctx, provider.Request{
+		TaskID:    item.ID,
 		Pair:      item.Pair,
 		Base:      base,
 		Quote:     quote,
-		Interval:  reqInterval,
+		Interval:  item.Interval,
 		StartTime: item.WindowStart.UTC(),
 		EndTime:   item.WindowEnd.UTC(),
 	})

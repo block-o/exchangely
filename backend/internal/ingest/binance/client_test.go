@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
+	"github.com/block-o/exchangely/backend/internal/ingest/provider"
 )
 
 func TestFetchCandlesParsesBinanceKlines(t *testing.T) {
@@ -31,7 +31,7 @@ func TestFetchCandlesParsesBinanceKlines(t *testing.T) {
 	client.now = func() time.Time {
 		return time.Unix(1711933200+3600, 0).UTC() // 1 hour after latest candle
 	}
-	items, err := client.FetchCandles(context.Background(), backfill.Request{
+	items, err := client.FetchCandles(context.Background(), provider.Request{
 		Pair:      "BTCUSDT",
 		Base:      "BTC",
 		Quote:     "USDT",
@@ -102,7 +102,7 @@ func TestFetchCandlesEntersCooldownOnRateLimit(t *testing.T) {
 		return time.Date(2024, 4, 1, 3, 0, 0, 0, time.UTC)
 	}
 
-	request := backfill.Request{
+	request := provider.Request{
 		Pair:      "BTCUSDT",
 		Base:      "BTC",
 		Quote:     "USDT",
@@ -131,7 +131,7 @@ func TestSupportsOnlyRecentWindows(t *testing.T) {
 		return time.Date(2026, 4, 2, 15, 0, 0, 0, time.UTC)
 	}
 
-	if client.Supports(backfill.Request{
+	if client.Supports(provider.Request{
 		Pair:      "BTCUSDT",
 		Base:      "BTC",
 		Quote:     "USDT",
@@ -142,7 +142,7 @@ func TestSupportsOnlyRecentWindows(t *testing.T) {
 		t.Fatal("expected current-day window to be supported")
 	}
 
-	if client.Supports(backfill.Request{
+	if client.Supports(provider.Request{
 		Pair:      "BTCUSDT",
 		Base:      "BTC",
 		Quote:     "USDT",

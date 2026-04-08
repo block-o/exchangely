@@ -8,7 +8,7 @@ import (
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
-	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
+	"github.com/block-o/exchangely/backend/internal/ingest/provider"
 )
 
 func TestBackfillExecutorWritesCandlesAndProgress(t *testing.T) {
@@ -21,7 +21,7 @@ func TestBackfillExecutorWritesCandlesAndProgress(t *testing.T) {
 			{Pair: "BTCEUR", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 2, 0, 0, 0, time.UTC).Unix(), Open: 11, High: 12, Low: 10.5, Close: 11.6, Volume: 3, Source: "kraken"},
 		},
 	}
-	executor := NewBackfillExecutor(candleRepo, syncRepo, source, nil, nil)
+	executor := NewBackfillExecutor(candleRepo, syncRepo, source, nil)
 
 	item := task.Task{
 		ID:          "backfill:BTCEUR:1",
@@ -53,7 +53,7 @@ func TestBackfillExecutorWritesCandlesAndProgress(t *testing.T) {
 func TestBackfillExecutorFailsWhenSourceUnavailable(t *testing.T) {
 	candleRepo := &fakeCandleStore{}
 	syncRepo := &fakeSyncWriter{}
-	executor := NewBackfillExecutor(candleRepo, syncRepo, &fakeMarketSource{err: context.DeadlineExceeded}, nil, nil)
+	executor := NewBackfillExecutor(candleRepo, syncRepo, &fakeMarketSource{err: context.DeadlineExceeded}, nil)
 
 	item := task.Task{
 		ID:          "backfill:BTCUSD:1",
@@ -79,7 +79,7 @@ func TestBackfillExecutorFailsWhenSourceUnavailable(t *testing.T) {
 func TestBackfillExecutorFailsWhenSourceRegistryMissing(t *testing.T) {
 	candleRepo := &fakeCandleStore{}
 	syncRepo := &fakeSyncWriter{}
-	executor := NewBackfillExecutor(candleRepo, syncRepo, nil, nil, nil)
+	executor := NewBackfillExecutor(candleRepo, syncRepo, nil, nil)
 
 	err := executor.Execute(context.Background(), task.Task{
 		ID:          "backfill:BTCEUR:missing-source",
@@ -105,7 +105,7 @@ func TestBackfillExecutorFailsWhenSourceCoverageIsIncomplete(t *testing.T) {
 			{Pair: "BTCUSD", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC).Unix(), Open: 10, High: 11, Low: 9, Close: 10.5, Volume: 1, Source: "coingecko"},
 			{Pair: "BTCUSD", Interval: "1h", Timestamp: time.Date(2026, 4, 1, 2, 0, 0, 0, time.UTC).Unix(), Open: 11, High: 12, Low: 10, Close: 11.5, Volume: 1, Source: "coingecko"},
 		},
-	}, nil, nil)
+	}, nil)
 
 	err := executor.Execute(context.Background(), task.Task{
 		ID:          "backfill:BTCUSD:coverage-gap",
@@ -115,14 +115,16 @@ func TestBackfillExecutorFailsWhenSourceCoverageIsIncomplete(t *testing.T) {
 		WindowStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 		WindowEnd:   time.Date(2026, 4, 1, 3, 0, 0, 0, time.UTC),
 	})
-	if err == nil {
-		t.Fatal("expected execute to fail when source coverage is incomplete")
+	// After relaxation: incomplete coverage is a warning, not an error.
+	// The executor should succeed and persist the available candles.
+	if err != nil {
+		t.Fatalf("expected success with partial coverage, got error: %v", err)
 	}
-	if !errors.Is(err, ErrIncompleteSourceCoverage) {
-		t.Fatalf("expected ErrIncompleteSourceCoverage, got %v", err)
+	if len(candleRepo.rawItems) != 2 {
+		t.Fatalf("expected 2 raw candles to be persisted, got %d", len(candleRepo.rawItems))
 	}
-	if len(candleRepo.rawItems) != 0 {
-		t.Fatalf("expected no raw candles to be persisted, got %d", len(candleRepo.rawItems))
+	if syncRepo.lastPair != "BTCUSD" {
+		t.Fatalf("expected sync progress for BTCUSD, got %s", syncRepo.lastPair)
 	}
 }
 
@@ -134,7 +136,7 @@ func TestBackfillExecutorBuildsDailyFromHourly(t *testing.T) {
 		},
 	}
 	syncRepo := &fakeSyncWriter{}
-	executor := NewBackfillExecutor(candleRepo, syncRepo, nil, nil, nil)
+	executor := NewBackfillExecutor(candleRepo, syncRepo, nil, nil)
 
 	item := task.Task{
 		ID:          "backfill:BTCEUR:daily",
@@ -157,7 +159,7 @@ func TestBackfillExecutorBuildsDailyFromHourly(t *testing.T) {
 }
 
 func TestBackfillExecutorFailsDailyWithoutHourlyCoverage(t *testing.T) {
-	executor := NewBackfillExecutor(&fakeCandleStore{}, &fakeSyncWriter{}, nil, nil, nil)
+	executor := NewBackfillExecutor(&fakeCandleStore{}, &fakeSyncWriter{}, nil, nil)
 
 	err := executor.Execute(context.Background(), task.Task{
 		ID:          "backfill:BTCEUR:daily-missing",
@@ -175,141 +177,12 @@ func TestBackfillExecutorFailsDailyWithoutHourlyCoverage(t *testing.T) {
 	}
 }
 
-func TestBackfillExecutorPublishesRealtimeCandlesToEvents(t *testing.T) {
-	candleRepo := &fakeCandleStore{}
-	syncRepo := &fakeSyncWriter{}
-	source := &fakeMarketSource{
-		items: []candle.Candle{
-			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 102, Low: 99, Close: 101, Volume: 4, Volume24H: 400000, Source: "coingecko", Finalized: false},
-		},
-	}
-	publisher := &fakeMarketPublisher{}
-	executor := NewBackfillExecutor(candleRepo, syncRepo, source, publisher, nil)
-
-	err := executor.Execute(context.Background(), task.Task{
-		ID:          "realtime:BTCUSD",
-		Type:        task.TypeRealtime,
-		Pair:        "BTCUSD",
-		Interval:    "1h",
-		WindowStart: time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC),
-		WindowEnd:   time.Date(2024, 4, 1, 1, 0, 0, 0, time.UTC),
-	})
-	if err != nil {
-		t.Fatalf("execute failed: %v", err)
-	}
-	if len(publisher.items) != 1 {
-		t.Fatalf("expected 1 published candle, got %d", len(publisher.items))
-	}
-	got := publisher.items[0]
-	if got.Finalized {
-		t.Fatalf("expected realtime candle to be marked non-finalized, got %+v", got)
-	}
-	if got.Source != "coingecko" || got.Volume24H != 400000 {
-		t.Fatalf("expected realtime publisher to preserve source metadata, got %+v", got)
-	}
-	if len(candleRepo.rawItems) != 0 {
-		t.Fatalf("expected realtime path to rely on event publishing, got raw items %+v", candleRepo.rawItems)
-	}
-	if syncRepo.lastPair != "" || syncRepo.interval != "" {
-		t.Fatalf("expected realtime path not to advance historical sync cursor, got pair=%s interval=%s", syncRepo.lastPair, syncRepo.interval)
-	}
-	if syncRepo.realtimeStartedPair != "BTCUSD" {
-		t.Fatalf("expected realtime cutover to be recorded for BTCUSD, got %s", syncRepo.realtimeStartedPair)
-	}
-}
-
-func TestBackfillExecutorConsolidatesMultipleRealtimeCandles(t *testing.T) {
-	candleRepo := &fakeCandleStore{}
-	syncRepo := &fakeSyncWriter{}
-	source := &fakeMarketSource{
-		items: []candle.Candle{
-			// two non-finalized updates for the same window, followed by a finalized one
-			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 101, Low: 99, Close: 100, Volume: 1, Volume24H: 100000, Source: "coingecko", Finalized: false},
-			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 103, Low: 98, Close: 102, Volume: 2, Volume24H: 150000, Source: "coingecko", Finalized: false},
-			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 104, Low: 97, Close: 103, Volume: 3, Volume24H: 200000, Source: "coingecko", Finalized: true},
-		},
-	}
-	publisher := &fakeMarketPublisher{}
-	executor := NewBackfillExecutor(candleRepo, syncRepo, source, publisher, nil)
-	err := executor.Execute(context.Background(), task.Task{
-		ID:          "realtime:BTCUSD",
-		Type:        task.TypeRealtime,
-		Pair:        "BTCUSD",
-		Interval:    "1h",
-		WindowStart: time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC),
-		WindowEnd:   time.Date(2024, 4, 1, 1, 0, 0, 0, time.UTC),
-	})
-	if err != nil {
-		t.Fatalf("execute failed: %v", err)
-	}
-	if len(publisher.items) != 3 {
-		t.Fatalf("expected 3 raw published candles, got %d", len(publisher.items))
-	}
-	got := publisher.items[len(publisher.items)-1]
-	if !got.Finalized {
-		t.Fatalf("expected final realtime snapshot to be marked finalized, got %+v", got)
-	}
-	if got.High != 104 || got.Low != 97 || got.Close != 103 || got.Volume != 3 || got.Volume24H != 200000 {
-		t.Fatalf("unexpected published candle values: %+v", got)
-	}
-	if got.Pair != "BTCUSD" || got.Interval != "1h" || got.Timestamp != 1711929600 {
-		t.Fatalf("unexpected candle identity: %+v", got)
-	}
-	if len(candleRepo.rawItems) != 0 {
-		t.Fatalf("expected realtime path to rely on event publishing, got raw items %+v", candleRepo.rawItems)
-	}
-	if syncRepo.lastPair != "" || syncRepo.interval != "" {
-		t.Fatalf("expected realtime path not to advance historical sync cursor, got pair=%s interval=%s", syncRepo.lastPair, syncRepo.interval)
-	}
-	if syncRepo.realtimeStartedPair != "BTCUSD" {
-		t.Fatalf("expected realtime cutover to be recorded for BTCUSD, got %s", syncRepo.realtimeStartedPair)
-	}
-}
-
-func TestBackfillExecutorRealtimeWithoutPublisher(t *testing.T) {
-	// Tests the path when TypeRealtime is used but no Kafka publisher is configured.
-	// It should fall back to the raw->consolidated DB path used by the realtime consumer.
-	candleRepo := &fakeCandleStore{}
-	syncRepo := &fakeSyncWriter{}
-	source := &fakeMarketSource{
-		items: []candle.Candle{
-			{Pair: "BTCUSD", Interval: "1h", Timestamp: 1711929600, Open: 100, High: 105, Low: 95, Close: 102, Volume: 5, Volume24H: 250000, Source: "s1", Finalized: true},
-		},
-	}
-	executor := NewBackfillExecutor(candleRepo, syncRepo, source, nil, nil)
-
-	err := executor.Execute(context.Background(), task.Task{
-		ID:          "realtime:BTCUSD:no-publisher",
-		Type:        task.TypeRealtime,
-		Pair:        "BTCUSD",
-		Interval:    "1h",
-		WindowStart: time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC),
-		WindowEnd:   time.Date(2024, 4, 1, 1, 0, 0, 0, time.UTC),
-	})
-	if err != nil {
-		t.Fatalf("execute failed: %v", err)
-	}
-
-	if len(candleRepo.items) != 1 {
-		t.Fatalf("expected 1 consolidated candle in DB, got %d", len(candleRepo.items))
-	}
-	if len(candleRepo.rawItems) != 1 {
-		t.Fatalf("expected 1 raw realtime candle in DB, got %d", len(candleRepo.rawItems))
-	}
-	if candleRepo.items[0].Volume != 5 {
-		t.Fatalf("unexpected candle volume: %v", candleRepo.items[0].Volume)
-	}
-	if candleRepo.rawItems[0].Volume24H != 250000 {
-		t.Fatalf("expected raw realtime metadata to be preserved, got %+v", candleRepo.rawItems[0])
-	}
-}
-
 func TestBackfillExecutorEmptyWindow(t *testing.T) {
 	// Tests that when source returns no data, progress is still updated.
 	candleRepo := &fakeCandleStore{}
 	syncRepo := &fakeSyncWriter{}
 	source := &fakeMarketSource{items: []candle.Candle{}}
-	executor := NewBackfillExecutor(candleRepo, syncRepo, source, nil, nil)
+	executor := NewBackfillExecutor(candleRepo, syncRepo, source, nil)
 
 	err := executor.Execute(context.Background(), task.Task{
 		ID:          "backfill:BTCUSD:empty",
@@ -341,7 +214,7 @@ func TestBackfillExecutorConsolidatesMultipleHistoricalCandles(t *testing.T) {
 			{Pair: "BTCEUR", Interval: "1h", Timestamp: 1711929600, Open: 10, High: 11.5, Low: 8.5, Close: 11, Volume: 2, Source: "s1"},
 		},
 	}
-	executor := NewBackfillExecutor(candleRepo, syncRepo, source, nil, nil)
+	executor := NewBackfillExecutor(candleRepo, syncRepo, source, nil)
 
 	err := executor.Execute(context.Background(), task.Task{
 		ID:          "backfill:BTCEUR:consolidation",
@@ -450,7 +323,7 @@ type fakeMarketSource struct {
 	err   error
 }
 
-func (f *fakeMarketSource) FetchCandles(_ context.Context, _ backfill.Request) ([]candle.Candle, error) {
+func (f *fakeMarketSource) FetchCandles(_ context.Context, _ provider.Request) ([]candle.Candle, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -464,7 +337,11 @@ func (f *fakeMarketSource) Name() string {
 	return "fake"
 }
 
-func (f *fakeMarketSource) Supports(_ backfill.Request) bool {
+func (f *fakeMarketSource) Capabilities() provider.Capability {
+	return provider.CapHistorical | provider.CapRealtime
+}
+
+func (f *fakeMarketSource) Supports(_ provider.Request) bool {
 	return true
 }
 

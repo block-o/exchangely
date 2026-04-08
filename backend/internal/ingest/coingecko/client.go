@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
-	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
+	"github.com/block-o/exchangely/backend/internal/ingest/provider"
 )
 
 type Client struct {
@@ -41,8 +41,15 @@ func (c *Client) Name() string {
 	return "coingecko"
 }
 
-func (c *Client) Supports(request backfill.Request) bool {
-	if request.Interval != "1h" {
+func (c *Client) Capabilities() provider.Capability {
+	return provider.CapRealtime
+}
+
+func (c *Client) Supports(request provider.Request) bool {
+	switch request.Interval {
+	case "1h":
+	case "ticker":
+	default:
 		return false
 	}
 	switch request.Quote {
@@ -54,15 +61,95 @@ func (c *Client) Supports(request backfill.Request) bool {
 		return false
 	}
 
+	if request.Interval == "ticker" {
+		return true
+	}
+
 	currentDayStart := c.now().UTC().Truncate(24 * time.Hour)
 	return request.EndTime.UTC().After(currentDayStart)
 }
 
-func (c *Client) FetchCandles(ctx context.Context, request backfill.Request) ([]candle.Candle, error) {
+func (c *Client) FetchCandles(ctx context.Context, request provider.Request) ([]candle.Candle, error) {
 	if !c.Supports(request) {
 		return nil, fmt.Errorf("unsupported request %s %s", request.Pair, request.Interval)
 	}
+	if request.Interval == "ticker" {
+		return c.fetchTicker(ctx, request)
+	}
+	return c.fetchOHLC(ctx, request)
+}
 
+// fetchTicker uses the CoinGecko simple/price endpoint to build a single-candle
+// snapshot representing the current market state for a pair.
+func (c *Client) fetchTicker(ctx context.Context, request provider.Request) ([]candle.Candle, error) {
+	coinID, ok := coinIDForBase(request.Base)
+	if !ok {
+		return nil, fmt.Errorf("unsupported CoinGecko asset %s", request.Base)
+	}
+
+	query := url.Values{}
+	query.Set("ids", coinID)
+	query.Set("vs_currencies", strings.ToLower(request.Quote))
+	query.Set("include_24hr_vol", "true")
+	query.Set("include_24hr_change", "true")
+	query.Set("precision", "full")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("%s/simple/price?%s", c.baseURL, query.Encode()), nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.apiKey != "" {
+		req.Header.Set("x-cg-demo-api-key", c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("coingecko ticker status %d", resp.StatusCode)
+	}
+
+	// Response shape: { "bitcoin": { "eur": 12345.67, "eur_24h_vol": 999999.99 } }
+	var payload map[string]map[string]float64
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	coinData, ok := payload[coinID]
+	if !ok {
+		return nil, fmt.Errorf("coingecko ticker missing coin %s", coinID)
+	}
+
+	quoteLower := strings.ToLower(request.Quote)
+	price, ok := coinData[quoteLower]
+	if !ok {
+		return nil, fmt.Errorf("coingecko ticker missing quote %s", request.Quote)
+	}
+
+	vol24h := coinData[quoteLower+"_24h_vol"]
+
+	now := c.now().UTC()
+	return []candle.Candle{{
+		Pair:      request.Pair,
+		Interval:  "ticker",
+		Timestamp: now.Truncate(time.Minute).Unix(),
+		Open:      price,
+		High:      price,
+		Low:       price,
+		Close:     price,
+		Volume24H: vol24h,
+		Source:    c.Name(),
+		Finalized: false,
+	}}, nil
+}
+
+func (c *Client) fetchOHLC(ctx context.Context, request provider.Request) ([]candle.Candle, error) {
 	coinID, ok := coinIDForBase(request.Base)
 	if !ok {
 		return nil, fmt.Errorf("unsupported CoinGecko asset %s", request.Base)

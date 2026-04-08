@@ -23,6 +23,7 @@ type Config struct {
 	EnableBinanceVision      bool
 	EnableCryptoDataDownload bool
 	EnableCoinGecko          bool
+	CDDAvailabilityBaseURL   string
 	PlannerLeaseName         string
 	PlannerLeaseTTL          time.Duration
 	PlannerTick              time.Duration
@@ -83,6 +84,7 @@ func Load() Config {
 		PlannerBackfillBatchPct:   parsePercent(getenv("BACKEND_PLANNER_BACKFILL_BATCH_PERCENT", "20"), 50),
 		WorkerBackfillBatchPct:    parsePercent(getenv("BACKEND_WORKER_BACKFILL_BATCH_PERCENT", "50"), 50),
 		CoinGeckoAPIKey:           getenv("BACKEND_COINGECKO_API_KEY", ""),
+		CDDAvailabilityBaseURL:    getenv("BACKEND_CDD_AVAILABILITY_BASE_URL", ""),
 		IntegrityMinSources:       parseInt(getenv("BACKEND_INTEGRITY_MIN_SOURCES", "2"), 2),
 		IntegrityMaxDivergencePct: parseFloat(getenv("BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT", "0.5"), 0.5),
 		DefaultQuoteAssets:        splitCSV(getenv("BACKEND_DEFAULT_QUOTE_ASSETS", "EUR,USD")),

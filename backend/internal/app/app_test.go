@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/block-o/exchangely/backend/internal/config"
-	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
+	"github.com/block-o/exchangely/backend/internal/ingest/provider"
 )
 
 func TestBuildSourcesHonorsProviderFlags(t *testing.T) {
@@ -66,7 +66,7 @@ func TestBuildSourcesReturnsEmptySetsWhenAllProvidersDisabled(t *testing.T) {
 	}
 }
 
-func sourceNames(sources []backfill.Source) []string {
+func sourceNames(sources []provider.Source) []string {
 	names := make([]string, 0, len(sources))
 	for _, source := range sources {
 		names = append(names, source.Name())

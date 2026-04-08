@@ -8,7 +8,7 @@ import (
 
 	"github.com/block-o/exchangely/backend/internal/domain/candle"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
-	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
+	"github.com/block-o/exchangely/backend/internal/ingest/provider"
 )
 
 func TestValidatorExecutorIdentifiesDivergence(t *testing.T) {
@@ -26,7 +26,7 @@ func TestValidatorExecutorIdentifiesDivergence(t *testing.T) {
 		},
 	}
 
-	executor := NewValidatorExecutor([]backfill.Source{source1, source2}, ValidatorOptions{})
+	executor := NewValidatorExecutor([]provider.Source{source1, source2}, ValidatorOptions{})
 
 	item := task.Task{
 		Type:        task.TypeDataSanity,
@@ -53,7 +53,7 @@ func TestValidatorExecutorIgnoresInsufficientSources(t *testing.T) {
 		},
 	}
 
-	executor := NewValidatorExecutor([]backfill.Source{source1}, ValidatorOptions{})
+	executor := NewValidatorExecutor([]provider.Source{source1}, ValidatorOptions{})
 	item := task.Task{
 		Type:     task.TypeDataSanity,
 		Pair:     "BTCEUR",
@@ -81,7 +81,7 @@ func TestValidatorExecutorFailsOnCoverageGap(t *testing.T) {
 		},
 	}
 
-	executor := NewValidatorExecutor([]backfill.Source{source1, source2}, ValidatorOptions{})
+	executor := NewValidatorExecutor([]provider.Source{source1, source2}, ValidatorOptions{})
 	err := executor.Execute(context.Background(), task.Task{
 		Type:        task.TypeDataSanity,
 		Pair:        "BTCEUR",
@@ -98,7 +98,7 @@ func TestValidatorExecutorFailsOnCoverageGap(t *testing.T) {
 }
 
 func TestValidatorExecutorFailsOnWrongTaskType(t *testing.T) {
-	executor := NewValidatorExecutor([]backfill.Source{&fakeMarketSource{}}, ValidatorOptions{})
+	executor := NewValidatorExecutor([]provider.Source{&fakeMarketSource{}}, ValidatorOptions{})
 	item := task.Task{
 		Type: task.TypeBackfill,
 	}
@@ -122,7 +122,7 @@ func TestValidatorExecutorUsesConfiguredThresholds(t *testing.T) {
 			{Pair: "BTCEUR", Timestamp: 1000, Close: 100.6, Source: "s2"},
 		},
 	}
-	executor := NewValidatorExecutor([]backfill.Source{source1, source2}, ValidatorOptions{
+	executor := NewValidatorExecutor([]provider.Source{source1, source2}, ValidatorOptions{
 		MinSources:       2,
 		MaxDivergencePct: 1.0,
 	})

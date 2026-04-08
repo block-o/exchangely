@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/block-o/exchangely/backend/internal/ingest/backfill"
+	"github.com/block-o/exchangely/backend/internal/ingest/provider"
 )
 
 func TestFetchCandlesReadsDailyArchives(t *testing.T) {
@@ -26,7 +26,7 @@ func TestFetchCandlesReadsDailyArchives(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client())
-	items, err := client.FetchCandles(context.Background(), backfill.Request{
+	items, err := client.FetchCandles(context.Background(), provider.Request{
 		Pair:      "BTCUSDT",
 		Base:      "BTC",
 		Quote:     "USDT",
@@ -59,7 +59,7 @@ func TestFetchCandlesReadsAcrossMultipleDailyArchives(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client())
-	items, err := client.FetchCandles(context.Background(), backfill.Request{
+	items, err := client.FetchCandles(context.Background(), provider.Request{
 		Pair:      "BTCUSDT",
 		Base:      "BTC",
 		Quote:     "USDT",
@@ -84,7 +84,7 @@ func TestSupportsOnlyHistoricalWindows(t *testing.T) {
 		return time.Date(2026, 4, 2, 15, 0, 0, 0, time.UTC)
 	}
 
-	if !client.Supports(backfill.Request{
+	if !client.Supports(provider.Request{
 		Pair:      "BTCUSDT",
 		Base:      "BTC",
 		Quote:     "USDT",
@@ -95,7 +95,7 @@ func TestSupportsOnlyHistoricalWindows(t *testing.T) {
 		t.Fatal("expected historical window to be supported")
 	}
 
-	if client.Supports(backfill.Request{
+	if client.Supports(provider.Request{
 		Pair:      "BTCUSDT",
 		Base:      "BTC",
 		Quote:     "USDT",

@@ -97,7 +97,7 @@ func (r *SyncRepository) UpsertProgress(ctx context.Context, pairSymbol, interva
 			)
 			VALUES ($1, $2, $3, $2, FALSE, NOW())
 			ON CONFLICT (pair_symbol) DO UPDATE
-			SET daily_last_synced_at = COALESCE(GREATEST(sync_status.daily_last_synced_at, EXCLUDED.daily_last_synced_at), EXCLUDED.daily_last_synced_at),
+			SET daily_last_synced_at = COALESCE(LEAST(sync_status.daily_last_synced_at, EXCLUDED.daily_last_synced_at), EXCLUDED.daily_last_synced_at),
 			    daily_backfill_completed = EXCLUDED.daily_backfill_completed,
 			    backfill_completed = sync_status.hourly_backfill_completed AND EXCLUDED.daily_backfill_completed,
 			    updated_at = NOW()
@@ -115,14 +115,14 @@ func (r *SyncRepository) UpsertProgress(ctx context.Context, pairSymbol, interva
 			)
 			VALUES ($1, $2, $3, $2, FALSE, NOW())
 			ON CONFLICT (pair_symbol) DO UPDATE
-			SET hourly_last_synced_at = COALESCE(GREATEST(sync_status.hourly_last_synced_at, EXCLUDED.hourly_last_synced_at), EXCLUDED.hourly_last_synced_at),
+			SET hourly_last_synced_at = COALESCE(LEAST(sync_status.hourly_last_synced_at, EXCLUDED.hourly_last_synced_at), EXCLUDED.hourly_last_synced_at),
 			    hourly_backfill_completed = CASE
 			        WHEN EXCLUDED.hourly_backfill_completed THEN TRUE
 			        WHEN sync_status.hourly_realtime_started_at IS NOT NULL
 			             AND EXCLUDED.hourly_last_synced_at >= sync_status.hourly_realtime_started_at THEN TRUE
 			        ELSE sync_status.hourly_backfill_completed
 			    END,
-			    last_synced_at = COALESCE(GREATEST(sync_status.last_synced_at, EXCLUDED.last_synced_at), EXCLUDED.last_synced_at),
+			    last_synced_at = COALESCE(LEAST(sync_status.last_synced_at, EXCLUDED.last_synced_at), EXCLUDED.last_synced_at),
 			    backfill_completed = (
 			        CASE
 			            WHEN EXCLUDED.hourly_backfill_completed THEN TRUE

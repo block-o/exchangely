@@ -5,6 +5,8 @@ go 1.26.1
 require (
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/segmentio/kafka-go v0.4.50
+	gopkg.in/yaml.v3 v3.0.1
+	pgregory.net/rapid v1.2.0
 )
 
 require (
@@ -16,6 +18,4 @@ require (
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
-	pgregory.net/rapid v1.2.0 // indirect
 )

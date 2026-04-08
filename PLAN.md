@@ -30,6 +30,11 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - **Testing Infrastructure**: Added a dedicated Go-based load testing suite (`make load-test`) integrated into CI, ensuring performance stability for ticker read models under heavy request volume.
 - **Market Metrics**: Extended the ticker read model and Dashboard UI with 1h%, 7d%, and 24h volume metrics; synchronized OpenAPI 3.0 specifications for all market data entities.
 - **24h Volume Semantics**: Realtime ticker publishing now preserves provider-native 24h volume snapshots into `raw_candles`, and the ticker fallback path estimates quote-currency turnover from hourly candles instead of leaking base-asset units.
+- **Backwards Backfill Strategy**: Backfill now walks from yesterday into the past (no fixed start date). `BACKEND_DEFAULT_BACKFILL_START` and `backfill_start_at` column removed. Planner backfill batch default raised to 50%.
+- **Realtime Task Dedup**: `live_ticker` tasks use a stable per-pair ID. Enqueue re-activates completed/failed tasks but blocks while pending/running, ensuring at most one realtime task per pair.
+- **Daily Backfill Probe**: One `historical_backfill` task per pair per day probes the hour before the oldest synced point, discovering new provider data even after regular backfill exhausts known sources.
+- **Ticker Query Resilience**: Ticker SQL uses `FULL OUTER JOIN` so pairs appear from raw candles before hourly consolidation. 1h% variation falls back to raw candles when `candles_1h` lacks history.
+- **Realtime Poll Interval**: Default changed from 2m to 5s for fresher ticker prices.
 
 ## Roadmap & Missing Features
 - [x] Add Active Warnings area on top of the task status panel so current platform risks such as degraded health, pending backfills, and recent task failures are visible without digging through task history.
@@ -45,7 +50,7 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - [x] Implement a **News feed**: Add a recent news feed implementation from trusted RSS feeds. This should be displayed as a horizontal scrolling feed in the main page. The feed should be updated every 5 minutes. 
 - [ ] Add Chainlink for realtime historical data providers. Review if we could call the smartcontract for free for each coin ensuring we have the most accurate data possible for free.
 - [ ] Add scheduled **month/year rollup buckets** derived from hourly/daily canonical candles rather than provider-native month archives for recent data. Only override historical data if the realtime data bucket is complete for the interval we are overriding. So for example, if we have one month data of realtime data for a coin, we should override the 30 day bucket with the realtime data, that is wipped out after the consolidation happen, ensuring only recent data is derived from realtime data and keeping data size small.
-- [ ] **Historical backfill with day and month resolution** for all coin historical prices. For this feature add a minimum date to pull data from (ie, 2016) configured with a Variable in backend. From this date, you should use the oldest date available for each coin considering the date it was listed in relevant exchanges (ie, Kraken/Binance). Decide smartly this feature
+- [ ] **Historical backfill with day and month resolution** for all coin historical prices. The system already walks backwards indefinitely; consider adding coarser-resolution (daily/monthly) backfill passes that run after hourly coverage is established for a given range.
 - [ ] Design a way to graphically visualize gaps in data resolution in operations panel
 - [ ] **Fiat/Forex Pairs**: Begin tracking currency-to-currency pairs (e.g., EURUSD, EURGBP).
 - [ ] Implement robust source load-balancing and rate-limit back-off (circuit breakers for `429 Too Many Requests`).
@@ -54,11 +59,18 @@ Exchangely is a high-availability crypto historical-data service for curated Fia
 - [ ] Add **Yahoo Finance (Yfinance)** as a ticker provider.
 
 ## Current Focus
-**Provider Expansion & Historical Optimization**
-Finalizing the **Yahoo Finance (Yfinance)** provider integration and designing the **month/year rollup** scheduled consolidation architecture to optimize longer-term historical storage.
+**Backfill & Realtime Scheduling Overhaul — Complete**
 
-Recently completed: provider/executor architecture overhaul (capability-based registry, dedicated ticker APIs for realtime, `BackfillExecutor`/`RealtimeExecutor` split, `historical_sweep` → `historical_backfill` rename).
+Recently completed:
+- Reversed backfill direction: walks backwards from yesterday into the past with no fixed start date. Removed `BACKEND_DEFAULT_BACKFILL_START` and `backfill_start_at` column (migration 000015).
+- Realtime dedup: `live_ticker` tasks now use a stable per-pair ID. Enqueue re-activates completed/failed tasks but skips pending/running ones, guaranteeing at most one realtime task per pair in the queue.
+- Daily backfill probe: one `historical_backfill` task per pair per day targeting the hour before the oldest synced point, ensuring new provider data is discovered.
+- Realtime poll interval default changed from 2m to 5s.
+- Planner backfill batch percentage raised from 20% to 50%.
+- Ticker SQL query changed to `FULL OUTER JOIN` so pairs appear immediately from raw candles before hourly consolidation. 1h% variation baseline now also falls back to raw candles.
+- Sync progress tracking uses `LEAST` (not `GREATEST`) to track the oldest synced timestamp for backwards backfill.
 
-Operational rule updates:
-- Historical source fetch granularity must never be coarser than **1 day**, and **1 hour** remains the preferred canonical backfill resolution.
-- Provider-native monthly archives should not drive historical sweeps; larger buckets such as month/year must be built later by scheduled consolidation from canonical stored candles.
+Next priorities:
+- Validate the backwards backfill + probe flow end-to-end on a live Compose stack.
+- Monitor realtime dedup behavior under load — ensure tasks cycle fast enough at 5s intervals.
+- Consider per-pair round-robin in `BuildInitialBackfillTasksLimited` so one pair doesn't starve others when the limit is small.

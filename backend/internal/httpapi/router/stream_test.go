@@ -50,7 +50,7 @@ func TestTickerStreamEmitsDeltaTickersOnly(t *testing.T) {
 	nr := &noopRepo{}
 	market := service.NewMarketService(repo, 100, 30*time.Second)
 	handler := router.New(router.Services{
-		Catalog: service.NewCatalogService(nr, nil, time.Time{}),
+		Catalog: service.NewCatalogService(nr, nil),
 		Market:  market,
 		System:  service.NewSystemService(nr, nr, nr, nr, nr, nr, "leader", 0),
 		News:    service.NewNewsService(nr),

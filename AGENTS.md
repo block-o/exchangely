@@ -41,9 +41,11 @@ These rules are easy to break accidentally. Preserve them unless the user explic
 - PostgreSQL/Timescale owns system state. Do not move scheduling truth, sync state, or coordination responsibility into Kafka.
 - Planner leadership is lease-based and DB-backed. Keep leadership and scheduling resilient to multiple instances.
 - Workers must never mutate the same trading pair concurrently. Pair-level locking is a hard requirement.
-- Historical backfill must avoid gaps. `1h` is the preferred canonical historical resolution.
-- Historical fetch granularity must never be coarser than `1d`.
+- Historical backfill walks backwards from yesterday toward the past. There is no fixed start date; the system keeps walking back until providers return no data. The per-tick limit (`BACKEND_PLANNER_BACKFILL_BATCH_PERCENT`) caps how many backfill tasks are emitted per planner cycle.
+- A daily backfill probe task extends each pair one hour further into the past, ensuring new providers or newly available upstream data is discovered even after regular backfill stops finding data.
+- `1h` is the preferred canonical historical resolution. Historical fetch granularity must never be coarser than `1d`.
 - Month/year rollups, if added, must be derived from canonical stored candles, not provider-native month archives.
+- Realtime tasks use a stable ID per pair (`live_ticker:{PAIR}:realtime`). The Enqueue logic guarantees at most one pending/running realtime task per pair. Do not add poll-window timestamps to realtime task IDs.
 - Prefer SSE for live UI updates when a stream already exists. Do not replace stream-driven flows with aggressive polling.
 - The backend is intentionally one binary with role gating. Preserve that unless a deliberate architecture change is requested.
 - Keep the project educational and local-first. Do not quietly harden it toward production assumptions without discussing the tradeoff.
@@ -54,6 +56,7 @@ Key implementation files:
 
 - `backend/internal/app/app.go`: application wiring, enabled sources, runtime roles.
 - `backend/internal/planner/runtime.go`: leader lease renewal and task scheduling loop.
+- `backend/internal/planner/scheduler.go`: task generation logic (backfill, realtime, probes, cleanup).
 - `backend/internal/worker/processor.go`: worker claim/execute path.
 - `backend/internal/httpapi/router/router.go`: REST and SSE endpoints.
 - `backend/internal/storage/postgres/*`: persistence, task state, sync state, leases, locks.
@@ -62,12 +65,13 @@ Key implementation files:
 
 Current task types:
 
-- `historical_backfill`
-- `live_ticker`
+- `historical_backfill` — walks backwards from yesterday; also used for daily probes.
+- `live_ticker` — stable ID per pair; at most one pending/running per pair at any time.
 - `integrity_check`
 - `consolidation`
 - `task_cleanup`
 - `news_fetch`
+- `gap_validation`
 
 Current notable API surface:
 
@@ -111,6 +115,11 @@ Completed work already reflected in the repo includes:
 - CryptoDataDownload and CoinGecko integrations.
 - Real-time news ingestion from RSS sources (CoinDesk, Cointelegraph, TheBlock).
 - Compose-based smoke/e2e coverage.
+- Backwards backfill strategy (yesterday → past) with no fixed start date.
+- Realtime dedup: at most one `live_ticker` task per pair in the queue.
+- Daily backfill probe: one task per pair per day to extend coverage into the past.
+- Ticker query uses `FULL OUTER JOIN` so pairs appear as soon as raw candles land (before hourly consolidation).
+- `BACKEND_DEFAULT_BACKFILL_START` removed; `backfill_start_at` column dropped from `pairs` table.
 
 ## How To Use PLAN.md
 

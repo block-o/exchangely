@@ -17,7 +17,7 @@ func TestRunTickSkipsSchedulingWhenLeaseNotAcquired(t *testing.T) {
 		"planner_leader",
 		15*time.Second,
 		10*time.Second,
-		NewScheduler(2*time.Minute, 5*time.Minute),
+		NewScheduler(5*time.Second, 5*time.Minute),
 		4,
 		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
 		&fakeSyncProvider{states: map[string]postgresrepo.SyncState{}},
@@ -54,7 +54,7 @@ func TestRunTickSeedsMissingPairsAndEnqueuesTasks(t *testing.T) {
 		"planner_leader",
 		15*time.Second,
 		10*time.Second,
-		NewScheduler(2*time.Minute, 5*time.Minute),
+		NewScheduler(5*time.Second, 5*time.Minute),
 		4,
 		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
 		syncProvider,
@@ -100,7 +100,7 @@ func TestRunTickPublishesRealtimeForCaughtUpPairs(t *testing.T) {
 		"planner_leader",
 		15*time.Second,
 		10*time.Second,
-		NewScheduler(2*time.Minute, 5*time.Minute),
+		NewScheduler(5*time.Second, 5*time.Minute),
 		4,
 		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
 		&fakeSyncProvider{
@@ -133,18 +133,17 @@ func TestRunTickPublishesRealtimeForCaughtUpPairs(t *testing.T) {
 func TestRunTickEnqueuesRealtimeBeforeCappedBackfill(t *testing.T) {
 	taskSink := &fakeTaskSink{}
 	publisher := &fakeTaskPublisher{}
-	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 
 	runner := NewRunner(
 		"instance-a",
 		"planner_leader",
 		15*time.Second,
 		10*time.Second,
-		NewScheduler(2*time.Minute, 5*time.Minute),
+		NewScheduler(5*time.Second, 5*time.Minute),
 		2,
 		fakePairProvider{pairs: []pair.Pair{
-			{Symbol: "BTCEUR", BackfillStart: now.Add(-6 * time.Hour)},
-			{Symbol: "ETHUSD", BackfillStart: now.Add(-6 * time.Hour)},
+			{Symbol: "BTCEUR"},
+			{Symbol: "ETHUSD"},
 		}},
 		&fakeSyncProvider{
 			states: map[string]postgresrepo.SyncState{

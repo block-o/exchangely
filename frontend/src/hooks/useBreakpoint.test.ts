@@ -1,5 +1,5 @@
 import { renderHook, act } from "@testing-library/react";
-import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useBreakpoint } from "./useBreakpoint";
 
 type ChangeListener = (ev: MediaQueryListEvent) => void;

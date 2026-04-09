@@ -267,6 +267,10 @@ func (f *fakeTaskSink) Enqueue(_ context.Context, tasks []task.Task) ([]task.Tas
 	return append([]task.Task{}, tasks...), nil
 }
 
+func (f *fakeTaskSink) ActiveBackfillPairs(_ context.Context) (map[string]bool, error) {
+	return make(map[string]bool), nil
+}
+
 type fakeTaskPublisher struct {
 	publishCalls int
 	tasks        []task.Task

@@ -29,7 +29,7 @@ func TestHourlyBackfillTaskExecutesAndUpdatesProgress(t *testing.T) {
 			HourlyBackfillCompleted: false,
 			DailyBackfillCompleted:  false,
 		},
-	}, make(map[string]map[string]bool), now, 1)
+	}, make(map[string]map[string]bool), nil, now, 1)
 
 	if len(tasks) != 1 {
 		t.Fatalf("expected exactly one hourly task, got %d", len(tasks))
@@ -92,7 +92,7 @@ func TestDailyPromotionMakesPairRealtimeEligible(t *testing.T) {
 		},
 	}
 
-	tasks := scheduler.BuildInitialBackfillTasksLimited([]pair.Pair{{Symbol: "BTCEUR"}}, state, make(map[string]map[string]bool), now, 1)
+	tasks := scheduler.BuildInitialBackfillTasksLimited([]pair.Pair{{Symbol: "BTCEUR"}}, state, make(map[string]map[string]bool), nil, now, 1)
 	if len(tasks) != 1 {
 		t.Fatalf("expected one daily task, got %d", len(tasks))
 	}

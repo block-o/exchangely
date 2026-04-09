@@ -44,90 +44,118 @@ func NewScheduler(pollInterval, newsInterval time.Duration) *Scheduler {
 	}
 }
 
+// backfillCursor tracks per-pair iteration state for round-robin backfill scheduling.
+type backfillCursor struct {
+	pair     pair.Pair
+	cursor   time.Time
+	interval string
+	window   time.Duration
+	coverage map[string]bool
+	done     bool
+}
+
 // BuildInitialBackfillTasksLimited walks backwards from yesterday toward the past
 // and stops once the requested task count limit is reached. A non-positive limit
 // means unlimited. Without a fixed backfill start date, the system walks back
 // indefinitely until providers stop returning data. The per-tick limit prevents
 // task flooding.
-func (s *Scheduler) BuildInitialBackfillTasksLimited(pairs []pair.Pair, state map[string]SyncState, coverage map[string]map[string]bool, now time.Time, limit int) []task.Task {
+//
+// Tasks are distributed round-robin across pairs so that a single failing pair
+// cannot monopolise the entire backfill budget. Pairs that already have pending
+// or running backfill tasks (listed in activePairs) are skipped so the budget
+// goes to pairs that actually need new work.
+func (s *Scheduler) BuildInitialBackfillTasksLimited(pairs []pair.Pair, state map[string]SyncState, coverage map[string]map[string]bool, activePairs map[string]bool, now time.Time, limit int) []task.Task {
 	currentHour := now.UTC().Truncate(time.Hour)
 	currentDay := currentHour.Truncate(24 * time.Hour)
 	yesterday := currentDay.Add(-24 * time.Hour)
-	tasks := make([]task.Task, 0)
 
+	// Build a cursor per pair that still needs backfill work.
+	// Skip pairs that already have pending/running backfill tasks so the
+	// budget goes to pairs that actually need new work.
+	cursors := make([]backfillCursor, 0, len(pairs))
 	for _, trackedPair := range pairs {
+		if activePairs[trackedPair.Symbol] {
+			continue
+		}
+
 		pairState := state[trackedPair.Symbol]
 		pairCoverage := coverage[trackedPair.Symbol]
 
-		// Determine the upper boundary: yesterday or the realtime cutover, whichever is earlier.
-		hourlyCeiling := yesterday
-		if !pairState.HourlyRealtimeStartedAt.IsZero() && pairState.HourlyRealtimeStartedAt.UTC().Before(hourlyCeiling) {
-			hourlyCeiling = pairState.HourlyRealtimeStartedAt.UTC().Truncate(time.Hour)
-		}
-
 		if !pairState.HourlyBackfillCompleted {
-			// HourlyLastSynced tracks the oldest hour we've fetched so far.
-			// On a fresh pair it's zero, so we start from the ceiling and walk down.
+			hourlyCeiling := yesterday
+			if !pairState.HourlyRealtimeStartedAt.IsZero() && pairState.HourlyRealtimeStartedAt.UTC().Before(hourlyCeiling) {
+				hourlyCeiling = pairState.HourlyRealtimeStartedAt.UTC().Truncate(time.Hour)
+			}
 			cursor := pairState.HourlyLastSynced.UTC()
 			if cursor.IsZero() || cursor.After(hourlyCeiling) {
 				cursor = hourlyCeiling
 			}
-
-			// No fixed floor — generate up to `limit` tasks walking backwards.
-			// The per-tick limit prevents unbounded generation.
-			for windowCursor := cursor; ; windowCursor = windowCursor.Add(-s.backfillWindow1H) {
-				windowStart := windowCursor.Add(-s.backfillWindow1H)
-				if !windowCursor.After(windowStart) {
-					break
-				}
-
-				dayKey := windowStart.UTC().Format("2006-01-02")
-				if pairCoverage[dayKey] {
-					continue
-				}
-				t := task.Task{
-					ID:          taskID(task.TypeBackfill, trackedPair.Symbol, "1h", windowStart, windowCursor),
-					Type:        task.TypeBackfill,
-					Pair:        trackedPair.Symbol,
-					Interval:    "1h",
-					WindowStart: windowStart,
-					WindowEnd:   windowCursor,
-				}
-				t.Description = task.BuildDescription(t)
-				tasks = append(tasks, t)
-				if limit > 0 && len(tasks) >= limit {
-					return tasks
-				}
-			}
+			cursors = append(cursors, backfillCursor{
+				pair:     trackedPair,
+				cursor:   cursor,
+				interval: "1h",
+				window:   s.backfillWindow1H,
+				coverage: pairCoverage,
+			})
 			continue
 		}
 
-		// Daily backfill also walks backwards from yesterday.
-		dailyCursor := pairState.DailyLastSynced.UTC()
-		if dailyCursor.IsZero() || dailyCursor.After(yesterday) {
-			dailyCursor = yesterday
-		}
 		if !pairState.DailyBackfillCompleted {
-			for windowCursor := dailyCursor; ; windowCursor = windowCursor.Add(-s.backfillWindow1D) {
-				windowStart := windowCursor.Add(-s.backfillWindow1D)
-				if !windowCursor.After(windowStart) {
+			dailyCursor := pairState.DailyLastSynced.UTC()
+			if dailyCursor.IsZero() || dailyCursor.After(yesterday) {
+				dailyCursor = yesterday
+			}
+			cursors = append(cursors, backfillCursor{
+				pair:     trackedPair,
+				cursor:   dailyCursor,
+				interval: "1d",
+				window:   s.backfillWindow1D,
+				coverage: pairCoverage,
+			})
+		}
+	}
+
+	tasks := make([]task.Task, 0)
+	active := len(cursors)
+
+	// Round-robin: emit one task per pair per round until the budget is full
+	// or every cursor is exhausted.
+	for active > 0 {
+		for i := range cursors {
+			c := &cursors[i]
+			if c.done {
+				continue
+			}
+
+			emitted := false
+			for !emitted {
+				windowStart := c.cursor.Add(-c.window)
+				if !c.cursor.After(windowStart) {
+					c.done = true
+					active--
 					break
 				}
 
 				dayKey := windowStart.UTC().Format("2006-01-02")
-				if pairCoverage[dayKey] {
+				prev := c.cursor
+				c.cursor = windowStart
+
+				if c.coverage[dayKey] {
 					continue
 				}
+
 				t := task.Task{
-					ID:          taskID(task.TypeBackfill, trackedPair.Symbol, "1d", windowStart, windowCursor),
+					ID:          taskID(task.TypeBackfill, c.pair.Symbol, c.interval, windowStart, prev),
 					Type:        task.TypeBackfill,
-					Pair:        trackedPair.Symbol,
-					Interval:    "1d",
+					Pair:        c.pair.Symbol,
+					Interval:    c.interval,
 					WindowStart: windowStart,
-					WindowEnd:   windowCursor,
+					WindowEnd:   prev,
 				}
 				t.Description = task.BuildDescription(t)
 				tasks = append(tasks, t)
+				emitted = true
+
 				if limit > 0 && len(tasks) >= limit {
 					return tasks
 				}

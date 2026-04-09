@@ -148,6 +148,34 @@ func (r *TaskRepository) Fail(ctx context.Context, taskID string, errStr string)
 	return err
 }
 
+// ActiveBackfillPairs returns the set of pair symbols that currently have at
+// least one pending or running backfill task. The planner uses this to avoid
+// generating new backfill work for pairs that already have queued tasks.
+func (r *TaskRepository) ActiveBackfillPairs(ctx context.Context) (map[string]bool, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DISTINCT pair_symbol
+		FROM tasks
+		WHERE task_type = $1
+		  AND status IN ('pending', 'running')
+	`, task.TypeBackfill)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	active := make(map[string]bool)
+	for rows.Next() {
+		var sym string
+		if err := rows.Scan(&sym); err != nil {
+			return nil, err
+		}
+		active[sym] = true
+	}
+	return active, rows.Err()
+}
+
 func (r *TaskRepository) Pending(ctx context.Context, limit, backfillLimit int) ([]task.Task, error) {
 	if limit <= 0 {
 		return nil, nil

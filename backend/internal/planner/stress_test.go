@@ -26,7 +26,7 @@ func BenchmarkScheduler_BuildInitialBackfillTasks_Massive(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		tasks := scheduler.BuildInitialBackfillTasksLimited(pairs, syncStates, make(map[string]map[string]bool), now, 1000)
+		tasks := scheduler.BuildInitialBackfillTasksLimited(pairs, syncStates, make(map[string]map[string]bool), nil, now, 1000)
 		if len(tasks) == 0 {
 			b.Fatal("expected tasks")
 		}
@@ -52,7 +52,7 @@ func TestScheduler_StressTaskGeneration(t *testing.T) {
 	// Request a large batch to stress the generator.
 	limit := 50000
 	startGen := time.Now()
-	tasks := scheduler.BuildInitialBackfillTasksLimited(pairs, syncStates, make(map[string]map[string]bool), now, limit)
+	tasks := scheduler.BuildInitialBackfillTasksLimited(pairs, syncStates, make(map[string]map[string]bool), nil, now, limit)
 	duration := time.Since(startGen)
 
 	t.Logf("Generated %d tasks in %v", len(tasks), duration)

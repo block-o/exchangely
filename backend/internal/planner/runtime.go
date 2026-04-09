@@ -30,6 +30,7 @@ type CoverageProvider interface {
 
 type TaskSink interface {
 	Enqueue(ctx context.Context, tasks []task.Task) ([]task.Task, error)
+	ActiveBackfillPairs(ctx context.Context) (map[string]bool, error)
 }
 
 type TaskPublisher interface {
@@ -152,13 +153,18 @@ func (r *Runner) runTick(ctx context.Context) error {
 		return err
 	}
 
+	activePairs, err := r.tasks.ActiveBackfillPairs(ctx)
+	if err != nil {
+		return err
+	}
+
 	now := time.Now().UTC()
 	realtimeTasks := r.scheduler.BuildRealtimeTasks(pairs, adapted, now)
 	if err := r.enqueueBatch(ctx, realtimeTasks); err != nil {
 		return err
 	}
 
-	backfillTasks := r.scheduler.BuildInitialBackfillTasksLimited(pairs, adapted, coverage, now, r.maxBackfillTasksPerTick)
+	backfillTasks := r.scheduler.BuildInitialBackfillTasksLimited(pairs, adapted, coverage, activePairs, now, r.maxBackfillTasksPerTick)
 	if r.maxBackfillTasksPerTick > 0 && len(backfillTasks) == r.maxBackfillTasksPerTick {
 		slog.Info("planner capped backfill task batch",
 			"instance_id", r.instanceID,

@@ -4,6 +4,7 @@ import { fetchPairs } from "../api/pairs";
 import { fetchHistorical } from "../api/historical";
 import { useApi } from "../hooks/useApi";
 import { useSettings } from "../app/settings";
+import { useBreakpoint } from "../hooks/useBreakpoint";
 import {
   formatCompactCurrencyNumber,
   formatCompactNumber,
@@ -14,6 +15,7 @@ import {
 } from "../lib/format";
 import type { Ticker, Candle, Pair } from "../types/api";
 import { NewsTicker } from "../components/layout/NewsTicker";
+import { MarketCard } from "../components/MarketCard";
 
 function parseTickerStreamPayload(payload: string): Ticker[] {
   const parsed = JSON.parse(payload);
@@ -30,6 +32,9 @@ const TREND_SCALE_PCT = 3;
 
 export function MarketPage() {
   const { quoteCurrency } = useSettings();
+  const bp = useBreakpoint();
+  const sparklineWidth = bp === 'mobile' ? 80 : 120;
+  const sparklineHeight = bp === 'mobile' ? 32 : 40;
   const { data: assetsData } = useApi(fetchAssets);
   const { data: pairsData, error: pairsError, loading: pairsLoading } = useApi(fetchPairs);
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
@@ -179,104 +184,122 @@ export function MarketPage() {
       {pairsError && <p className="error">{pairsError}</p>}
       
       {pairsData?.data ? (
-        <div className="data-table-wrapper">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Asset</th>
-                <th>Market Cap</th>
-                <th>Price</th>
-                <th>1h %</th>
-                <th>24h %</th>
-                <th>7d %</th>
-                <th title="Total volume across multiple sources (Kraken, Binance, etc.)">24h Vol *</th>
-                <th>24h High/Low</th>
-                <th>Trend (24h)</th>
-              </tr>
-            </thead>
-            <tbody style={{ opacity: loadingExtras ? 0.5 : 1 }}>
-              {visiblePairs.map((pair) => {
-                const tk = tickers[pair.symbol];
-                const hist = candles[pair.symbol] || [];
-                const var24h = tk?.variation_24h || 0;
-
-                return (
-                  <tr key={pair.symbol} className={flashState[pair.symbol] ? `flash-${flashState[pair.symbol]}` : ""}>
-                    <td className="symbol">
-                      <div className="asset-cell">
-                        <span className="asset-name">{assetNames[pair.base] ?? pair.base}</span>
-                        <span className="asset-code">{pair.base}</span>
-                      </div>
-                    </td>
-                    <td className="text-muted">{formatCompactCurrencyNumber(tk?.market_cap, quoteCurrency)}</td>
-                    <td className="price">
-                      {tk ? formatCurrencyNumber(tk.price, quoteCurrency) : "-"}
-                    </td>
-                    <td className={tk && tk.variation_1h >= 0 ? "text-up" : "text-down"}>
-                      {tk ? `${tk.variation_1h >= 0 ? "+" : ""}${formatNumber(tk.variation_1h)}%` : "-"}
-                    </td>
-                    <td className={var24h >= 0 ? "text-up" : "text-down"}>
-                      {tk ? `${var24h >= 0 ? "+" : ""}${formatNumber(var24h)}%` : "-"}
-                    </td>
-                    <td className={tk && tk.variation_7d >= 0 ? "text-up" : "text-down"}>
-                      {tk ? `${tk.variation_7d >= 0 ? "+" : ""}${formatNumber(tk.variation_7d)}%` : "-"}
-                    </td>
-                    <td className="text-muted">
-                      {tk ? formatCompactCurrencyNumber(tk.volume_24h, quoteCurrency) : "-"}
-                    </td>
-                    <td className="text-muted" style={{ fontSize: '0.78rem' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <span>H: {tk?.high_24h !== undefined ? formatCurrencyNumber(tk.high_24h, quoteCurrency) : "-"}</span>
-                        <span>L: {tk?.low_24h !== undefined ? formatCurrencyNumber(tk.low_24h, quoteCurrency) : "-"}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="chart-placeholder" style={{ width: '120px', margin: '0 auto', display: 'flex', alignItems: 'flex-end', gap: '2px' }}>
-                        {(() => {
-                          const latestCandleUnix = hist.length > 0 ? hist[hist.length - 1].timestamp : Math.floor(Date.now() / 1000);
-                          const currentHourUnix = Math.floor(latestCandleUnix / 3600) * 3600;
-                          const plotted = Array.from({ length: 24 }).map((_, i) => {
-                            const bucketUnix = currentHourUnix - (23 - i) * 3600;
-                            return hist.find(x => x.timestamp >= bucketUnix && x.timestamp < bucketUnix + 3600);
-                          });
-                          
-                          const validCandles = plotted.filter(c => !!c) as typeof hist;
-                          const referenceClose = validCandles.length > 0 ? validCandles[0].close : 0;
-
-                          return plotted.map((c, i) => {
-                            if (!c) {
-                              return (
-                                <div 
-                                  key={`missing-${i}`} 
-                                  className="chart-bar empty"
-                                  style={{ height: '30%', backgroundColor: '#374151', opacity: 1 }}
-                                  title="Data unavailable"
-                                />
-                              );
-                            }
-
-                            const isUp = c.close >= c.open;
-                            const pctChange = referenceClose > 0 ? ((c.close - referenceClose) / referenceClose) * 100 : 0;
-                            const boundedPctChange = Math.max(-TREND_SCALE_PCT, Math.min(TREND_SCALE_PCT, pctChange));
-                            const heightPct = ((boundedPctChange + TREND_SCALE_PCT) / (TREND_SCALE_PCT * 2)) * 100;
-                            return (
-                              <div 
-                                key={`val-${i}`} 
-                                className={`chart-bar ${isUp ? 'up' : 'down'}`}
-                                style={{ height: `${Math.max(8, heightPct)}%` }}
-                                title={`C: ${formatNumber(c.close)} (${pctChange >= 0 ? "+" : ""}${formatNumber(pctChange)}%)`}
-                              />
-                            );
-                          });
-                        })()}
-                      </div>
-                    </td>
+        <>
+          {bp === 'mobile' ? (
+            <div className="market-card-list" style={{ opacity: loadingExtras ? 0.5 : 1 }}>
+              {visiblePairs.map((pair) => (
+                <MarketCard
+                  key={pair.symbol}
+                  pair={pair}
+                  ticker={tickers[pair.symbol]}
+                  assetName={assetNames[pair.base] ?? pair.base}
+                  candles={candles[pair.symbol] || []}
+                  flashState={flashState[pair.symbol]}
+                  quoteCurrency={quoteCurrency}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="data-table-wrapper">
+              <table className={`data-table ${bp === 'tablet' ? 'tablet-market-table' : ''}`}>
+                <thead>
+                  <tr>
+                    <th>Asset</th>
+                    <th>Market Cap</th>
+                    <th>Price</th>
+                    <th className="col-1h">1h %</th>
+                    <th>24h %</th>
+                    <th className="col-7d">7d %</th>
+                    <th title="Total volume across multiple sources (Kraken, Binance, etc.)">24h Vol *</th>
+                    <th className="col-high col-low">24h High/Low</th>
+                    <th>Trend (24h)</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          
+                </thead>
+                <tbody style={{ opacity: loadingExtras ? 0.5 : 1 }}>
+                  {visiblePairs.map((pair) => {
+                    const tk = tickers[pair.symbol];
+                    const hist = candles[pair.symbol] || [];
+                    const var24h = tk?.variation_24h || 0;
+
+                    return (
+                      <tr key={pair.symbol} className={flashState[pair.symbol] ? `flash-${flashState[pair.symbol]}` : ""}>
+                        <td className="symbol">
+                          <div className="asset-cell">
+                            <span className="asset-name">{assetNames[pair.base] ?? pair.base}</span>
+                            <span className="asset-code">{pair.base}</span>
+                          </div>
+                        </td>
+                        <td className="text-muted">{formatCompactCurrencyNumber(tk?.market_cap, quoteCurrency)}</td>
+                        <td className="price">
+                          {tk ? formatCurrencyNumber(tk.price, quoteCurrency) : "-"}
+                        </td>
+                        <td className={`col-1h ${tk && tk.variation_1h >= 0 ? "text-up" : "text-down"}`}>
+                          {tk ? `${tk.variation_1h >= 0 ? "+" : ""}${formatNumber(tk.variation_1h)}%` : "-"}
+                        </td>
+                        <td className={var24h >= 0 ? "text-up" : "text-down"}>
+                          {tk ? `${var24h >= 0 ? "+" : ""}${formatNumber(var24h)}%` : "-"}
+                        </td>
+                        <td className={`col-7d ${tk && tk.variation_7d >= 0 ? "text-up" : "text-down"}`}>
+                          {tk ? `${tk.variation_7d >= 0 ? "+" : ""}${formatNumber(tk.variation_7d)}%` : "-"}
+                        </td>
+                        <td className="text-muted">
+                          {tk ? formatCompactCurrencyNumber(tk.volume_24h, quoteCurrency) : "-"}
+                        </td>
+                        <td className="text-muted col-high col-low" style={{ fontSize: '0.78rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <span>H: {tk?.high_24h !== undefined ? formatCurrencyNumber(tk.high_24h, quoteCurrency) : "-"}</span>
+                            <span>L: {tk?.low_24h !== undefined ? formatCurrencyNumber(tk.low_24h, quoteCurrency) : "-"}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="chart-placeholder" style={{ width: `${sparklineWidth}px`, height: `${sparklineHeight}px`, margin: '0 auto', display: 'flex', alignItems: 'flex-end', gap: '2px' }}>
+                            {(() => {
+                              const latestCandleUnix = hist.length > 0 ? hist[hist.length - 1].timestamp : Math.floor(Date.now() / 1000);
+                              const currentHourUnix = Math.floor(latestCandleUnix / 3600) * 3600;
+                              const plotted = Array.from({ length: 24 }).map((_, i) => {
+                                const bucketUnix = currentHourUnix - (23 - i) * 3600;
+                                return hist.find(x => x.timestamp >= bucketUnix && x.timestamp < bucketUnix + 3600);
+                              });
+                              
+                              const validCandles = plotted.filter(c => !!c) as typeof hist;
+                              const referenceClose = validCandles.length > 0 ? validCandles[0].close : 0;
+
+                              return plotted.map((c, i) => {
+                                if (!c) {
+                                  return (
+                                    <div 
+                                      key={`missing-${i}`} 
+                                      className="chart-bar empty"
+                                      style={{ height: '30%', backgroundColor: '#374151', opacity: 1 }}
+                                      title="Data unavailable"
+                                    />
+                                  );
+                                }
+
+                                const isUp = c.close >= c.open;
+                                const pctChange = referenceClose > 0 ? ((c.close - referenceClose) / referenceClose) * 100 : 0;
+                                const boundedPctChange = Math.max(-TREND_SCALE_PCT, Math.min(TREND_SCALE_PCT, pctChange));
+                                const heightPct = ((boundedPctChange + TREND_SCALE_PCT) / (TREND_SCALE_PCT * 2)) * 100;
+                                return (
+                                  <div 
+                                    key={`val-${i}`} 
+                                    className={`chart-bar ${isUp ? 'up' : 'down'}`}
+                                    style={{ height: `${Math.max(8, heightPct)}%` }}
+                                    title={`C: ${formatNumber(c.close)} (${pctChange >= 0 ? "+" : ""}${formatNumber(pctChange)}%)`}
+                                  />
+                                );
+                              });
+                            })()}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           <div className="market-footer">
             <span className={`market-stream-status ${streamConnected ? "is-live" : "is-offline"}`}>
               <span className="market-stream-dot" aria-hidden="true" />
@@ -287,7 +310,7 @@ export function MarketPage() {
             </span>
             <span>All times shown in {getBrowserTimezone()}</span>
           </div>
-        </div>
+        </>
       ) : null}
     </section>
     </>

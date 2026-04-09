@@ -34,33 +34,16 @@ export function SystemPanel() {
       <div
         role="tablist"
         aria-label="Operations tabs"
-        style={{
-          display: "flex",
-          gap: "0.25rem",
-          marginTop: "1rem",
-          marginBottom: "1.25rem",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
-          paddingBottom: "0",
-        }}
+        className="toggle-group"
+        style={{ marginTop: "1rem", marginBottom: "1.25rem" }}
       >
         {TABS.map((tab) => (
           <button
             key={tab}
             role="tab"
             aria-selected={activeTab === tab}
+            className={activeTab === tab ? "active" : ""}
             onClick={() => switchTab(tab)}
-            style={{
-              background: "none",
-              border: "none",
-              borderBottom: activeTab === tab ? "2px solid var(--accent-color, #7c6fff)" : "2px solid transparent",
-              color: activeTab === tab ? "var(--accent-color, #7c6fff)" : "inherit",
-              cursor: "pointer",
-              fontSize: "0.9rem",
-              fontWeight: activeTab === tab ? 600 : 400,
-              opacity: activeTab === tab ? 1 : 0.6,
-              padding: "0.5rem 1rem",
-              transition: "all 0.15s ease",
-            }}
           >
             {tab}
           </button>

@@ -19,7 +19,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const hamburgerRef = useRef<HTMLButtonElement>(null);
-  const breakpoint = useBreakpoint();
+  useBreakpoint();
   const pages = Children.toArray(children);
   const apiDocsUrl = getApiDocsUrl();
 

@@ -19,7 +19,7 @@ func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
 		"BTCEUR": {
 			HourlyBackfillCompleted: false,
 		},
-	}, make(map[string]map[string]bool), now, 10)
+	}, make(map[string]map[string]bool), nil, now, 10)
 
 	if len(tasks) != 10 {
 		t.Fatalf("expected 10 backfill tasks (limited), got %d", len(tasks))
@@ -42,7 +42,7 @@ func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
 			HourlyBackfillCompleted: true,
 			DailyBackfillCompleted:  false,
 		},
-	}, make(map[string]map[string]bool), now, 5)
+	}, make(map[string]map[string]bool), nil, now, 5)
 
 	if len(dailyTasks) == 0 {
 		t.Fatal("expected daily backfill tasks after hourly completion")
@@ -112,7 +112,7 @@ func TestBuildInitialBackfillTasksStopsAtRealtimeCutover(t *testing.T) {
 			HourlyRealtimeStartedAt: realtimeStarted,
 			HourlyBackfillCompleted: false,
 		},
-	}, make(map[string]map[string]bool), now, 2)
+	}, make(map[string]map[string]bool), nil, now, 2)
 
 	if len(tasks) != 2 {
 		t.Fatalf("expected 2 backfill tasks (limited), got %d", len(tasks))
@@ -245,7 +245,7 @@ func TestBackfillWalksBackwardsFromYesterday(t *testing.T) {
 		{Symbol: "BTCEUR"},
 	}, map[string]SyncState{
 		"BTCEUR": {HourlyBackfillCompleted: false},
-	}, make(map[string]map[string]bool), now, 5)
+	}, make(map[string]map[string]bool), nil, now, 5)
 
 	if len(tasks) != 5 {
 		t.Fatalf("expected 5 backfill tasks (limited), got %d", len(tasks))
@@ -632,7 +632,7 @@ func TestBackfillTasksHaveDescriptions(t *testing.T) {
 		{Symbol: "BTCEUR"},
 	}, map[string]SyncState{
 		"BTCEUR": {HourlyBackfillCompleted: false},
-	}, make(map[string]map[string]bool), now, 3)
+	}, make(map[string]map[string]bool), nil, now, 3)
 
 	for _, item := range tasks {
 		if item.Description == "" {
@@ -770,5 +770,459 @@ func TestBackfillProbeTasksHaveDescriptions(t *testing.T) {
 	}
 	if tasks[0].Description == "" {
 		t.Fatal("expected non-empty description for probe task")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Round-robin backfill distribution tests
+// ---------------------------------------------------------------------------
+
+// TestBackfillRoundRobinDistributesFairly verifies that when multiple pairs
+// need backfill, the budget is distributed round-robin so no single pair
+// monopolises the entire batch.
+func TestBackfillRoundRobinDistributesFairly(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	pairs := []pair.Pair{
+		{Symbol: "BTCEUR"},
+		{Symbol: "ETHUSD"},
+		{Symbol: "XRPUSD"},
+	}
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: false},
+		"ETHUSD": {HourlyBackfillCompleted: false},
+		"XRPUSD": {HourlyBackfillCompleted: false},
+	}
+
+	tasks := scheduler.BuildInitialBackfillTasksLimited(pairs, state, make(map[string]map[string]bool), nil, now, 9)
+
+	if len(tasks) != 9 {
+		t.Fatalf("expected 9 backfill tasks, got %d", len(tasks))
+	}
+
+	// Count tasks per pair — each should get exactly 3 (9 / 3 pairs).
+	counts := map[string]int{}
+	for _, item := range tasks {
+		counts[item.Pair]++
+	}
+	for _, sym := range []string{"BTCEUR", "ETHUSD", "XRPUSD"} {
+		if counts[sym] != 3 {
+			t.Fatalf("expected 3 tasks for %s, got %d (distribution: %v)", sym, counts[sym], counts)
+		}
+	}
+}
+
+// TestBackfillRoundRobinUnevenBudget verifies fair distribution when the
+// budget doesn't divide evenly across pairs.
+func TestBackfillRoundRobinUnevenBudget(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	pairs := []pair.Pair{
+		{Symbol: "BTCEUR"},
+		{Symbol: "ETHUSD"},
+	}
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: false},
+		"ETHUSD": {HourlyBackfillCompleted: false},
+	}
+
+	tasks := scheduler.BuildInitialBackfillTasksLimited(pairs, state, make(map[string]map[string]bool), nil, now, 5)
+
+	if len(tasks) != 5 {
+		t.Fatalf("expected 5 backfill tasks, got %d", len(tasks))
+	}
+
+	counts := map[string]int{}
+	for _, item := range tasks {
+		counts[item.Pair]++
+	}
+
+	// With 5 tasks and 2 pairs, one gets 3 and the other gets 2.
+	if counts["BTCEUR"] < 2 || counts["BTCEUR"] > 3 {
+		t.Fatalf("expected BTCEUR to get 2-3 tasks, got %d", counts["BTCEUR"])
+	}
+	if counts["ETHUSD"] < 2 || counts["ETHUSD"] > 3 {
+		t.Fatalf("expected ETHUSD to get 2-3 tasks, got %d", counts["ETHUSD"])
+	}
+}
+
+// TestBackfillRoundRobinSkipsCompletedPairs verifies that pairs with completed
+// hourly backfill don't starve other pairs of budget.
+func TestBackfillRoundRobinSkipsCompletedPairs(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	pairs := []pair.Pair{
+		{Symbol: "BTCEUR"},
+		{Symbol: "ETHUSD"},
+	}
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: true, DailyBackfillCompleted: true}, // fully done
+		"ETHUSD": {HourlyBackfillCompleted: false},
+	}
+
+	tasks := scheduler.BuildInitialBackfillTasksLimited(pairs, state, make(map[string]map[string]bool), nil, now, 5)
+
+	if len(tasks) != 5 {
+		t.Fatalf("expected 5 backfill tasks, got %d", len(tasks))
+	}
+
+	// All tasks should go to ETHUSD since BTCEUR is fully complete.
+	for _, item := range tasks {
+		if item.Pair != "ETHUSD" {
+			t.Fatalf("expected all tasks for ETHUSD, got %s for %s", item.Pair, item.ID)
+		}
+	}
+}
+
+// TestBackfillSkipsPairsWithActiveTasks verifies that pairs already having
+// pending/running backfill tasks are excluded from new task generation,
+// allowing the budget to go to pairs that actually need work.
+func TestBackfillSkipsPairsWithActiveTasks(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	pairs := []pair.Pair{
+		{Symbol: "BTCEUR"},
+		{Symbol: "ETHUSD"},
+		{Symbol: "XRPUSD"},
+	}
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: false},
+		"ETHUSD": {HourlyBackfillCompleted: false},
+		"XRPUSD": {HourlyBackfillCompleted: false},
+	}
+
+	// BTCEUR and ETHUSD already have active tasks — only XRPUSD should get work.
+	activePairs := map[string]bool{
+		"BTCEUR": true,
+		"ETHUSD": true,
+	}
+
+	tasks := scheduler.BuildInitialBackfillTasksLimited(pairs, state, make(map[string]map[string]bool), activePairs, now, 6)
+
+	for _, item := range tasks {
+		if item.Pair != "XRPUSD" {
+			t.Fatalf("expected only XRPUSD tasks, got %s for %s", item.Pair, item.ID)
+		}
+	}
+	if len(tasks) != 6 {
+		t.Fatalf("expected 6 tasks for XRPUSD, got %d", len(tasks))
+	}
+}
+
+// TestBackfillAllPairsActiveReturnsEmpty verifies that when all pairs have
+// active backfill tasks, no new tasks are generated.
+func TestBackfillAllPairsActiveReturnsEmpty(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	pairs := []pair.Pair{
+		{Symbol: "BTCEUR"},
+		{Symbol: "ETHUSD"},
+	}
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: false},
+		"ETHUSD": {HourlyBackfillCompleted: false},
+	}
+	activePairs := map[string]bool{
+		"BTCEUR": true,
+		"ETHUSD": true,
+	}
+
+	tasks := scheduler.BuildInitialBackfillTasksLimited(pairs, state, make(map[string]map[string]bool), activePairs, now, 10)
+
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 tasks when all pairs are active, got %d", len(tasks))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Failed-task starvation scenario tests
+// ---------------------------------------------------------------------------
+// These tests simulate the multi-tick lifecycle where backfill tasks fail and
+// verify that the budget shifts to other pairs instead of retrying the same
+// ones indefinitely.
+
+// TestFailedTasksDoNotStarveRemainingPairs simulates the exact bug scenario:
+// 12 pairs, budget of 9. Tick 1 distributes 9 tasks across 9 pairs. All 9
+// fail and go back to pending (with retry delay). Tick 2 should skip those
+// 9 pairs (they have active tasks) and give the full budget to the remaining 3.
+func TestFailedTasksDoNotStarveRemainingPairs(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	// 12 pairs, all needing hourly backfill.
+	allPairs := make([]pair.Pair, 12)
+	state := make(map[string]SyncState, 12)
+	symbols := []string{
+		"BTCEUR", "ETHUSD", "XRPUSD", "ADAEUR",
+		"SOLUSD", "DOTUSD", "LINKEUR", "AVAXUSD",
+		"MATICUSD", "UNIEUR", "AAVEUSD", "ATOMUSD",
+	}
+	for i, sym := range symbols {
+		allPairs[i] = pair.Pair{Symbol: sym}
+		state[sym] = SyncState{HourlyBackfillCompleted: false}
+	}
+	budget := 9
+	emptyCoverage := make(map[string]map[string]bool)
+
+	// --- Tick 1: no active pairs, fresh start ---
+	tick1Tasks := scheduler.BuildInitialBackfillTasksLimited(allPairs, state, emptyCoverage, nil, now, budget)
+
+	if len(tick1Tasks) != budget {
+		t.Fatalf("tick 1: expected %d tasks, got %d", budget, len(tick1Tasks))
+	}
+
+	// Round-robin should spread across 9 pairs (1 task each with budget=9, 12 pairs).
+	tick1Pairs := make(map[string]bool)
+	for _, item := range tick1Tasks {
+		tick1Pairs[item.Pair] = true
+	}
+	if len(tick1Pairs) != 9 {
+		t.Fatalf("tick 1: expected 9 distinct pairs, got %d: %v", len(tick1Pairs), tick1Pairs)
+	}
+
+	// --- Tick 2: all 9 pairs from tick 1 have active (pending) tasks ---
+	// Simulate: those 9 tasks failed and went back to pending with retry_at.
+	// The planner queries ActiveBackfillPairs and gets those 9 back.
+	tick2Tasks := scheduler.BuildInitialBackfillTasksLimited(allPairs, state, emptyCoverage, tick1Pairs, now, budget)
+
+	// Only the 3 remaining pairs should receive tasks.
+	tick2Pairs := make(map[string]bool)
+	for _, item := range tick2Tasks {
+		tick2Pairs[item.Pair] = true
+		if tick1Pairs[item.Pair] {
+			t.Fatalf("tick 2: pair %s had active tasks but still received new work", item.Pair)
+		}
+	}
+
+	// Exactly 3 pairs should get work, and they should consume the full budget
+	// (each gets budget/3 = 3 tasks).
+	remainingPairs := make([]string, 0)
+	for _, sym := range symbols {
+		if !tick1Pairs[sym] {
+			remainingPairs = append(remainingPairs, sym)
+		}
+	}
+	if len(tick2Pairs) != len(remainingPairs) {
+		t.Fatalf("tick 2: expected %d pairs to get work, got %d: %v",
+			len(remainingPairs), len(tick2Pairs), tick2Pairs)
+	}
+	for _, sym := range remainingPairs {
+		if !tick2Pairs[sym] {
+			t.Fatalf("tick 2: expected pair %s to receive tasks", sym)
+		}
+	}
+	if len(tick2Tasks) != budget {
+		t.Fatalf("tick 2: expected full budget %d used by remaining pairs, got %d", budget, len(tick2Tasks))
+	}
+}
+
+// TestFailedTasksBudgetRedistributesEvenly verifies that when some pairs
+// have active tasks, the remaining pairs share the budget fairly via
+// round-robin rather than the first remaining pair hogging everything.
+func TestFailedTasksBudgetRedistributesEvenly(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	pairs := []pair.Pair{
+		{Symbol: "BTCEUR"},
+		{Symbol: "ETHUSD"},
+		{Symbol: "XRPUSD"},
+		{Symbol: "ADAEUR"},
+		{Symbol: "SOLUSD"},
+		{Symbol: "DOTUSD"},
+	}
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: false},
+		"ETHUSD": {HourlyBackfillCompleted: false},
+		"XRPUSD": {HourlyBackfillCompleted: false},
+		"ADAEUR": {HourlyBackfillCompleted: false},
+		"SOLUSD": {HourlyBackfillCompleted: false},
+		"DOTUSD": {HourlyBackfillCompleted: false},
+	}
+
+	// 4 out of 6 pairs have active tasks from a previous failed batch.
+	activePairs := map[string]bool{
+		"BTCEUR": true,
+		"ETHUSD": true,
+		"XRPUSD": true,
+		"ADAEUR": true,
+	}
+
+	// Budget of 6 should be split evenly between SOLUSD and DOTUSD (3 each).
+	tasks := scheduler.BuildInitialBackfillTasksLimited(
+		pairs, state, make(map[string]map[string]bool), activePairs, now, 6,
+	)
+
+	if len(tasks) != 6 {
+		t.Fatalf("expected 6 tasks, got %d", len(tasks))
+	}
+
+	counts := map[string]int{}
+	for _, item := range tasks {
+		counts[item.Pair]++
+	}
+
+	if counts["SOLUSD"] != 3 || counts["DOTUSD"] != 3 {
+		t.Fatalf("expected 3 tasks each for SOLUSD and DOTUSD, got %v", counts)
+	}
+	if counts["BTCEUR"] != 0 || counts["ETHUSD"] != 0 || counts["XRPUSD"] != 0 || counts["ADAEUR"] != 0 {
+		t.Fatalf("active pairs should not receive tasks, got %v", counts)
+	}
+}
+
+// TestAllPairsFailedNoNewWork verifies that when every pair already has
+// active backfill tasks (all failed and pending retry), the scheduler
+// generates zero new tasks instead of re-flooding the queue.
+func TestAllPairsFailedNoNewWork(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	pairs := []pair.Pair{
+		{Symbol: "BTCEUR"},
+		{Symbol: "ETHUSD"},
+		{Symbol: "XRPUSD"},
+	}
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: false},
+		"ETHUSD": {HourlyBackfillCompleted: false},
+		"XRPUSD": {HourlyBackfillCompleted: false},
+	}
+
+	// Every pair has active tasks — nothing should be generated.
+	activePairs := map[string]bool{
+		"BTCEUR": true,
+		"ETHUSD": true,
+		"XRPUSD": true,
+	}
+
+	tasks := scheduler.BuildInitialBackfillTasksLimited(
+		pairs, state, make(map[string]map[string]bool), activePairs, now, 9,
+	)
+
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 tasks when all pairs have active work, got %d", len(tasks))
+	}
+}
+
+// TestRecoveryAfterFailedPairsRetryExpires simulates the full 3-tick
+// lifecycle: initial distribution → failure blocks re-enqueue → retry
+// window expires and pairs become eligible again.
+func TestRecoveryAfterFailedPairsRetryExpires(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	pairs := []pair.Pair{
+		{Symbol: "BTCEUR"},
+		{Symbol: "ETHUSD"},
+		{Symbol: "XRPUSD"},
+		{Symbol: "ADAEUR"},
+	}
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: false},
+		"ETHUSD": {HourlyBackfillCompleted: false},
+		"XRPUSD": {HourlyBackfillCompleted: false},
+		"ADAEUR": {HourlyBackfillCompleted: false},
+	}
+	emptyCoverage := make(map[string]map[string]bool)
+
+	// --- Tick 1: fresh start, budget=3 ---
+	tick1 := scheduler.BuildInitialBackfillTasksLimited(pairs, state, emptyCoverage, nil, now, 3)
+	if len(tick1) != 3 {
+		t.Fatalf("tick 1: expected 3 tasks, got %d", len(tick1))
+	}
+	tick1Active := make(map[string]bool)
+	for _, item := range tick1 {
+		tick1Active[item.Pair] = true
+	}
+	if len(tick1Active) != 3 {
+		t.Fatalf("tick 1: expected 3 distinct pairs, got %d", len(tick1Active))
+	}
+
+	// --- Tick 2: those 3 pairs are active (failed, pending retry) ---
+	tick2 := scheduler.BuildInitialBackfillTasksLimited(pairs, state, emptyCoverage, tick1Active, now, 3)
+	if len(tick2) != 3 {
+		t.Fatalf("tick 2: expected 3 tasks for remaining pair, got %d", len(tick2))
+	}
+	for _, item := range tick2 {
+		if tick1Active[item.Pair] {
+			t.Fatalf("tick 2: pair %s should be skipped (active), but got task %s", item.Pair, item.ID)
+		}
+	}
+
+	// --- Tick 3: retry window expired, all pairs eligible again ---
+	// (ActiveBackfillPairs returns empty because retries were picked up or exhausted)
+	tick3 := scheduler.BuildInitialBackfillTasksLimited(pairs, state, emptyCoverage, nil, now, 4)
+	if len(tick3) != 4 {
+		t.Fatalf("tick 3: expected 4 tasks after recovery, got %d", len(tick3))
+	}
+	tick3Pairs := make(map[string]bool)
+	for _, item := range tick3 {
+		tick3Pairs[item.Pair] = true
+	}
+	if len(tick3Pairs) != 4 {
+		t.Fatalf("tick 3: expected all 4 pairs to get work, got %d: %v", len(tick3Pairs), tick3Pairs)
+	}
+}
+
+// TestMixedActiveAndCompletedPairsBudgetGoesToNeedy verifies that the budget
+// correctly flows to pairs that need work when some pairs are active (failed)
+// and others are fully completed.
+func TestMixedActiveAndCompletedPairsBudgetGoesToNeedy(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	pairs := []pair.Pair{
+		{Symbol: "BTCEUR"}, // active (failed, pending retry)
+		{Symbol: "ETHUSD"}, // fully completed
+		{Symbol: "XRPUSD"}, // needs work
+		{Symbol: "ADAEUR"}, // needs work
+		{Symbol: "SOLUSD"}, // active (failed, pending retry)
+	}
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: false},
+		"ETHUSD": {HourlyBackfillCompleted: true, DailyBackfillCompleted: true},
+		"XRPUSD": {HourlyBackfillCompleted: false},
+		"ADAEUR": {HourlyBackfillCompleted: false},
+		"SOLUSD": {HourlyBackfillCompleted: false},
+	}
+	activePairs := map[string]bool{
+		"BTCEUR": true,
+		"SOLUSD": true,
+	}
+
+	tasks := scheduler.BuildInitialBackfillTasksLimited(
+		pairs, state, make(map[string]map[string]bool), activePairs, now, 6,
+	)
+
+	if len(tasks) != 6 {
+		t.Fatalf("expected 6 tasks, got %d", len(tasks))
+	}
+
+	counts := map[string]int{}
+	for _, item := range tasks {
+		counts[item.Pair]++
+	}
+
+	// BTCEUR: skipped (active). ETHUSD: skipped (completed). SOLUSD: skipped (active).
+	// Only XRPUSD and ADAEUR should get work: 3 each.
+	if counts["BTCEUR"] != 0 {
+		t.Fatalf("BTCEUR should be skipped (active), got %d tasks", counts["BTCEUR"])
+	}
+	if counts["ETHUSD"] != 0 {
+		t.Fatalf("ETHUSD should be skipped (completed), got %d tasks", counts["ETHUSD"])
+	}
+	if counts["SOLUSD"] != 0 {
+		t.Fatalf("SOLUSD should be skipped (active), got %d tasks", counts["SOLUSD"])
+	}
+	if counts["XRPUSD"] != 3 {
+		t.Fatalf("expected 3 tasks for XRPUSD, got %d", counts["XRPUSD"])
+	}
+	if counts["ADAEUR"] != 3 {
+		t.Fatalf("expected 3 tasks for ADAEUR, got %d", counts["ADAEUR"])
 	}
 }

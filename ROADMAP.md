@@ -19,12 +19,12 @@
 The jump from "data service" to "platform with users." These are the enablers for everything that follows.
 
 ### 1.1 Responsive & Mobile-First UI Overhaul
-- [ ] Redesign the frontend layout system for mobile/tablet/desktop breakpoints
-- [ ] Make the Market Overview table responsive (card layout on mobile, table on desktop)
-- [ ] Adapt the Operations panel tabs for touch-friendly navigation
-- [ ] Ensure the news ticker, charts, and sparklines render cleanly on small screens
-- [ ] Add a proper navigation drawer/hamburger menu for mobile
-- [ ] Maintain the current premium dark aesthetic across all breakpoints
+- [x] Redesign the frontend layout system for mobile/tablet/desktop breakpoints
+- [x] Make the Market Overview table responsive (card layout on mobile, table on desktop)
+- [x] Adapt the Operations panel tabs for touch-friendly navigation
+- [x] Ensure the news ticker, charts, and sparklines render cleanly on small screens
+- [x] Add a proper navigation drawer/hamburger menu for mobile
+- [x] Maintain the current premium dark aesthetic across all breakpoints
 
 ### 1.2 Authentication & User Management
 - [ ] Add Google OAuth 2.0 login (primary auth method)

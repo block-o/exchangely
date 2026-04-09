@@ -66,11 +66,15 @@ describe("AppShell", () => {
       expect(screen.getByText("Alpha Page")).toBeInTheDocument();
     });
 
-    expect(screen.getByRole("link", { name: "GitHub project" })).toHaveAttribute(
+    const githubLinks = screen.getAllByRole("link", { name: "GitHub project" });
+    expect(githubLinks.length).toBeGreaterThanOrEqual(1);
+    expect(githubLinks[0]).toHaveAttribute(
       "href",
       "https://github.com/block-o/exchangely"
     );
-    expect(screen.getByRole("link", { name: "API Docs" })).toHaveAttribute(
+    const apiDocsLinks = screen.getAllByRole("link", { name: "API Docs" });
+    expect(apiDocsLinks.length).toBeGreaterThanOrEqual(1);
+    expect(apiDocsLinks[0]).toHaveAttribute(
       "href",
       "http://localhost:8080/swagger"
     );

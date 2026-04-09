@@ -1,7 +1,9 @@
-import { Children, useState, type PropsWithChildren, useEffect } from "react";
+import { Children, useState, useRef, useCallback, type PropsWithChildren, useEffect } from "react";
 import { sections } from "../../app/router";
 import { API_BASE_URL } from "../../api/client";
 import { SettingsModal } from "./SettingsModal";
+import { NavigationDrawer } from "./NavigationDrawer";
+import { useBreakpoint } from "../../hooks/useBreakpoint";
 
 function getApiDocsUrl() {
   try {
@@ -15,8 +17,21 @@ function getApiDocsUrl() {
 export function AppShell({ children }: PropsWithChildren) {
   const [activeHash, setActiveHash] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const breakpoint = useBreakpoint();
   const pages = Children.toArray(children);
   const apiDocsUrl = getApiDocsUrl();
+
+  const handleNavigate = useCallback((hash: string) => {
+    window.location.hash = hash;
+    setActiveHash(hash);
+    setIsDrawerOpen(false);
+  }, []);
+
+  const handleDrawerClose = useCallback(() => {
+    setIsDrawerOpen(false);
+  }, []);
 
   useEffect(() => {
     setActiveHash(window.location.hash || "#market");
@@ -35,8 +50,22 @@ export function AppShell({ children }: PropsWithChildren) {
         <div className="hero-text">
           <p className="eyebrow">Exchangely</p>
         </div>
+        <button
+          ref={hamburgerRef}
+          className="hamburger-btn mobile-only"
+          onClick={() => setIsDrawerOpen(true)}
+          aria-expanded={isDrawerOpen}
+          aria-controls="nav-drawer"
+          aria-label="Open navigation menu"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
         <div className="hero-actions">
-          <nav className="top-nav">
+          <nav className="top-nav tablet-up">
             {sections.map((section) => {
               const hash = `#${section.id}`;
               return (
@@ -53,7 +82,7 @@ export function AppShell({ children }: PropsWithChildren) {
               API Docs
             </a>
           </nav>
-          <div className="top-links">
+          <div className="top-links tablet-up">
             <a
               className="icon-link"
               href="https://github.com/block-o/exchangely"
@@ -87,6 +116,13 @@ export function AppShell({ children }: PropsWithChildren) {
         </div>
       </main>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <NavigationDrawer
+        isOpen={isDrawerOpen}
+        onClose={handleDrawerClose}
+        activeHash={activeHash}
+        onNavigate={handleNavigate}
+        hamburgerRef={hamburgerRef}
+      />
     </div>
   );
 }

@@ -10,6 +10,7 @@ export interface Task {
   window_start: string;
   window_end: string;
   status?: string;
+  description?: string;
   last_error?: string;
   completed_at?: string;
 }
@@ -31,6 +32,8 @@ export const TASK_TYPES = [
   "integrity_check",
   "consolidation",
   "task_cleanup",
+  "news_fetch",
+  "gap_validation",
 ];
 
 export const TYPE_LABELS: Record<string, string> = {
@@ -39,6 +42,8 @@ export const TYPE_LABELS: Record<string, string> = {
   integrity_check: "Integrity Check",
   consolidation: "Consolidation",
   task_cleanup: "Task Log Cleanup",
+  news_fetch: "News Fetch",
+  gap_validation: "Gap Validation",
 };
 
 export const RECENT_TASK_STATUSES = ["completed", "failed"];
@@ -47,6 +52,156 @@ export const STATUS_LABELS: Record<string, string> = {
   completed: "Completed",
   failed: "Failed",
 };
+
+// ── Task type icons ─────────────────────────────────────────────────────────
+
+/** Inline SVG icon props matching the app's Feather-style convention. */
+const ICON_STYLE = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+
+/** SVG paths for each task type, matching the Feather icon style used in the app header. */
+const TYPE_ICON_PATHS: Record<string, React.ReactNode> = {
+  // archive / box
+  historical_backfill: (
+    <>
+      <path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" />
+    </>
+  ),
+  // radio / broadcast
+  live_ticker: (
+    <>
+      <path d="M16.72 11.06A10.94 10.94 0 0 1 19 17.94" /><path d="M7.28 11.06A10.94 10.94 0 0 0 5 17.94" /><path d="M14.34 14.18a5 5 0 0 1 1.66 3.76" /><path d="M9.66 14.18a5 5 0 0 0-1.66 3.76" /><circle cx="12" cy="18" r="1" />
+    </>
+  ),
+  // search
+  integrity_check: (
+    <>
+      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </>
+  ),
+  // refresh-cw
+  consolidation: (
+    <>
+      <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </>
+  ),
+  // trash-2
+  task_cleanup: (
+    <>
+      <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />
+    </>
+  ),
+  // rss
+  news_fetch: (
+    <>
+      <path d="M4 11a9 9 0 0 1 9 9" /><path d="M4 4a16 16 0 0 1 16 16" /><circle cx="5" cy="19" r="1" />
+    </>
+  ),
+  // alert-triangle
+  gap_validation: (
+    <>
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+    </>
+  ),
+};
+
+/** Compact SVG icon for a task type. On desktop shows icon + text label.
+ *  On mobile/tablet the label is hidden via CSS and the full name appears on hover. */
+export function TaskTypeIcon({ type }: { type: string }) {
+  const label = TYPE_LABELS[type] ?? type;
+  const paths = TYPE_ICON_PATHS[type] ?? (
+    // fallback: file-text
+    <>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" />
+    </>
+  );
+
+  return (
+    <span
+      style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", whiteSpace: "nowrap" }}
+      title={label}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        {...ICON_STYLE}
+        style={{ opacity: 0.7, flexShrink: 0 }}
+        aria-hidden="true"
+      >
+        {paths}
+      </svg>
+      <span className="task-type-label">{label}</span>
+    </span>
+  );
+}
+
+/** Plain description cell — shows the compact description as simple text. */
+export function DescriptionCell({ task }: { task: Task }) {
+  return (
+    <td
+      style={{
+        textAlign: "left",
+        opacity: 0.75,
+        fontSize: "0.8rem",
+      }}
+    >
+      {compactDescription(task)}
+    </td>
+  );
+}
+
+// ── Compact task description ─────────────────────────────────────────────────
+
+/** Build a short description from structured task fields, falling back to the
+ *  server-provided description when the type isn't one we can shorten. */
+export function compactDescription(t: Task): string {
+  const fmtShort = (iso?: string) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
+  const fmtTimeOnly = (iso?: string) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" });
+  };
+  const sameDay = (a?: string, b?: string) => {
+    if (!a || !b) return false;
+    const da = new Date(a), db = new Date(b);
+    return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+  };
+
+  const INTERVAL_LABELS: Record<string, string> = {
+    "1h": "Hourly",
+    "1d": "Daily",
+    "4h": "4-Hour",
+    "15m": "15-Min",
+    "5m": "5-Min",
+    "1m": "1-Min",
+  };
+
+  switch (t.type) {
+    case "historical_backfill": {
+      const res = INTERVAL_LABELS[t.interval] || t.interval || "Hourly";
+      const end = sameDay(t.window_start, t.window_end) ? fmtTimeOnly(t.window_end) : fmtShort(t.window_end);
+      return `${res} candles from ${fmtShort(t.window_start)} to ${end}`;
+    }
+    case "consolidation":
+      return `Rebuild daily candle for ${fmtShort(t.window_start)}`;
+    case "integrity_check": {
+      const end = sameDay(t.window_start, t.window_end) ? fmtTimeOnly(t.window_end) : fmtShort(t.window_end);
+      return `Verify coverage from ${fmtShort(t.window_start)} to ${end}`;
+    }
+    case "gap_validation":
+      return `Check for gaps at ${fmtShort(t.window_start)}`;
+    case "task_cleanup":
+      return "Prune completed and failed task logs";
+    case "news_fetch":
+      return "Fetch latest crypto news";
+    case "live_ticker":
+      return "—";
+    default:
+      return t.description || "—";
+  }
+}
 
 // ── Formatting helpers ──────────────────────────────────────────────────────
 
@@ -295,6 +450,39 @@ export function Pagination({ total, limit, page, onPageChange }: PaginationProps
         Next
       </button>
     </div>
+  );
+}
+
+/** Compact status icon with tooltip — replaces verbose text labels to save table width. */
+export function StatusIcon({ status, lastError }: { status?: string; lastError?: string }) {
+  const isCompleted = status === "completed";
+  const isFailed = status === "failed";
+
+  if (isFailed && lastError) {
+    return <FailureStatus reason={lastError} />;
+  }
+
+  const icon = isCompleted ? "✓" : isFailed ? "✗" : "●";
+  const color = isCompleted
+    ? "var(--up-color, #4ade80)"
+    : isFailed
+    ? "var(--down-color, #ff6b6b)"
+    : "rgba(255,255,255,0.5)";
+  const label = taskStatusLabel(status);
+
+  return (
+    <span
+      title={label}
+      aria-label={label}
+      style={{
+        color,
+        fontSize: "1rem",
+        fontWeight: 700,
+        cursor: "default",
+      }}
+    >
+      {icon}
+    </span>
   );
 }
 

@@ -432,6 +432,12 @@ h1, h2, h3, h4, h5, h6 {
   .desktop-only { display: none !important; }
 }
 
+/* Task type label: visible on desktop, hidden on mobile/tablet (icon-only) */
+.task-type-label { display: inline; }
+@media (max-width: 1023px) {
+  .task-type-label { display: none !important; }
+}
+
 /* ── Hamburger Button ────────────────── */
 .hamburger-btn {
   display: inline-flex;
@@ -876,4 +882,44 @@ h1, h2, h3, h4, h5, h6 {
   100% {
     transform: translateX(-100%);
   }
+}
+
+/* ── Task Log Viewer ─────────────────── */
+.task-log-viewer {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+  font-size: 0.78rem;
+  line-height: 1.7;
+  background: var(--color-bg-card, rgba(22, 33, 44, 0.5));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 0.6rem 0;
+  max-height: 520px;
+  overflow-y: auto;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.task-log-line {
+  padding: 0.3rem 1rem;
+  transition: background 0.15s;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.task-log-line:last-child {
+  border-bottom: none;
+}
+
+.task-log-line:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.task-log-ok {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.task-log-error {
+  color: var(--down-color, rgba(255, 107, 107, 0.9));
 }

@@ -10,17 +10,6 @@ import { render, fireEvent, cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, expect, it, vi } from "vitest";
 import fc from "fast-check";
-
-// We must mock the router module BEFORE importing the component so that
-// NavigationDrawer picks up our generated sections instead of the real ones.
-const mockSections: Array<{ id: string; label: string }> = [];
-vi.mock("../../app/router", () => ({
-  get sections() {
-    return mockSections;
-  },
-}));
-
-// Import after mock is set up
 import { NavigationDrawer } from "./NavigationDrawer";
 
 /**
@@ -46,10 +35,6 @@ describe("Feature: responsive-ui-overhaul, Property 1: Navigation drawer link cl
         // Clean up any previous render
         cleanup();
 
-        // Inject generated sections into the mock
-        mockSections.length = 0;
-        mockSections.push(...sections);
-
         const onNavigate = vi.fn();
         const onClose = vi.fn();
 
@@ -59,6 +44,10 @@ describe("Feature: responsive-ui-overhaul, Property 1: Navigation drawer link cl
             onClose={onClose}
             activeHash=""
             onNavigate={onNavigate}
+            navItems={sections}
+            isAuthenticated={false}
+            user={null}
+            onLogout={() => {}}
           />,
         );
 

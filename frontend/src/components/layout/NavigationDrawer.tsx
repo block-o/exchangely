@@ -1,6 +1,4 @@
 import { useEffect, useRef, useCallback, type RefObject } from "react";
-import { sections } from "../../app/router";
-import { API_BASE_URL } from "../../api/client";
 
 export interface NavigationDrawerProps {
   isOpen: boolean;
@@ -9,15 +7,8 @@ export interface NavigationDrawerProps {
   onNavigate: (hash: string) => void;
   /** Ref to the hamburger button for focus restoration on close */
   hamburgerRef?: RefObject<HTMLButtonElement | null>;
-}
-
-function getApiDocsUrl() {
-  try {
-    const apiUrl = new URL(API_BASE_URL);
-    return new URL("/swagger", apiUrl.origin).toString();
-  } catch {
-    return "/swagger";
-  }
+  /** Filtered nav items based on auth state */
+  navItems: { id: string; label: string }[];
 }
 
 export function NavigationDrawer({
@@ -26,6 +17,7 @@ export function NavigationDrawer({
   activeHash,
   onNavigate,
   hamburgerRef,
+  navItems,
 }: NavigationDrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -42,10 +34,8 @@ export function NavigationDrawer({
   useEffect(() => {
     if (!isOpen) return;
 
-    // Store the previously focused element
     previousFocusRef.current = document.activeElement;
 
-    // Focus the drawer itself initially
     const drawer = drawerRef.current;
     if (drawer) {
       drawer.focus();
@@ -81,10 +71,7 @@ export function NavigationDrawer({
     };
 
     document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
   // Restore focus to hamburger button on close
@@ -96,8 +83,6 @@ export function NavigationDrawer({
       previousFocusRef.current = null;
     }
   }, [isOpen, hamburgerRef]);
-
-  const apiDocsUrl = getApiDocsUrl();
 
   return (
     <>
@@ -129,11 +114,11 @@ export function NavigationDrawer({
         </button>
 
         {/* Section links */}
-        {sections.map((section) => {
-          const hash = `#${section.id}`;
+        {navItems.map((item) => {
+          const hash = `#${item.id}`;
           return (
             <a
-              key={section.id}
+              key={item.id}
               href={hash}
               className={`nav-item${activeHash === hash ? " active" : ""}`}
               onClick={(e) => {
@@ -141,46 +126,10 @@ export function NavigationDrawer({
                 handleNavClick(hash);
               }}
             >
-              {section.label}
+              {item.label}
             </a>
           );
         })}
-
-        {/* API Docs external link */}
-        <a
-          className="nav-item external-nav-item"
-          href={apiDocsUrl}
-          target="_blank"
-          rel="noreferrer"
-        >
-          API Docs
-        </a>
-
-        {/* Spacer */}
-        <div style={{ flex: 1 }} />
-
-        {/* Bottom actions: GitHub + Settings */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <a
-            className="icon-link"
-            href="https://github.com/block-o/exchangely"
-            target="_blank"
-            rel="noreferrer"
-            title="GitHub"
-            aria-label="GitHub project"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <path d="M12 1.5a10.5 10.5 0 0 0-3.32 20.46c.53.1.72-.23.72-.51v-1.98c-2.94.64-3.56-1.25-3.56-1.25-.48-1.22-1.18-1.54-1.18-1.54-.96-.65.07-.64.07-.64 1.06.07 1.62 1.08 1.62 1.08.94 1.61 2.47 1.14 3.07.87.1-.68.37-1.14.67-1.4-2.35-.27-4.82-1.17-4.82-5.22 0-1.15.41-2.08 1.08-2.82-.11-.27-.47-1.37.1-2.86 0 0 .88-.28 2.89 1.08a10 10 0 0 1 5.26 0c2.01-1.36 2.89-1.08 2.89-1.08.57 1.49.21 2.59.1 2.86.67.74 1.08 1.67 1.08 2.82 0 4.06-2.47 4.94-4.83 5.21.38.33.72.98.72 1.98v2.93c0 .28.19.62.73.51A10.5 10.5 0 0 0 12 1.5Z" />
-            </svg>
-          </a>
-        </div>
       </div>
     </>
   );

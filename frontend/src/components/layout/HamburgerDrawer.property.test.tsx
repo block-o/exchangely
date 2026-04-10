@@ -14,11 +14,6 @@ import fc from "fast-check";
 import { useState, useRef } from "react";
 import { NavigationDrawer } from "./NavigationDrawer";
 
-// Mock the router module so NavigationDrawer can render without real routes
-vi.mock("../../app/router", () => ({
-  sections: [{ id: "market", label: "Market" }],
-}));
-
 /**
  * Small wrapper component that wires a hamburger button with aria-expanded
  * to the NavigationDrawer, mirroring the design's AppShell integration.
@@ -45,6 +40,10 @@ function HamburgerDrawerWrapper() {
         activeHash="#market"
         onNavigate={() => {}}
         hamburgerRef={hamburgerRef}
+        navItems={[{ id: "market", label: "Market" }]}
+        isAuthenticated={false}
+        user={null}
+        onLogout={() => {}}
       />
     </>
   );

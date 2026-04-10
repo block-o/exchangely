@@ -265,4 +265,3 @@ frontend/.vite/
 backend/bin/
 backend/server
 .cache
-.kiro

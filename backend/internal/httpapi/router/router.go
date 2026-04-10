@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/block-o/exchangely/backend/internal/domain/ticker"
 	"github.com/block-o/exchangely/backend/internal/httpapi/dto"
 	"github.com/block-o/exchangely/backend/internal/service"
 )
@@ -102,6 +103,7 @@ func New(svcs Services, opts Options) http.Handler {
 	})
 
 	// GET /api/v1/tickers/stream — Server-Sent Events (SSE) endpoint.
+	// Accepts an optional ?quote= query parameter to filter tickers by quote currency.
 	mux.HandleFunc("/api/v1/tickers/stream", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -113,10 +115,15 @@ func New(svcs Services, opts Options) http.Handler {
 			return
 		}
 
+		quoteFilter := strings.ToUpper(r.URL.Query().Get("quote"))
+
 		ctx := r.Context()
 		updates := svcs.Market.Subscribe()
 		defer svcs.Market.Unsubscribe(updates)
 		flusher.Flush()
+
+		// Track last emitted state per pair so we only send actual changes.
+		lastSent := make(map[string]ticker.Ticker)
 
 		for {
 			select {
@@ -130,11 +137,18 @@ func New(svcs Services, opts Options) http.Handler {
 
 				items := make([]any, 0, len(pairs))
 				for _, pairSymbol := range pairs {
+					if quoteFilter != "" && !strings.HasSuffix(pairSymbol, quoteFilter) {
+						continue
+					}
 					item, err := svcs.Market.Ticker(ctx, pairSymbol)
 					if err != nil {
 						slog.Warn("ticker delta load failed", "pair", pairSymbol, "error", err)
 						continue
 					}
+					if prev, ok := lastSent[pairSymbol]; ok && prev == item {
+						continue
+					}
+					lastSent[pairSymbol] = item
 					items = append(items, item)
 				}
 				if len(items) == 0 {
@@ -496,7 +510,15 @@ paths:
     get:
       tags: [Market]
       summary: Realtime ticker SSE stream
-      description: Streams delta ticker updates only. Each SSE event contains the freshest persisted ticker rows for the pairs that changed since the previous event; clients should bootstrap with /api/v1/tickers and then merge incoming deltas.
+      description: Streams delta ticker updates only. Each SSE event contains the freshest persisted ticker rows for the pairs that changed since the previous event; clients should bootstrap with /api/v1/tickers and then merge incoming deltas. Use the quote parameter to receive only pairs denominated in a specific currency.
+      parameters:
+        - name: quote
+          in: query
+          required: false
+          description: Filter tickers by quote currency (e.g. EUR, USD). When omitted all pairs are streamed.
+          schema:
+            type: string
+            enum: [EUR, USD]
       responses:
         "200":
           description: Server-Sent Events stream

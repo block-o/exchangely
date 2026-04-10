@@ -213,6 +213,14 @@ func (r *MarketRepository) Historical(ctx context.Context, pairSymbol, interval 
 		end = time.Now().UTC()
 	}
 
+	// For 1h queries we merge consolidated candles with raw_candles so that
+	// recently-ingested realtime data is visible even before the consolidation
+	// pipeline has run. raw_candles rows are only used for hour buckets that
+	// have no consolidated entry yet.
+	if interval == "1h" {
+		return r.historicalHourlyMerged(ctx, pairSymbol, start, end)
+	}
+
 	query := fmt.Sprintf(`
 		SELECT pair_symbol,
 		       EXTRACT(EPOCH FROM bucket_start)::BIGINT,
@@ -247,6 +255,94 @@ func (r *MarketRepository) Historical(ctx context.Context, pairSymbol, interval 
 	for rows.Next() {
 		var item candle.Candle
 		item.Interval = interval
+		if err := rows.Scan(
+			&item.Pair,
+			&item.Timestamp,
+			&item.Open,
+			&item.High,
+			&item.Low,
+			&item.Close,
+			&item.Volume,
+			&item.Source,
+			&item.Finalized,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	return items, rows.Err()
+}
+
+// historicalHourlyMerged returns 1h candles by unioning candles_1h with
+// raw_candles. For each hour bucket the consolidated row wins; raw_candles
+// fills gaps where consolidation hasn't run yet.
+func (r *MarketRepository) historicalHourlyMerged(ctx context.Context, pairSymbol string, start, end time.Time) ([]candle.Candle, error) {
+	query := `
+		WITH consolidated AS (
+			SELECT pair_symbol,
+			       bucket_start,
+			       open::DOUBLE PRECISION,
+			       high::DOUBLE PRECISION,
+			       low::DOUBLE PRECISION,
+			       close::DOUBLE PRECISION,
+			       volume::DOUBLE PRECISION,
+			       source,
+			       finalized
+			FROM candles_1h
+			WHERE pair_symbol = $1
+			  AND ($2::TIMESTAMPTZ IS NULL OR bucket_start >= $2)
+			  AND bucket_start <= $3
+		),
+		raw_hourly AS (
+			SELECT DISTINCT ON (date_trunc('hour', bucket_start))
+			       pair_symbol,
+			       date_trunc('hour', bucket_start) AS bucket_start,
+			       open::DOUBLE PRECISION,
+			       high::DOUBLE PRECISION,
+			       low::DOUBLE PRECISION,
+			       close::DOUBLE PRECISION,
+			       volume::DOUBLE PRECISION,
+			       source,
+			       finalized
+			FROM raw_candles
+			WHERE pair_symbol = $1
+			  AND interval = '1h'
+			  AND ($2::TIMESTAMPTZ IS NULL OR bucket_start >= $2)
+			  AND bucket_start <= $3
+			ORDER BY date_trunc('hour', bucket_start), updated_at DESC
+		)
+		SELECT pair_symbol,
+		       EXTRACT(EPOCH FROM bucket_start)::BIGINT,
+		       open, high, low, close, volume, source, finalized
+		FROM consolidated
+		UNION ALL
+		SELECT r.pair_symbol,
+		       EXTRACT(EPOCH FROM r.bucket_start)::BIGINT,
+		       r.open, r.high, r.low, r.close, r.volume, r.source, r.finalized
+		FROM raw_hourly r
+		LEFT JOIN consolidated c ON c.bucket_start = r.bucket_start
+		WHERE c.bucket_start IS NULL
+		ORDER BY 2
+	`
+
+	startArg := any(nil)
+	if !start.IsZero() {
+		startArg = start.UTC()
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, pairSymbol, startArg, end.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var items []candle.Candle
+	for rows.Next() {
+		var item candle.Candle
+		item.Interval = "1h"
 		if err := rows.Scan(
 			&item.Pair,
 			&item.Timestamp,

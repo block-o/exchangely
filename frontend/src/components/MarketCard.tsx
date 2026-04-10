@@ -14,7 +14,7 @@ export interface MarketCardProps {
   quoteCurrency: string;
 }
 
-const TREND_SCALE_PCT = 3;
+const MIN_TREND_SCALE_PCT = 0.5;
 
 function variationClass(value: number | undefined): string {
   if (value === undefined) return "";
@@ -42,6 +42,16 @@ function Sparkline({ candles }: { candles: Candle[] }) {
 
   const validCandles = plotted.filter((c): c is Candle => !!c);
   const referenceClose = validCandles.length > 0 ? validCandles[0].close : 0;
+
+  // Derive scale from actual data range so bars fill the chart.
+  let trendScale = MIN_TREND_SCALE_PCT;
+  if (referenceClose > 0 && validCandles.length > 1) {
+    const maxPct = validCandles.reduce(
+      (mx, cc) => Math.max(mx, Math.abs(((cc.close - referenceClose) / referenceClose) * 100)),
+      0,
+    );
+    if (maxPct > trendScale) trendScale = maxPct * 1.1; // 10 % headroom
+  }
 
   return (
     <div
@@ -77,11 +87,11 @@ function Sparkline({ candles }: { candles: Candle[] }) {
             ? ((c.close - referenceClose) / referenceClose) * 100
             : 0;
         const boundedPctChange = Math.max(
-          -TREND_SCALE_PCT,
-          Math.min(TREND_SCALE_PCT, pctChange)
+          -trendScale,
+          Math.min(trendScale, pctChange)
         );
         const heightPct =
-          ((boundedPctChange + TREND_SCALE_PCT) / (TREND_SCALE_PCT * 2)) * 100;
+          ((boundedPctChange + trendScale) / (trendScale * 2)) * 100;
 
         return (
           <div

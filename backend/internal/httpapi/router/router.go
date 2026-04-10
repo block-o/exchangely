@@ -13,8 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/block-o/exchangely/backend/internal/auth"
 	"github.com/block-o/exchangely/backend/internal/domain/ticker"
 	"github.com/block-o/exchangely/backend/internal/httpapi/dto"
+	"github.com/block-o/exchangely/backend/internal/httpapi/handlers"
+	"github.com/block-o/exchangely/backend/internal/httpapi/middleware"
 	"github.com/block-o/exchangely/backend/internal/service"
 )
 
@@ -23,10 +26,13 @@ type Services struct {
 	Market  *service.MarketService
 	System  *service.SystemService
 	News    *service.NewsService
+	Auth    *auth.Service // nil when auth is disabled
 }
 
 type Options struct {
 	AllowedOrigins []string
+	Env            string   // "development" or "production"
+	TrustedProxies []string // CIDR ranges or IPs whose X-Forwarded-For / X-Real-IP headers are trusted
 }
 
 func New(svcs Services, opts Options) http.Handler {
@@ -369,6 +375,24 @@ func New(svcs Services, opts Options) http.Handler {
 		serveSwaggerPage(w)
 	})
 
+	// Auth endpoints — only registered when auth is enabled.
+	if svcs.Auth != nil {
+		env := "production"
+		if opts.Env != "" {
+			env = opts.Env
+		}
+		authHandler := handlers.NewAuthHandler(svcs.Auth, env)
+
+		mux.HandleFunc("/api/v1/auth/google/login", authHandler.GoogleLogin)
+		mux.HandleFunc("/api/v1/auth/google/callback", authHandler.GoogleCallback)
+		mux.HandleFunc("/api/v1/auth/local/login", authHandler.LocalLogin)
+		mux.HandleFunc("/api/v1/auth/refresh", authHandler.Refresh)
+		mux.HandleFunc("/api/v1/auth/logout", authHandler.Logout)
+		mux.HandleFunc("/api/v1/auth/me", authHandler.Me)
+		mux.HandleFunc("/api/v1/auth/local/change-password", authHandler.ChangePassword)
+		mux.HandleFunc("/api/v1/auth/methods", authHandler.AuthMethods)
+	}
+
 	mux.HandleFunc("/swagger/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 		path := filepath.Join("..", "docs", "openapi", "openapi.yaml")
 		if _, err := os.Stat(path); err == nil {
@@ -384,7 +408,11 @@ func New(svcs Services, opts Options) http.Handler {
 		_, _ = w.Write([]byte(defaultOpenAPIYAML()))
 	})
 
-	return withAccessLog(withCORS(mux, opts.AllowedOrigins))
+	// Wrap with auth middleware. When svcs.Auth is nil (auth disabled),
+	// the middleware passes all requests through unchanged.
+	authMW := middleware.NewAuthMiddleware(svcs.Auth)
+	realIPMW := middleware.NewRealIPMiddleware(opts.TrustedProxies)
+	return withAccessLog(withCORS(realIPMW.Wrap(authMW.Wrap(mux)), opts.AllowedOrigins))
 }
 
 func serveSwaggerPage(w http.ResponseWriter) {
@@ -1045,7 +1073,8 @@ func withCORS(next http.Handler, allowedOrigins []string) http.Handler {
 		if allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 
 		if r.Method == http.MethodOptions {

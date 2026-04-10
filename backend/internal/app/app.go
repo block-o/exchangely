@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/block-o/exchangely/backend/internal/auth"
 	"github.com/block-o/exchangely/backend/internal/config"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
 	"github.com/block-o/exchangely/backend/internal/httpapi/router"
@@ -84,6 +85,34 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	coverageRepo := postgresrepo.NewCoverageRepository(db)
 
 	newsService := service.NewNewsService(newsRepo)
+
+	// Auth service — conditionally enabled when BACKEND_JWT_SECRET is set.
+	var authService *auth.Service
+	if cfg.JWTSecret != "" {
+		userRepo := postgresrepo.NewUserRepository(db)
+		sessionRepo := postgresrepo.NewSessionRepository(db)
+		authCfg := auth.Config{
+			GoogleClientID:     cfg.GoogleClientID,
+			GoogleClientSecret: cfg.GoogleClientSecret,
+			GoogleRedirectURI:  cfg.GoogleRedirectURI,
+			JWTSecret:          []byte(cfg.JWTSecret),
+			JWTExpiry:          cfg.JWTExpiry,
+			RefreshTokenExpiry: cfg.RefreshTokenExpiry,
+			BcryptCost:         cfg.BcryptCost,
+			AdminEmail:         cfg.AdminEmail,
+			Env:                cfg.Env,
+		}
+		authService = auth.NewService(userRepo, sessionRepo, authCfg)
+
+		if err := authService.BootstrapAdmin(ctx); err != nil {
+			slog.Error("admin bootstrap failed", "error", err)
+			// Non-fatal: the app can still run without the admin account.
+		}
+		slog.Info("auth enabled")
+	} else {
+		slog.Info("auth disabled — BACKEND_JWT_SECRET not set")
+	}
+
 	systemService := service.NewSystemService(
 		postgresrepo.NewHealthChecker(cfg.DatabaseURL),
 		kafka.NewHealthChecker(cfg.KafkaBrokers),
@@ -103,8 +132,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Market:  marketService,
 		System:  systemService,
 		News:    newsService,
+		Auth:    authService,
 	}, router.Options{
 		AllowedOrigins: cfg.CORSAllowedOrigins,
+		Env:            cfg.Env,
+		TrustedProxies: cfg.TrustedProxies,
 	})
 
 	taskPublisher := kafka.NewTaskPublisher(cfg.KafkaBrokers, cfg.KafkaTasksTopic)

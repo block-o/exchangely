@@ -3,28 +3,32 @@ import "@testing-library/jest-dom";
 import { describe, expect, it, vi } from "vitest";
 import { NavigationDrawer } from "./NavigationDrawer";
 
+const defaultNavItems = [
+  { id: "market", label: "Market" },
+  { id: "system", label: "Operations" },
+];
+
 const defaultProps = {
   isOpen: true,
   onClose: vi.fn(),
   activeHash: "#market",
   onNavigate: vi.fn(),
+  navItems: defaultNavItems,
 };
 
 function renderDrawer(overrides: Partial<typeof defaultProps> = {}) {
   const props = { ...defaultProps, ...overrides };
-  // Reset mocks between renders
   props.onClose.mockClear();
   props.onNavigate.mockClear();
   return render(<NavigationDrawer {...props} />);
 }
 
 describe("NavigationDrawer", () => {
-  it("renders all section links and API Docs", () => {
+  it("renders all section links", () => {
     renderDrawer();
 
     expect(screen.getByText("Market")).toBeInTheDocument();
     expect(screen.getByText("Operations")).toBeInTheDocument();
-    expect(screen.getByText("API Docs")).toBeInTheDocument();
   });
 
   it("calls onNavigate with correct hash and onClose when a section link is clicked", () => {

@@ -4,6 +4,18 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsProvider } from "../../app/settings";
 import { AppShell } from "./AppShell";
 
+// Mock useAuth to avoid needing a real AuthProvider
+vi.mock("../../app/auth", () => ({
+  useAuth: () => ({
+    user: null,
+    isAuthenticated: false,
+    isLoading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    refreshToken: vi.fn(),
+  }),
+}));
+
 type ChangeListener = (ev: MediaQueryListEvent) => void;
 
 function createMockMediaQueryList(matches: boolean) {
@@ -151,13 +163,15 @@ describe("AppShell responsive behavior", () => {
       expect(topNav).not.toHaveClass("mobile-only");
     });
 
-    it("renders Market and Operations nav items in both nav and drawer", () => {
+    it("renders Market nav item for unauthenticated users (Sign in is in identity pill)", () => {
       renderShell();
       expect(screen.getAllByText("Market").length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText("Operations").length).toBeGreaterThanOrEqual(1);
+      // Sign in is in the identity pill, not a nav pill
+      const gearBtn = screen.getAllByLabelText("Settings")[0];
+      expect(gearBtn).toBeInTheDocument();
     });
 
-    it("renders top-links (GitHub, Settings) visible", () => {
+    it("renders top-links (GitHub) visible", () => {
       const { container } = renderShell();
       const topLinks = container.querySelector(".top-links");
       expect(topLinks).toBeInTheDocument();

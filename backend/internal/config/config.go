@@ -51,6 +51,21 @@ type Config struct {
 	TickersCacheTTL time.Duration
 	// NewsFetchInterval defines how often the worker should fetch news from RSS feeds.
 	NewsFetchInterval time.Duration
+
+	// Auth configuration
+	GoogleClientID     string
+	GoogleClientSecret string
+	GoogleRedirectURI  string
+	JWTSecret          string
+	JWTExpiry          time.Duration
+	RefreshTokenExpiry time.Duration
+	AdminEmail         string
+	BcryptCost         int
+
+	// TrustedProxies is a comma-separated list of CIDR ranges or IP addresses
+	// whose X-Forwarded-For / X-Real-IP headers are trusted for extracting the
+	// original client IP. When empty, r.RemoteAddr is always used.
+	TrustedProxies []string
 }
 
 func Load() Config {
@@ -90,6 +105,15 @@ func Load() Config {
 		TickerCacheSize:           parseInt(getenv("BACKEND_TICKER_CACHE_SIZE", "100"), 100),
 		TickersCacheTTL:           parseDuration(getenv("BACKEND_TICKERS_CACHE_TTL", "30s")),
 		NewsFetchInterval:         parseDuration(getenv("BACKEND_NEWS_FETCH_INTERVAL", "5m")),
+		GoogleClientID:            getenv("BACKEND_GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret:        getenv("BACKEND_GOOGLE_CLIENT_SECRET", ""),
+		GoogleRedirectURI:         getenv("BACKEND_GOOGLE_REDIRECT_URI", "http://localhost:8080/api/v1/auth/google/callback"),
+		JWTSecret:                 getenv("BACKEND_JWT_SECRET", ""),
+		JWTExpiry:                 parseDuration(getenv("BACKEND_JWT_EXPIRY", "15m")),
+		RefreshTokenExpiry:        parseDuration(getenv("BACKEND_REFRESH_TOKEN_EXPIRY", "168h")),
+		AdminEmail:                getenv("BACKEND_ADMIN_EMAIL", ""),
+		BcryptCost:                parseInt(getenv("BACKEND_BCRYPT_COST", "12"), 12),
+		TrustedProxies:            splitCSV(getenv("BACKEND_TRUSTED_PROXIES", "")),
 	}
 }
 

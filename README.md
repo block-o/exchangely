@@ -32,9 +32,18 @@ Exchangely runs as a single Go binary (with a React static frontend on top) with
 flowchart LR
     User((User))
     User --> UI[React UI]
-    UI -->|REST| API
+    UI -->|REST + Bearer JWT| API
 
     API[API Role]
+    API --> AuthMW[Auth Middleware]
+    AuthMW -->|validate JWT| AuthSvc[Auth Service]
+    AuthMW -->|public routes| Handlers[Route Handlers]
+    AuthMW -->|protected routes| Handlers
+    AuthMW -->|admin-only routes| Handlers
+
+    AuthSvc -->|users + sessions| TS
+    AuthSvc -->|OAuth redirect/callback| Google[Google OAuth 2.0]
+
     API -->|read candles + tickers| TS
     API -.->|SSE: tickers| UI
     API -.->|SSE: news| UI
@@ -111,14 +120,14 @@ News are ingested from CoinDesk, Cointelegraph, and TheBlock RSS feeds.
 > [!NOTE]
 > There is no pre-built image to run the platform at this point. You must run build your own docker files.
 
-1. Copy `.env.example` to `.env` and adjust values if needed.
+1. Copy `.env.example` to `.env` and adjust values if needed
 2. Run `docker compose up --build`.
 3. Open the frontend at `http://localhost:5173`.
 4. Open the backend API at `http://localhost:8080/api/v1/health`.
 
 ### Configuration
 
-All backend settings are controlled via environment variables. Override them in `.env` or `docker-compose.yml`.
+All settings are controlled via environment variables. Override them in `.env` or `docker-compose.yml`.
 
 #### Core
 
@@ -198,3 +207,18 @@ All backend settings are controlled via environment variables. Override them in 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `VITE_API_BASE_URL` | Backend API base URL (build-time arg) | `http://localhost:8080/api/v1` |
+
+#### Authentication
+
+> [!NOTE]
+> You can find how to configure authentication in the [specific secction](./docs/authentication.md) of Exchangely docs
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `BACKEND_GOOGLE_CLIENT_ID` | Google OAuth 2.0 client ID. Empty disables Google login. | _(empty)_ |
+| `BACKEND_GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 client secret | _(empty)_ |
+| `BACKEND_GOOGLE_REDIRECT_URI` | OAuth callback URL | `http://localhost:8080/api/v1/auth/google/callback` |
+| `BACKEND_JWT_SECRET` | HMAC-SHA256 secret for signing access tokens. Empty disables all auth. | _(empty)_ |
+| `BACKEND_JWT_EXPIRY` | Access token lifetime | `15m` |
+| `BACKEND_REFRESH_TOKEN_EXPIRY` | Refresh token lifetime | `168h` (7 days) |
+| `BACKEND_ADMIN_EMAIL` | Email for the local admin account. Empty disables local admin. | _(empty)_ |

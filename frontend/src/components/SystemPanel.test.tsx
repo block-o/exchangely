@@ -241,18 +241,19 @@ describe("SystemPanel", () => {
     });
   });
 
-  it("switches to Audit tab and shows task tables with failure details", async () => {
+  it("switches to Audit tab and shows task log with failure details", async () => {
     render(<SystemPanel />);
 
     fireEvent.click(screen.getByRole("tab", { name: "Audit" }));
 
     await waitFor(() => {
-      expect(screen.getByText("ETHEUR")).toBeInTheDocument();
+      // The log viewer renders each task as a single line containing the pair and error
+      const logViewer = screen.getByRole("log");
+      expect(logViewer).toBeInTheDocument();
+      expect(logViewer.textContent).toContain("ETHEUR");
+      expect(logViewer.textContent).toContain("ERROR");
+      expect(logViewer.textContent).toContain("validator mismatch");
     });
-
-    const failedStatus = screen.getByLabelText("Failed: validator mismatch");
-    fireEvent.mouseEnter(failedStatus);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("validator mismatch");
   });
 
   it("syncs active tab to URL query param", () => {

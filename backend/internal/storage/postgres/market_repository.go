@@ -385,7 +385,7 @@ func tickerSnapshotQuery(filter string) string {
 			SELECT DISTINCT ON (pair_symbol)
 			       pair_symbol,
 			       close::DOUBLE PRECISION as raw_price,
-			       EXTRACT(EPOCH FROM bucket_start)::BIGINT as raw_unix,
+			       EXTRACT(EPOCH FROM updated_at)::BIGINT as raw_unix,
 			       source as raw_source
 			FROM raw_candles
 			WHERE interval = '1h'

@@ -168,4 +168,59 @@ describe("MarketCard", () => {
       expect(downElements.length).toBe(1);
     });
   });
+
+  describe("sparkline dynamic scaling", () => {
+    /** Build 24 consecutive hourly candles ending at `anchorUnix`. */
+    function buildCandles(anchorUnix: number, closes: number[]): Candle[] {
+      const currentHour = Math.floor(anchorUnix / 3600) * 3600;
+      return closes.map((close, i) => ({
+        pair: "BTCEUR",
+        interval: "1h",
+        timestamp: currentHour - (closes.length - 1 - i) * 3600,
+        open: close - 10,
+        high: close + 50,
+        low: close - 50,
+        close,
+        volume: 100,
+        source: "binance",
+        finalized: true,
+      }));
+    }
+
+    it("produces bars with varying heights when candle closes differ", () => {
+      const anchor = Math.floor(Date.now() / 1000);
+      // Simulate a clear upward trend: 60000 → 61200 over 24 hours (2% move)
+      const closes = Array.from({ length: 24 }, (_, i) => 60000 + i * 50);
+      const { container } = renderCard({ candles: buildCandles(anchor, closes) });
+
+      const bars = container.querySelectorAll<HTMLElement>(".chart-bar:not(.empty)");
+      expect(bars.length).toBe(24);
+
+      const heights = Array.from(bars).map((b) => parseFloat(b.style.height));
+      const first = heights[0];
+      const last = heights[heights.length - 1];
+      // With dynamic scaling the last bar should be noticeably taller than the first
+      expect(last).toBeGreaterThan(first + 10);
+    });
+
+    it("renders all bars at similar height when closes are identical (flat market)", () => {
+      const anchor = Math.floor(Date.now() / 1000);
+      const closes = Array.from({ length: 24 }, () => 60000);
+      const { container } = renderCard({ candles: buildCandles(anchor, closes) });
+
+      const bars = container.querySelectorAll<HTMLElement>(".chart-bar:not(.empty)");
+      expect(bars.length).toBe(24);
+
+      const heights = Array.from(bars).map((b) => parseFloat(b.style.height));
+      const unique = new Set(heights.map((h) => Math.round(h)));
+      // All bars should be roughly the same height (50 % midpoint)
+      expect(unique.size).toBeLessThanOrEqual(2);
+    });
+
+    it("renders empty placeholder bars when no candles are provided", () => {
+      const { container } = renderCard({ candles: [] });
+      const emptyBars = container.querySelectorAll(".chart-bar.empty");
+      expect(emptyBars.length).toBe(24);
+    });
+  });
 });

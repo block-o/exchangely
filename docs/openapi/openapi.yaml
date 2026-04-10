@@ -115,7 +115,15 @@ paths:
     get:
       tags: [Market]
       summary: Realtime ticker SSE stream
-      description: Streams delta ticker updates only. Each SSE event contains the freshest persisted ticker rows for the pairs that changed since the previous event; clients should bootstrap with /api/v1/tickers and then merge incoming deltas.
+      description: Streams delta ticker updates only. Each SSE event contains the freshest persisted ticker rows for the pairs that changed since the previous event; clients should bootstrap with /api/v1/tickers and then merge incoming deltas. Use the quote parameter to receive only pairs denominated in a specific currency.
+      parameters:
+        - name: quote
+          in: query
+          required: false
+          description: Filter tickers by quote currency (e.g. EUR, USD). When omitted all pairs are streamed.
+          schema:
+            type: string
+            enum: [EUR, USD]
       responses:
         "200":
           description: Server-Sent Events stream

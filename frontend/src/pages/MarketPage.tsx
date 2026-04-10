@@ -28,7 +28,11 @@ function parseTickerStreamPayload(payload: string): Ticker[] {
   return [];
 }
 
-const TREND_SCALE_PCT = 3;
+/** Minimum scale so flat data still renders visible bars. */
+const MIN_TREND_SCALE_PCT = 0.5;
+
+/** How often (ms) to re-fetch sparkline candles so the chart stays fresh. */
+const SPARKLINE_REFRESH_MS = 5 * 60 * 1000; // 5 minutes
 
 export function MarketPage() {
   const { quoteCurrency } = useSettings();
@@ -99,7 +103,7 @@ export function MarketPage() {
     loadExtras();
 
     // 3. Establish SSE Stream for realtime reactive webhooks
-    const es = new EventSource(import.meta.env.VITE_API_BASE_URL + "/tickers/stream");
+    const es = new EventSource(import.meta.env.VITE_API_BASE_URL + `/tickers/stream?quote=${quoteCurrency}`);
     es.onopen = () => {
       if (active) {
         setStreamConnected(true);
@@ -150,6 +154,37 @@ export function MarketPage() {
       active = false;
       es.close();
     };
+  }, [pairsData, quoteCurrency]);
+
+  // Periodically refresh sparkline candles so the trend chart stays current.
+  useEffect(() => {
+    if (!pairsData?.data) return;
+    let active = true;
+
+    const refreshCandles = async () => {
+      const items = pairsData.data.filter((p: Pair) => p.quote === quoteCurrency);
+      const sparklineEnd = Math.floor(Date.now() / 1000);
+      const sparklineStart = sparklineEnd - 24 * 3600;
+      const updated: Record<string, Candle[]> = {};
+
+      for (const pair of items) {
+        try {
+          const histRes = await fetchHistorical(pair.symbol, "1h", sparklineStart, sparklineEnd);
+          if (histRes?.data) {
+            updated[pair.symbol] = histRes.data.slice(-24);
+          }
+        } catch {
+          // keep previous candles on failure
+        }
+      }
+
+      if (active && Object.keys(updated).length > 0) {
+        setCandles(prev => ({ ...prev, ...updated }));
+      }
+    };
+
+    const id = setInterval(refreshCandles, SPARKLINE_REFRESH_MS);
+    return () => { active = false; clearInterval(id); };
   }, [pairsData, quoteCurrency]);
 
   const visiblePairs = useMemo(() => {
@@ -264,6 +299,13 @@ export function MarketPage() {
                               const validCandles = plotted.filter(c => !!c) as typeof hist;
                               const referenceClose = validCandles.length > 0 ? validCandles[0].close : 0;
 
+                              // Derive scale from actual data range so bars fill the chart.
+                              let trendScale = MIN_TREND_SCALE_PCT;
+                              if (referenceClose > 0 && validCandles.length > 1) {
+                                const maxPct = validCandles.reduce((mx, cc) => Math.max(mx, Math.abs(((cc.close - referenceClose) / referenceClose) * 100)), 0);
+                                if (maxPct > trendScale) trendScale = maxPct * 1.1; // 10 % headroom
+                              }
+
                               return plotted.map((c, i) => {
                                 if (!c) {
                                   return (
@@ -278,8 +320,8 @@ export function MarketPage() {
 
                                 const isUp = c.close >= c.open;
                                 const pctChange = referenceClose > 0 ? ((c.close - referenceClose) / referenceClose) * 100 : 0;
-                                const boundedPctChange = Math.max(-TREND_SCALE_PCT, Math.min(TREND_SCALE_PCT, pctChange));
-                                const heightPct = ((boundedPctChange + TREND_SCALE_PCT) / (TREND_SCALE_PCT * 2)) * 100;
+                                const boundedPctChange = Math.max(-trendScale, Math.min(trendScale, pctChange));
+                                const heightPct = ((boundedPctChange + trendScale) / (trendScale * 2)) * 100;
                                 return (
                                   <div 
                                     key={`val-${i}`} 

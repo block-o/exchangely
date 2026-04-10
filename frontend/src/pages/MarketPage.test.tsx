@@ -351,6 +351,122 @@ describe("MarketPage", () => {
     });
   });
 
+  it("refreshes sparkline candles on a periodic interval", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    vi.mocked(pairsApi.fetchPairs).mockResolvedValue({
+      data: [{ symbol: "BTCEUR", base: "BTC", quote: "EUR" }],
+    });
+
+    let fetchCount = 0;
+    vi.mocked(historicalApi.fetchHistorical).mockImplementation(async () => {
+      fetchCount++;
+      return { data: [] };
+    });
+
+    render(
+      <SettingsProvider>
+        <MarketPage />
+      </SettingsProvider>
+    );
+
+    // Wait for initial load (first fetchHistorical call)
+    await waitFor(() => {
+      expect(fetchCount).toBeGreaterThanOrEqual(1);
+    });
+
+    const initialCount = fetchCount;
+
+    // Advance past the 5-minute refresh interval
+    await act(async () => {
+      vi.advanceTimersByTime(5 * 60 * 1000 + 100);
+    });
+
+    await waitFor(() => {
+      expect(fetchCount).toBeGreaterThan(initialCount);
+    });
+
+    vi.useRealTimers();
+  });
+
+  it("uses dynamic scaling for sparkline bars in the table view", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const currentHour = Math.floor(now / 3600) * 3600;
+    // Build 24 candles with a clear upward trend (60000 → 61150)
+    const sparkCandles = Array.from({ length: 24 }, (_, i) => ({
+      pair: "BTCEUR",
+      interval: "1h",
+      timestamp: currentHour - (23 - i) * 3600,
+      open: 60000 + i * 50 - 10,
+      high: 60000 + i * 50 + 50,
+      low: 60000 + i * 50 - 50,
+      close: 60000 + i * 50,
+      volume: 100,
+      source: "binance",
+      finalized: true,
+    }));
+
+    vi.mocked(pairsApi.fetchPairs).mockResolvedValue({
+      data: [{ symbol: "BTCEUR", base: "BTC", quote: "EUR" }],
+    });
+    vi.mocked(historicalApi.fetchHistorical).mockResolvedValue({ data: sparkCandles });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/assets")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              data: [{ symbol: "BTC", name: "Bitcoin", type: "crypto" }],
+            }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [{
+              pair: "BTCEUR",
+              price: 61150,
+              market_cap: 1_200_000_000_000,
+              variation_1h: 0.1,
+              variation_24h: 1.9,
+              variation_7d: 3.0,
+              volume_24h: 500000,
+              high_24h: 61200,
+              low_24h: 60000,
+              source: "mock",
+              last_update_unix: now,
+            }],
+          }),
+        });
+      })
+    );
+
+    const { container } = render(
+      <SettingsProvider>
+        <MarketPage />
+      </SettingsProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Bitcoin")).toBeInTheDocument();
+    });
+
+    // Wait for candles to load and bars to render
+    await waitFor(() => {
+      const bars = container.querySelectorAll<HTMLElement>(".chart-bar:not(.empty)");
+      expect(bars.length).toBe(24);
+    });
+
+    const bars = container.querySelectorAll<HTMLElement>(".chart-bar:not(.empty)");
+    const heights = Array.from(bars).map((b) => parseFloat(b.style.height));
+    const first = heights[0];
+    const last = heights[heights.length - 1];
+    // Dynamic scaling should produce visible height differences for a trending market
+    expect(last).toBeGreaterThan(first + 10);
+  });
+
   it("renders the news ticker above the market panel", async () => {
     vi.mocked(pairsApi.fetchPairs).mockResolvedValue({
       data: [{ symbol: "BTCEUR", base: "BTC", quote: "EUR" }],

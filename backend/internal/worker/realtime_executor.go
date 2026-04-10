@@ -68,7 +68,7 @@ func (e *RealtimeExecutor) Execute(ctx context.Context, item task.Task) error {
 
 	// When the Kafka path is used, candles is nil — progress still needs recording.
 	if len(candles) > 0 {
-		if err := e.candles.UpsertCandles(ctx, item.Interval, candles); err != nil {
+		if err := e.candles.UpsertCandles(ctx, "1h", candles); err != nil {
 			return err
 		}
 		if e.notifier != nil {
@@ -112,16 +112,16 @@ func (e *RealtimeExecutor) publishRealtime(ctx context.Context, item task.Task) 
 		return nil, nil
 	}
 
-	if err := e.candles.UpsertRawCandles(ctx, item.Interval, sourceCandles); err != nil {
+	if err := e.candles.UpsertRawCandles(ctx, "1h", sourceCandles); err != nil {
 		return nil, err
 	}
 
-	rawCandles, err := e.candles.RawCandles(ctx, item.Pair, item.Interval, item.WindowStart, item.WindowEnd)
+	rawCandles, err := e.candles.RawCandles(ctx, item.Pair, "1h", item.WindowStart, item.WindowEnd)
 	if err != nil {
 		return nil, err
 	}
 
-	return consolidate.FromRaw(item.Interval, rawCandles)
+	return consolidate.FromRaw("1h", rawCandles)
 }
 
 func (e *RealtimeExecutor) fetchSourceCandles(ctx context.Context, item task.Task) ([]candle.Candle, error) {

@@ -65,6 +65,7 @@ func (r *TaskRepository) Enqueue(ctx context.Context, tasks []task.Task) ([]task
 			    completed_at = NULL,
 			    updated_at = NOW()
 			WHERE tasks.status IN ('completed', 'failed')
+			   OR (tasks.status = 'running' AND tasks.task_type = 'live_ticker' AND tasks.claimed_at < NOW() - INTERVAL '30 seconds')
 		`, item.ID, item.Type, item.Pair, item.Interval, item.WindowStart.UTC(), item.WindowEnd.UTC(), item.Description)
 		if err != nil {
 			return nil, err

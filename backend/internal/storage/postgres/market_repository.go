@@ -472,6 +472,7 @@ func tickerSnapshotQuery(filter string) string {
 			SELECT DISTINCT ON (pair_symbol)
 			       pair_symbol,
 			       close::DOUBLE PRECISION as hourly_price,
+			       bucket_start as hourly_bucket,
 			       EXTRACT(EPOCH FROM bucket_start)::BIGINT as hourly_unix,
 			       source as hourly_source
 			FROM candles_1h
@@ -481,6 +482,7 @@ func tickerSnapshotQuery(filter string) string {
 			SELECT DISTINCT ON (pair_symbol)
 			       pair_symbol,
 			       close::DOUBLE PRECISION as raw_price,
+			       bucket_start as raw_bucket,
 			       EXTRACT(EPOCH FROM updated_at)::BIGINT as raw_unix,
 			       source as raw_source
 			FROM raw_candles
@@ -490,15 +492,15 @@ func tickerSnapshotQuery(filter string) string {
 		latest AS (
 			SELECT COALESCE(h.pair_symbol, r.pair_symbol) as pair_symbol,
 			       CASE
-			           WHEN r.raw_unix IS NOT NULL AND (h.hourly_unix IS NULL OR r.raw_unix > h.hourly_unix) THEN r.raw_price
+			           WHEN r.raw_bucket IS NOT NULL AND (h.hourly_bucket IS NULL OR r.raw_bucket > h.hourly_bucket) THEN r.raw_price
 			           ELSE h.hourly_price
 			       END as price,
 			       CASE
-			           WHEN r.raw_unix IS NOT NULL AND (h.hourly_unix IS NULL OR r.raw_unix > h.hourly_unix) THEN r.raw_unix
+			           WHEN r.raw_bucket IS NOT NULL AND (h.hourly_bucket IS NULL OR r.raw_bucket > h.hourly_bucket) THEN r.raw_unix
 			           ELSE h.hourly_unix
 			       END as last_unix,
 			       CASE
-			           WHEN r.raw_unix IS NOT NULL AND (h.hourly_unix IS NULL OR r.raw_unix > h.hourly_unix) THEN r.raw_source
+			           WHEN r.raw_bucket IS NOT NULL AND (h.hourly_bucket IS NULL OR r.raw_bucket > h.hourly_bucket) THEN r.raw_source
 			           ELSE h.hourly_source
 			       END as source
 			FROM latest_hourly h

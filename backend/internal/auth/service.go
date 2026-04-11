@@ -586,8 +586,15 @@ func (s *Service) createSession(ctx context.Context, userID uuid.UUID, userAgent
 }
 
 // hashToken returns the hex-encoded SHA-256 hash of a raw token string.
+//
+// SHA-256 is intentional here — this hashes high-entropy, cryptographically
+// random API tokens and refresh tokens (32 bytes from crypto/rand), NOT
+// user-chosen passwords. Passwords use bcrypt (see BootstrapAdmin,
+// ChangePassword). For random tokens, SHA-256 is the industry standard
+// (GitHub, Stripe, AWS) because the input is already infeasible to brute-force
+// and a slow KDF would add unnecessary latency to every authenticated request.
 func hashToken(raw string) string {
-	h := sha256.Sum256([]byte(raw))
+	h := sha256.Sum256([]byte(raw)) // #nosec G401 -- not password hashing; see comment above
 	return hex.EncodeToString(h[:])
 }
 

@@ -13,8 +13,6 @@ import (
 // 15-minute window, the rate limiter SHALL block subsequent attempts. Fewer
 // than 5 failed attempts SHALL be allowed. A successful login SHALL reset
 // the counter.
-//
-// **Validates: Requirements 12.2**
 func TestPropertyRateLimitingEnforcesThreshold(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		const maxAttempts = 5
@@ -58,8 +56,6 @@ func TestPropertyRateLimitingEnforcesThreshold(t *testing.T) {
 
 // TestPropertyRateLimitingResetClearsCounter verifies that a successful login
 // (Reset) clears the failure counter, allowing new attempts.
-//
-// **Validates: Requirements 12.2**
 func TestPropertyRateLimitingResetClearsCounter(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		const maxAttempts = 5
@@ -100,8 +96,6 @@ func TestPropertyRateLimitingResetClearsCounter(t *testing.T) {
 
 // TestPropertyRateLimitingIsolatesEmails verifies that rate limiting for one
 // email does not affect a different email.
-//
-// **Validates: Requirements 12.2**
 func TestPropertyRateLimitingIsolatesEmails(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		const maxAttempts = 5
@@ -134,14 +128,8 @@ func TestPropertyRateLimitingIsolatesEmails(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// IP-based rate limiting property tests (fail2ban style)
-// =============================================================================
-
 // TestPropertyIPRateLimitingEnforcesThreshold verifies that the IP-based rate
 // limiter blocks IPs after 20 failed attempts within the window.
-//
-// **Validates: Requirements 12.2**
 func TestPropertyIPRateLimitingEnforcesThreshold(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		const maxEmailAttempts = 5
@@ -184,8 +172,6 @@ func TestPropertyIPRateLimitingEnforcesThreshold(t *testing.T) {
 // TestPropertyIPRateLimitingProgressiveLockout verifies that progressive lockout
 // tiers are applied correctly: 20 failures → tier 0 (15m), 40 → tier 1 (30m),
 // 60 → tier 2 (1h).
-//
-// **Validates: Requirements 12.2**
 func TestPropertyIPRateLimitingProgressiveLockout(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		const maxEmailAttempts = 5
@@ -291,8 +277,6 @@ func TestPropertyIPRateLimitingProgressiveLockout(t *testing.T) {
 
 // TestPropertyIPRateLimitingIsolatesIPs verifies that rate limiting for one IP
 // does not affect a different IP.
-//
-// **Validates: Requirements 12.2**
 func TestPropertyIPRateLimitingIsolatesIPs(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		const maxEmailAttempts = 5
@@ -322,8 +306,6 @@ func TestPropertyIPRateLimitingIsolatesIPs(t *testing.T) {
 
 // TestPropertyIPRateLimitingResetClearsState verifies that ResetIP clears all
 // failed attempts and any active ban for an IP.
-//
-// **Validates: Requirements 12.2**
 func TestPropertyIPRateLimitingResetClearsState(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		const maxEmailAttempts = 5

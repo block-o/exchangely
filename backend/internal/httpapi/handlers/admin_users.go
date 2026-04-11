@@ -254,8 +254,6 @@ func (h *AdminUserHandler) ForcePasswordReset(w http.ResponseWriter, r *http.Req
 	h.writeJSON(w, http.StatusOK, user)
 }
 
-// --- Internal helpers ---
-
 // getIntParam extracts an integer query parameter with a default value.
 func getIntParam(r *http.Request, name string, defaultVal int) int {
 	val := r.URL.Query().Get(name)

@@ -258,8 +258,6 @@ var errSimulatedDB = context.DeadlineExceeded
 
 // TestPremiumRoleRateLimitTier verifies that premium role users receive premium
 // tier rate limits and that role changes apply new tier limits on next request.
-//
-// **Validates: Requirements 10.1, 10.2, 10.3**
 func TestPremiumRoleRateLimitTier(t *testing.T) {
 	cfg := APIRateLimitConfig{
 		UserLimit:    100,
@@ -300,8 +298,6 @@ func TestPremiumRoleRateLimitTier(t *testing.T) {
 
 // TestRoleChangeAppliesNewTierLimit verifies that when a user's role changes,
 // the new tier limit is applied on the next request without requiring a server restart.
-//
-// **Validates: Requirements 10.3**
 func TestRoleChangeAppliesNewTierLimit(t *testing.T) {
 	cfg := APIRateLimitConfig{
 		UserLimit:    100,

@@ -18,8 +18,6 @@ import (
 // that search term should return only users whose email or name contains the
 // search string (case-insensitive), and no matching user should be excluded
 // from the results.
-//
-// **Validates: Requirements 2.2**
 func TestPropertySearchFilterReturnsOnlyMatchingUsers(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ctx := context.Background()
@@ -118,8 +116,6 @@ func TestPropertySearchFilterReturnsOnlyMatchingUsers(t *testing.T) {
 // For any set of users with mixed roles and any valid role value (user, premium,
 // admin), listing users filtered by that role should return only users whose role
 // matches exactly, and no matching user should be excluded.
-//
-// **Validates: Requirements 2.3**
 func TestPropertyRoleFilterReturnsOnlyUsersWithSpecifiedRole(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ctx := context.Background()
@@ -185,8 +181,6 @@ func TestPropertyRoleFilterReturnsOnlyUsersWithSpecifiedRole(t *testing.T) {
 // should return only users where disabled=false, and listing with status=disabled
 // should return only users where disabled=true. In both cases, no matching user
 // should be excluded.
-//
-// **Validates: Requirements 2.4, 2.5**
 func TestPropertyStatusFilterReturnsOnlyUsersMatchingDisabledState(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ctx := context.Background()
@@ -259,8 +253,6 @@ func TestPropertyStatusFilterReturnsOnlyUsersMatchingDisabledState(t *testing.T)
 // every returned user should include all required fields (id, email, name,
 // avatar_url, role, has_google, has_password, disabled, must_change_password,
 // created_at, updated_at).
-//
-// **Validates: Requirements 2.6, 2.7, 2.8**
 func TestPropertyPaginationReturnsCorrectSliceAndTotalCount(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ctx := context.Background()
@@ -480,8 +472,6 @@ func TestPropertyPaginationReturnsCorrectSliceAndTotalCount(t *testing.T) {
 // For any user and any valid role value (user, premium, admin), updating the
 // user's role should result in the returned user record having the new role,
 // and a subsequent fetch of that user should confirm the role was persisted.
-//
-// **Validates: Requirements 4.2**
 func TestPropertyValidRoleUpdatePersistsNewRole(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ctx := context.Background()
@@ -546,8 +536,6 @@ func TestPropertyValidRoleUpdatePersistsNewRole(t *testing.T) {
 // For any string that is not one of user, premium, or admin, attempting to
 // update a user's role to that value should return an error and leave the
 // user's role unchanged.
-//
-// **Validates: Requirements 4.3**
 func TestPropertyInvalidRoleValuesAreRejected(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ctx := context.Background()
@@ -621,8 +609,6 @@ func TestPropertyInvalidRoleValuesAreRejected(t *testing.T) {
 // disabled=true, and subsequently re-enabling should result in disabled=false.
 // The user's other fields (role, email, name, etc.) should remain unchanged
 // through both operations.
-//
-// **Validates: Requirements 5.2, 5.3**
 func TestPropertyDisableThenReEnableRestoresOriginalState(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ctx := context.Background()
@@ -705,8 +691,6 @@ func TestPropertyDisableThenReEnableRestoresOriginalState(t *testing.T) {
 // For any user with one or more active sessions, disabling that user should
 // result in all sessions for that user being deleted. A subsequent session
 // lookup for that user should return zero results.
-//
-// **Validates: Requirements 5.5**
 func TestPropertyDisablingUserInvalidatesAllSessions(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ctx := context.Background()
@@ -777,8 +761,6 @@ func TestPropertyDisablingUserInvalidatesAllSessions(t *testing.T) {
 // force-password-reset should result in must_change_password=true on the
 // returned user record, and a subsequent fetch should confirm the flag was
 // persisted.
-//
-// **Validates: Requirements 6.2**
 func TestPropertyForcePasswordResetSetsFlag(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ctx := context.Background()

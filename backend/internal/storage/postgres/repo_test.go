@@ -349,10 +349,6 @@ func TestMarketRepositoryTickerVolume24HPrefersNativeSnapshot(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Enqueue dedup — realtime task at-most-once guarantee
-// ---------------------------------------------------------------------------
-
 // TestEnqueueRealtimeDedup verifies the at-most-one-per-pair guarantee:
 //  1. First enqueue inserts the task (pending).
 //  2. Second enqueue while pending is a no-op (not re-enqueued).
@@ -539,10 +535,6 @@ func assertTaskStatus(t *testing.T, db *sql.DB, taskID, expected string) {
 		t.Fatalf("expected task %q status %q, got %q", taskID, expected, status)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Ticker query — stale data exclusion
-// ---------------------------------------------------------------------------
 
 // TestTickerExcludesStaleData verifies that the ticker snapshot query only
 // considers candles within the last 30 days. A pair with only old data (>30d)

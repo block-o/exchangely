@@ -181,7 +181,7 @@ func normalizeTimestamp(value int64) int64 {
 	}
 }
 
-// --- Availability graph types and helpers ---
+// Availability graph types and helpers
 
 type availabilityGraph struct {
 	// entries maps "SYMBOL:TIMEFRAME" -> []availabilityEntry sorted by provider priority

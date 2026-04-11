@@ -17,8 +17,11 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+          cache: true
+          cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install dependencies
         run: make frontend-deps
       - name: Checking types

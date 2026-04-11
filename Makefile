@@ -36,16 +36,16 @@ backend-check:
 	$(MAKE) backend-test
 
 frontend-deps:
-	cd frontend && npm ci
+	cd frontend && pnpm install --frozen-lockfile
 
 frontend-typecheck:
-	cd frontend && npm run typecheck
+	cd frontend && pnpm run typecheck
 
 frontend-build:
-	cd frontend && npm run build
+	cd frontend && pnpm run build
 
 frontend-test:
-	cd frontend && npm test
+	cd frontend && pnpm test
 
 frontend-check:
 	$(MAKE) frontend-typecheck

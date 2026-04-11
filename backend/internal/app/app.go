@@ -53,6 +53,14 @@ type sourceSet struct {
 }
 
 func New(ctx context.Context, cfg config.Config) (*App, error) {
+	// Validate auth configuration before proceeding.
+	if errs := cfg.ValidateAuthConfig(); len(errs) > 0 {
+		for _, e := range errs {
+			slog.Error("auth config error", "error", e)
+		}
+		return nil, fmt.Errorf("invalid auth configuration: %s", strings.Join(errs, "; "))
+	}
+
 	instanceID, _ := os.Hostname()
 	if instanceID == "" {
 		instanceID = "exchangely-local"
@@ -86,12 +94,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	newsService := service.NewNewsService(newsRepo)
 
-	// Auth service — conditionally enabled when BACKEND_JWT_SECRET is set.
+	// Auth service — conditionally enabled when BACKEND_AUTH_MODE is set.
 	var authService *auth.Service
-	if cfg.JWTSecret != "" {
+	if cfg.AuthEnabled() {
 		userRepo := postgresrepo.NewUserRepository(db)
 		sessionRepo := postgresrepo.NewSessionRepository(db)
 		authCfg := auth.Config{
+			AuthMode:           cfg.AuthMode,
 			GoogleClientID:     cfg.GoogleClientID,
 			GoogleClientSecret: cfg.GoogleClientSecret,
 			GoogleRedirectURI:  cfg.GoogleRedirectURI,
@@ -104,13 +113,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		}
 		authService = auth.NewService(userRepo, sessionRepo, authCfg)
 
-		if err := authService.BootstrapAdmin(ctx); err != nil {
-			slog.Error("admin bootstrap failed", "error", err)
-			// Non-fatal: the app can still run without the admin account.
+		if cfg.AuthModeHasLocal() {
+			if err := authService.BootstrapAdmin(ctx); err != nil {
+				slog.Error("admin bootstrap failed", "error", err)
+				// Non-fatal: the app can still run without the admin account.
+			}
 		}
-		slog.Info("auth enabled")
+		slog.Info("auth enabled", "mode", cfg.AuthMode)
 	} else {
-		slog.Info("auth disabled — BACKEND_JWT_SECRET not set")
+		slog.Info("auth disabled — BACKEND_AUTH_MODE not set")
 	}
 
 	systemService := service.NewSystemService(
@@ -136,7 +147,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}, router.Options{
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 		Env:            cfg.Env,
+		AuthMode:       cfg.AuthMode,
 		TrustedProxies: cfg.TrustedProxies,
+		APIBaseURL:     cfg.APIBaseURL,
 	})
 
 	taskPublisher := kafka.NewTaskPublisher(cfg.KafkaBrokers, cfg.KafkaTasksTopic)

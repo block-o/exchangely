@@ -8,16 +8,21 @@ import {
 } from "react";
 import {
   API_BASE_URL,
+  apiGet,
   authGet,
   refreshAccessToken,
   setAccessToken,
 } from "../api/client";
-import type { User } from "../types/auth";
+import type { AppConfig, AuthMethods, User } from "../types/auth";
 
 type AuthContextValue = {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  /** True when the backend has auth enabled (BACKEND_AUTH_MODE is set). */
+  authEnabled: boolean;
+  /** Which login methods the backend exposes. Null until config is fetched. */
+  authMethods: AuthMethods | null;
   login: () => void;
   logout: () => Promise<void>;
   refreshToken: () => Promise<boolean>;
@@ -28,13 +33,16 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 /**
  * AuthProvider manages authentication state for the entire app.
  *
- * On mount it attempts a silent refresh via the httpOnly refresh-token cookie.
- * While the refresh is in flight a loading state is exposed so the UI can show
- * a spinner instead of flashing the login page.
+ * On mount it fetches /api/v1/config to determine whether auth is enabled and
+ * which methods are available. If auth is enabled it attempts a silent refresh
+ * via the httpOnly refresh-token cookie. While the init is in flight a loading
+ * state is exposed so the UI can show a spinner instead of flashing the login page.
  */
 export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [authEnabled, setAuthEnabled] = useState(true);
+  const [authMethods, setAuthMethods] = useState<AuthMethods | null>(null);
 
   /** Fetch the current user profile from /auth/me. */
   const fetchUser = useCallback(async (): Promise<User | null> => {
@@ -87,11 +95,32 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setUser(null);
   }, []);
 
-  // On mount, attempt silent refresh to restore session.
+  // On mount, fetch /config and optionally attempt silent refresh.
   useEffect(() => {
     let cancelled = false;
 
     async function init() {
+      // Fetch backend config to determine auth state.
+      let config: AppConfig | null = null;
+      try {
+        config = await apiGet<AppConfig>("/config");
+      } catch {
+        // Config endpoint unavailable — assume auth disabled.
+      }
+
+      if (cancelled) return;
+
+      if (!config || !config.auth_enabled) {
+        setAuthEnabled(false);
+        setAuthMethods(config?.auth_methods ?? null);
+        setIsLoading(false);
+        return;
+      }
+
+      setAuthEnabled(true);
+      setAuthMethods(config.auth_methods);
+
+      // Auth is enabled — attempt silent refresh.
       try {
         const token = await refreshAccessToken();
         if (cancelled) return;
@@ -122,6 +151,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     user,
     isAuthenticated: user !== null,
     isLoading,
+    authEnabled,
+    authMethods,
     login,
     logout,
     refreshToken,

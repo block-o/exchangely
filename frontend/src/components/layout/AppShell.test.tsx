@@ -8,6 +8,8 @@ let mockAuthValue = {
   user: null as any,
   isAuthenticated: false,
   isLoading: false,
+  authEnabled: true,
+  authMethods: null as any,
   login: vi.fn(),
   logout: vi.fn().mockResolvedValue(undefined),
   refreshToken: vi.fn(),
@@ -52,6 +54,8 @@ describe("AppShell", () => {
       user: null,
       isAuthenticated: false,
       isLoading: false,
+      authEnabled: true,
+      authMethods: null,
       login: vi.fn(),
       logout: vi.fn().mockResolvedValue(undefined),
       refreshToken: vi.fn(),
@@ -141,6 +145,8 @@ describe("AppShell", () => {
         },
         isAuthenticated: true,
         isLoading: false,
+        authEnabled: true,
+        authMethods: { google: true, local: true },
         login: vi.fn(),
         logout: vi.fn().mockResolvedValue(undefined),
         refreshToken: vi.fn(),
@@ -193,6 +199,8 @@ describe("AppShell", () => {
         },
         isAuthenticated: true,
         isLoading: false,
+        authEnabled: true,
+        authMethods: { google: true, local: true },
         login: vi.fn(),
         logout: vi.fn().mockResolvedValue(undefined),
         refreshToken: vi.fn(),
@@ -214,6 +222,35 @@ describe("AppShell", () => {
       const navLinks = topNav!.querySelectorAll(".nav-item");
       const labels = Array.from(navLinks).map((el) => el.textContent);
       expect(labels).not.toContain("Operations");
+    });
+  });
+
+  describe("auth disabled", () => {
+    beforeEach(() => {
+      mockAuthValue = {
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+        authEnabled: false,
+        authMethods: null,
+        login: vi.fn(),
+        logout: vi.fn().mockResolvedValue(undefined),
+        refreshToken: vi.fn(),
+      };
+    });
+
+    it("shows Operations in the top nav when auth is disabled", () => {
+      const { container } = renderShell();
+      const topNav = container.querySelector(".top-nav");
+      const navLinks = topNav!.querySelectorAll(".nav-item");
+      const labels = Array.from(navLinks).map((el) => el.textContent);
+      expect(labels).toContain("Operations");
+    });
+
+    it("does not show Sign in link when auth is disabled", () => {
+      renderShell();
+      const signInLinks = screen.queryAllByRole("link", { name: "Sign in" });
+      expect(signInLinks).toHaveLength(0);
     });
   });
 });

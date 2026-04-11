@@ -261,12 +261,6 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// AuthMethods returns which authentication methods are currently enabled.
-func (h *AuthHandler) AuthMethods(w http.ResponseWriter, r *http.Request) {
-	h.setSecurityHeaders(w)
-	h.writeJSON(w, http.StatusOK, h.service.AuthMethods())
-}
-
 // --- Internal helpers ---
 
 // setSecurityHeaders sets the required security headers on auth responses.

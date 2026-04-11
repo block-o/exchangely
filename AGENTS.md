@@ -44,7 +44,7 @@ These are non-negotiable unless the user explicitly changes the architecture.
 - Prefer SSE for live UI updates when a stream already exists. Do not replace stream-driven flows with aggressive polling.
 - The backend is intentionally one binary with role gating. Preserve that unless a deliberate architecture change is requested.
 - Keep the project educational and local-first. Do not quietly harden it toward production assumptions without discussing the tradeoff.
-- Auth is opt-in via graceful degradation. When `BACKEND_JWT_SECRET` is empty, the auth middleware is bypassed and all endpoints are publicly accessible (matching pre-auth behavior). When `BACKEND_GOOGLE_CLIENT_ID` is empty, only local admin login is available. When `BACKEND_ADMIN_EMAIL` is empty, local admin is disabled. The app always starts regardless of auth configuration.
+- Auth is opt-in via `BACKEND_AUTH_MODE`. When empty, the auth middleware is bypassed and all endpoints are publicly accessible (matching pre-auth behavior). Valid modes are `local` (email/password only), `sso` (Google OAuth only), and `local,sso` (both). The backend validates that required variables are present for the chosen mode at startup and refuses to start if any are missing. When `BACKEND_AUTH_MODE` includes `sso` but `BACKEND_GOOGLE_CLIENT_ID` is empty, startup fails. When it includes `local` but `BACKEND_ADMIN_EMAIL` is empty, startup fails. `BACKEND_JWT_SECRET` is always required when any auth mode is set.
 - When running behind a reverse proxy (nginx, Caddy, ALB, etc.), set `BACKEND_TRUSTED_PROXIES` to a comma-separated list of proxy CIDR ranges or IPs so that `X-Forwarded-For` / `X-Real-IP` headers are trusted for resolving the real client IP. This affects rate limiting, audit logging, and fail2ban-style IP blocking.
 
 ---
@@ -106,7 +106,6 @@ Default quote assets: `EUR` and `USD`.
 - `GET /api/v1/system/sync-status`
 - `GET /api/v1/system/tasks`
 - `GET /api/v1/system/tasks/stream` (SSE)
-- `GET /api/v1/system/version`
 - `GET /api/v1/news`
 - `GET /api/v1/news/stream` (SSE)
 - `GET /api/v1/auth/google/login` (OAuth redirect)
@@ -116,9 +115,9 @@ Default quote assets: `EUR` and `USD`.
 - `POST /api/v1/auth/logout` (session invalidation)
 - `GET /api/v1/auth/me` (authenticated user profile)
 - `POST /api/v1/auth/local/change-password` (password update)
-- `GET /api/v1/auth/methods` (enabled auth methods)
+- `GET /api/v1/config` (frontend-facing app configuration: auth state, version)
 
-When changing API behavior, update `docs/openapi/openapi.yaml` if the contract changes materially.
+When changing API behavior, update `router.go:defaultOpenAPIYAML()` if the contract changes materially.
 
 ### DevOps
 - GitHub Actions CI (Go 1.24 + Node.js 24)
@@ -176,8 +175,7 @@ Key implementation files:
 - `frontend/src/pages/LoginPage.tsx`: login page.
 - `frontend/src/pages/SettingsPage.tsx`: settings page.
 - `frontend/src/pages/PasswordChangePage.tsx`: password change page.
-- `docs/openapi/openapi.yaml`: API contract documentation.
-- `docs/ui/market_dashboard.png`: current dashboard reference image.
+- `market_dashboard.png`: current dashboard reference image.
 
 ---
 

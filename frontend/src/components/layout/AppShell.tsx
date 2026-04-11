@@ -19,9 +19,11 @@ function getApiDocsUrl() {
 }
 
 /** Build the visible nav items based on auth state. */
-function getNavItems(isAuthenticated: boolean, role: string | undefined) {
+function getNavItems(isAuthenticated: boolean, role: string | undefined, authEnabled: boolean) {
   const items: { id: string; label: string }[] = [{ id: "market", label: "Market" }];
-  if (isAuthenticated && role === "admin") {
+  // Show Operations when auth is disabled (everyone has full access)
+  // or when the authenticated user is an admin.
+  if (!authEnabled || (isAuthenticated && role === "admin")) {
     items.push({ id: "system", label: "Operations" });
   }
   return items;
@@ -84,7 +86,7 @@ function SettingsControls({ theme, setTheme, quoteCurrency, setQuoteCurrency }: 
 }
 
 export function AppShell({ children }: PropsWithChildren) {
-  const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, authEnabled, logout } = useAuth();
   const { theme, setTheme, quoteCurrency, setQuoteCurrency } = useSettings();
   const [activeHash, setActiveHash] = useState("");
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -95,7 +97,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const pages = Children.toArray(children);
   const apiDocsUrl = getApiDocsUrl();
 
-  const navItems = getNavItems(isAuthenticated, user?.role);
+  const navItems = getNavItems(isAuthenticated, user?.role, authEnabled);
 
   const handleNavigate = useCallback((hash: string) => {
     window.location.hash = hash;
@@ -203,11 +205,11 @@ export function AppShell({ children }: PropsWithChildren) {
                 <a href="#settings" className="identity-pill-label" aria-label="Profile">
                   {user.name || user.email}
                 </a>
-              ) : (
+              ) : authEnabled ? (
                 <a href="#login" className="identity-pill-label" aria-label="Sign in">
                   Sign in
                 </a>
-              )}
+              ) : null}
               <button
                 className="identity-pill-gear"
                 onClick={() => setIsGearDropdownOpen((prev) => !prev)}
@@ -293,14 +295,14 @@ export function AppShell({ children }: PropsWithChildren) {
                       Logout
                     </button>
                   </div>
-                ) : (
+                ) : authEnabled ? (
                   <div className="gear-dropdown-guest">
                     <span className="guest-nudge-hint">Sign in for alerts and more.</span>
                     <a href="#login" className="guest-signin-btn" role="menuitem" onClick={() => setIsGearDropdownOpen(false)}>
                       Sign in
                     </a>
                   </div>
-                )}
+                ) : null}
               </div>
             )}
           </div>

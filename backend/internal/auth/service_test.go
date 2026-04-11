@@ -14,6 +14,7 @@ import (
 // testConfig returns a Config suitable for testing with short expiries and low bcrypt cost.
 func testConfig() Config {
 	return Config{
+		AuthMode:           "local,sso",
 		JWTSecret:          []byte("test-secret-at-least-16-bytes!!"),
 		JWTExpiry:          15 * time.Minute,
 		RefreshTokenExpiry: 7 * 24 * time.Hour,

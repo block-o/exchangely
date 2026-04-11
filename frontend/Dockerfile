@@ -2,8 +2,8 @@ FROM node:24-alpine AS build
 
 WORKDIR /app
 
-ARG VITE_API_BASE_URL=http://localhost:8080/api/v1
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ARG API_BASE_URL=http://localhost:8080/api/v1
+ENV VITE_API_BASE_URL=${API_BASE_URL}
 
 COPY package.json package-lock.json ./
 RUN npm ci

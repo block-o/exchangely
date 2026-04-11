@@ -12,6 +12,13 @@ export type AuthMethods = {
   local: boolean;
 };
 
+/** Response from GET /api/v1/config — frontend-relevant backend configuration. */
+export type AppConfig = {
+  auth_enabled: boolean;
+  auth_methods: AuthMethods;
+  version: string;
+};
+
 export type TokenResponse = {
   access_token: string;
   must_change_password?: boolean;

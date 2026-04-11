@@ -20,6 +20,7 @@ var testJWTSecret = []byte("test-secret-at-least-16-bytes!!")
 // The JWT secret matches testJWTSecret so tokens issued via auth.IssueAccessToken are accepted.
 func newTestAuthService() *auth.Service {
 	cfg := auth.Config{
+		AuthMode:           "local,sso",
 		JWTSecret:          testJWTSecret,
 		JWTExpiry:          15 * time.Minute,
 		RefreshTokenExpiry: 7 * 24 * time.Hour,
@@ -103,6 +104,7 @@ func TestPropertyPublicRoutesNoTokenRequired(t *testing.T) {
 		"/api/v1/pairs",
 		"/api/v1/tickers",
 		"/api/v1/news",
+		"/api/v1/config",
 	}
 	publicPrefixPaths := []string{
 		"/api/v1/ticker/BTC-USD",
@@ -111,7 +113,6 @@ func TestPropertyPublicRoutesNoTokenRequired(t *testing.T) {
 		"/api/v1/news/stream",
 		"/api/v1/auth/google/login",
 		"/api/v1/auth/refresh",
-		"/api/v1/auth/methods",
 	}
 
 	for _, p := range append(publicPaths, publicPrefixPaths...) {
@@ -138,7 +139,6 @@ func TestPropertyProtectedRoutesRequireToken(t *testing.T) {
 	protectedPaths := []string{
 		"/api/v1/system/sync-status",
 		"/api/v1/system/tasks",
-		"/api/v1/system/version",
 		"/api/v1/some/other/protected",
 	}
 

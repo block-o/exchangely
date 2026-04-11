@@ -67,6 +67,7 @@ services:
             - ".cache/"
             - "*.out"
     environment:
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8080/api/v1}
       BACKEND_HTTP_ADDR: ${BACKEND_HTTP_ADDR:-:8080}
       BACKEND_ENV: ${BACKEND_ENV:-development}
       BACKEND_LOG_LEVEL: ${BACKEND_LOG_LEVEL:-info}
@@ -96,6 +97,7 @@ services:
       BACKEND_REALTIME_POLL_INTERVAL: ${BACKEND_REALTIME_POLL_INTERVAL:-5s}
       BACKEND_TICKER_CACHE_SIZE: ${BACKEND_TICKER_CACHE_SIZE:-100}
       BACKEND_TICKERS_CACHE_TTL: ${BACKEND_TICKERS_CACHE_TTL:-30s}
+      BACKEND_AUTH_MODE: ${BACKEND_AUTH_MODE:-}
       BACKEND_GOOGLE_CLIENT_ID: ${BACKEND_GOOGLE_CLIENT_ID:-}
       BACKEND_GOOGLE_CLIENT_SECRET: ${BACKEND_GOOGLE_CLIENT_SECRET:-}
       BACKEND_GOOGLE_REDIRECT_URI: ${BACKEND_GOOGLE_REDIRECT_URI:-http://localhost:8080/api/v1/auth/google/callback}
@@ -119,7 +121,7 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_API_BASE_URL: http://localhost:8080/api/v1   
+        API_BASE_URL: ${API_BASE_URL:-http://localhost:8080/api/v1}
     container_name: exchangely-frontend
     develop:
       watch:

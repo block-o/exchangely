@@ -778,6 +778,82 @@ paths:
       responses:
         "204":
           description: Warning dismissed
+  /api/v1/system/users:
+    get:
+      tags: [Admin]
+      summary: List users
+      description: Paginated user list with search, role, and status filters. Admin only.
+      parameters:
+        - { in: query, name: search, schema: { type: string }, description: "Filter by email or name substring" }
+        - { in: query, name: role, schema: { type: string, enum: [user, premium, admin] }, description: "Filter by role" }
+        - { in: query, name: status, schema: { type: string, enum: [active, disabled] }, description: "Filter by account status" }
+        - { in: query, name: page, schema: { type: integer, default: 1 }, description: "Page number" }
+        - { in: query, name: limit, schema: { type: integer, default: 50 }, description: "Items per page" }
+      responses:
+        "200":
+          description: Paginated user list
+        "403":
+          description: Forbidden (non-admin)
+  /api/v1/system/users/{id}:
+    get:
+      tags: [Admin]
+      summary: Get user by ID
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: User details
+        "404":
+          description: User not found
+  /api/v1/system/users/{id}/role:
+    patch:
+      tags: [Admin]
+      summary: Update user role
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: { type: string, enum: [user, premium, admin] }
+      responses:
+        "200":
+          description: Updated user
+        "400":
+          description: Invalid role or self-change attempt
+  /api/v1/system/users/{id}/status:
+    patch:
+      tags: [Admin]
+      summary: Enable or disable user
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                disabled: { type: boolean }
+      responses:
+        "200":
+          description: Updated user
+        "400":
+          description: Self-disable attempt
+  /api/v1/system/users/{id}/force-password-reset:
+    post:
+      tags: [Admin]
+      summary: Force password reset on next login
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Updated user with must_change_password set
+        "400":
+          description: User has no password authentication
 components:
   securitySchemes:
     BearerAuth:

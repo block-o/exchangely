@@ -87,6 +87,7 @@ Default quote assets: `EUR` and `USD`.
 - Auth middleware with graceful degradation (disabled when `BACKEND_JWT_SECRET` is empty)
 - Per-user API tokens (`exly_`-prefixed) for programmatic access with SHA-256 hashed storage
 - Tiered PostgreSQL-backed rate limiting (user/premium/admin) with sliding window counters and per-IP abuse prevention
+- Admin user management: list, role change (user/premium/admin), disable/enable with session invalidation, force password reset
 
 ### Frontend
 - Premium dark-themed dashboard with SSE-driven realtime market updates
@@ -122,14 +123,20 @@ Default quote assets: `EUR` and `USD`.
 - `GET /api/v1/auth/api-tokens` (list user's API tokens, JWT session only)
 - `DELETE /api/v1/auth/api-tokens/{id}` (revoke API token, JWT session only)
 - `GET /api/v1/config` (frontend-facing app configuration: auth state, version)
+- `GET /api/v1/system/users` (list users with pagination/filters, admin only)
+- `GET /api/v1/system/users/{id}` (get single user, admin only)
+- `PATCH /api/v1/system/users/{id}/role` (update user role, admin only)
+- `PATCH /api/v1/system/users/{id}/status` (enable/disable user, admin only)
+- `POST /api/v1/system/users/{id}/force-password-reset` (force password reset, admin only)
 
 When changing API behavior, update `router.go:defaultOpenAPIYAML()` if the contract changes materially.
 
 ### DevOps
-- GitHub Actions CI (Go 1.24 + Node.js 24)
+- GitHub Actions CI (Go 1.26 + Node.js 24)
 - Docker Compose topology (TimescaleDB, Kafka, backend, frontend)
 - Compose-based smoke/e2e tests (`make e2e`)
 - Configurable asset catalog via YAML
+- Commits start with uppercase letter, ignoring the type of work done like "Improved performance in the api" 
 
 ### Task Types
 
@@ -173,12 +180,14 @@ Key implementation files:
 - `frontend/src/components/*`: UI building blocks.
 - `frontend/src/components/system/*`: system operations tab components (OverviewTab, CoverageTab, AuditTab, shared utilities).
 - `backend/internal/auth/*`: auth service, JWT, validation, rate limiting.
+- `backend/internal/auth/admin.go`: admin user management service (list, role, disable, force password reset).
 - `backend/internal/auth/apitoken.go`: API token service (create, validate, revoke, list).
 - `backend/internal/auth/apiratelimit.go`: PostgreSQL-backed tiered rate limiter.
 - `backend/internal/httpapi/middleware/auth.go`: JWT auth middleware.
 - `backend/internal/httpapi/middleware/apitoken.go`: API token auth middleware.
 - `backend/internal/httpapi/middleware/ratelimit.go`: rate limit middleware.
 - `backend/internal/httpapi/handlers/auth.go`: auth HTTP handlers (login, OAuth, token management).
+- `backend/internal/httpapi/handlers/admin_users.go`: admin user management HTTP handlers.
 - `backend/internal/storage/postgres/user_repository.go`: user persistence.
 - `backend/internal/storage/postgres/session_repository.go`: session persistence.
 - `backend/internal/storage/postgres/apitoken_repository.go`: API token persistence.

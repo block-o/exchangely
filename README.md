@@ -13,8 +13,9 @@ Started as a "poor man's CoinGecko" for historical data availability Exchangely 
 - **Real-time Market Dashboard** — Live prices, 1h/24h/7d variation, 24h volume, high/low, market cap, and embedded 24h sparkline candles for all tracked pairs. Updates via SSE with no polling.
 - **Historical OHLCV Data** — Automated backwards backfill from multiple providers with hourly and daily resolution. REST API with interval, start/end time filtering.
 - **Multi-Source Aggregation** — Five data providers (Binance, Binance Vision, Kraken, CoinGecko, CryptoDataDownload) with automatic cross-source consolidation and integrity checks.
-- **Authentication & Access Control** — Opt-in auth via `BACKEND_AUTH_MODE` supporting Google OAuth 2.0, local email/password, or both. JWT sessions with refresh tokens, role-based access (admin/user), rate limiting with progressive IP lockout, and password change flow.
 - **Market News Feed** — Horizontal scrolling ticker with curated crypto news from CoinDesk, Cointelegraph, and TheBlock RSS feeds, refreshed every 5 minutes.
+- **Authentication & Access Control** — Opt-in auth via `BACKEND_AUTH_MODE` supporting Google OAuth 2.0, local email/password, or both. JWT sessions with refresh tokens, role-based access (admin/user), rate limiting with progressive IP lockout, and password change flow. See [Authentication documentation](./docs/authentication.md).
+- **API Tokens & Rate Limiting** — Per-user `exly_`-prefixed API tokens for programmatic access. Tiered rate limits (user/premium/admin) backed by PostgreSQL sliding window counters, per-IP abuse prevention, and a frontend API key management page. See [API documentation](./docs/api.md).
 - **Operations Center** — Three-tab admin panel (gated to admin role when auth is enabled): system health warnings, coin-grouped coverage view (live feed health + backfill status per base asset in collapsible cards), and task audit log. All SSE-driven.
 - **Event-Driven Task Engine** — Planner/worker architecture with Kafka-distributed tasks, DB-backed leader election, per-pair advisory locks, and configurable throughput controls.
 - **Data Integrity** — Gap validation, cross-source integrity checks, daily backfill probes, and automatic task cleanup with configurable retention.
@@ -32,12 +33,15 @@ Exchangely runs as a single Go binary (with a React static frontend on top) with
 ```mermaid
 flowchart LR
     User((User))
+    Bot((API Consumer))
     User --> UI[React UI]
     UI -->|REST + Bearer JWT| API
+    Bot -->|REST + API Token| API
 
     API[API Role]
     API -->|read candles + tickers| TS
-    API --> |users + sessions| TS
+    API -->|users + sessions + tokens| TS
+    API -->|rate limit counters| TS
     API -->|OAuth redirect/callback| Google[[Google]]
 
     API -.->|SSE: tickers| UI
@@ -206,7 +210,7 @@ All settings are controlled via environment variables. Override them in `.env` o
 #### Authentication
 
 > [!NOTE]
-> You can find how to configure authentication in the [specific secction](./docs/authentication.md) of Exchangely docs
+> See the [authentication guide](./docs/authentication.md) for setup instructions and the [API documentation](./docs/api.md) for token and rate limiting details.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -220,3 +224,16 @@ All settings are controlled via environment variables. Override them in `.env` o
 | `BACKEND_ADMIN_EMAIL` | Email for the local admin account. Required when auth mode includes `local`. | _(empty)_ |
 | `BACKEND_BCRYPT_COST` | Bcrypt hashing cost factor for password storage | `12` |
 | `BACKEND_TRUSTED_PROXIES` | Comma-separated proxy CIDRs/IPs for trusting `X-Forwarded-For` / `X-Real-IP` headers | _(empty)_ |
+
+#### API Rate Limiting
+
+> [!NOTE]
+> API tokens and rate limiting require authentication to be enabled. See the [API documentation](./docs/api.md) for usage details.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `BACKEND_RATELIMIT_USER` | Max requests per window for `user` role | `100` |
+| `BACKEND_RATELIMIT_PREMIUM` | Max requests per window for `premium` role | `500` |
+| `BACKEND_RATELIMIT_ADMIN` | Max requests per window for `admin` role | `1000` |
+| `BACKEND_RATELIMIT_IP` | Max requests per window per IP address (across all tokens) | `200` |
+| `BACKEND_RATELIMIT_WINDOW` | Sliding window duration for rate limit counters | `1m` |

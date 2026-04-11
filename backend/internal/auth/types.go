@@ -81,3 +81,56 @@ type SessionRepository interface {
 	DeleteAllForUser(ctx context.Context, userID uuid.UUID) error
 	DeleteExpired(ctx context.Context) (int64, error)
 }
+
+// APIToken represents a per-user API token stored in PostgreSQL.
+type APIToken struct {
+	ID         uuid.UUID  `json:"id"`
+	UserID     uuid.UUID  `json:"user_id"`
+	TokenHash  string     `json:"-"`
+	Label      string     `json:"label"`
+	Prefix     string     `json:"prefix"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+	RevokedAt  *time.Time `json:"revoked_at"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+}
+
+// TokenStatus returns "active", "revoked", or "expired".
+func (t APIToken) TokenStatus() string {
+	if t.RevokedAt != nil {
+		return "revoked"
+	}
+	if time.Now().After(t.ExpiresAt) {
+		return "expired"
+	}
+	return "active"
+}
+
+// APITokenRepository defines persistence operations for API tokens.
+type APITokenRepository interface {
+	Create(ctx context.Context, token *APIToken) error
+	FindByTokenHash(ctx context.Context, tokenHash string) (*APIToken, error)
+	ListByUserID(ctx context.Context, userID uuid.UUID) ([]APIToken, error)
+	CountActiveByUserID(ctx context.Context, userID uuid.UUID) (int, error)
+	Revoke(ctx context.Context, id uuid.UUID, userID uuid.UUID) error
+	UpdateLastUsedAt(ctx context.Context, id uuid.UUID, t time.Time) error
+}
+
+// RateLimitResult holds the outcome of a rate limit check.
+type RateLimitResult struct {
+	Allowed   bool
+	Limit     int
+	Remaining int
+	ResetAt   time.Time
+}
+
+// RateLimitRepository defines persistence operations for rate limit counters.
+type RateLimitRepository interface {
+	// CheckAndIncrement atomically inserts a request record and returns the
+	// count within the current window. Returns the count and any error.
+	CheckAndIncrement(ctx context.Context, tokenID *uuid.UUID, userID *uuid.UUID, ip string, window time.Duration) (count int, err error)
+	// CheckIPAndIncrement returns the request count for an IP within the window.
+	CheckIPAndIncrement(ctx context.Context, ip string, window time.Duration) (count int, err error)
+	// PruneExpired removes rows older than the given window. Called periodically.
+	PruneExpired(ctx context.Context, window time.Duration) (int64, error)
+}

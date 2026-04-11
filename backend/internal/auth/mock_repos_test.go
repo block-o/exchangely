@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"sort"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -186,4 +188,93 @@ func (r *mockSessionRepo) sessionsForUser(userID uuid.UUID) int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.byUserID[userID])
+}
+
+// mockAPITokenRepo is an in-memory implementation of APITokenRepository for testing.
+type mockAPITokenRepo struct {
+	mu     sync.RWMutex
+	byID   map[uuid.UUID]*APIToken
+	byHash map[string]*APIToken
+}
+
+func newMockAPITokenRepo() *mockAPITokenRepo {
+	return &mockAPITokenRepo{
+		byID:   make(map[uuid.UUID]*APIToken),
+		byHash: make(map[string]*APIToken),
+	}
+}
+
+func (r *mockAPITokenRepo) Create(_ context.Context, token *APIToken) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *token
+	r.byID[cp.ID] = &cp
+	r.byHash[cp.TokenHash] = &cp
+	return nil
+}
+
+func (r *mockAPITokenRepo) FindByTokenHash(_ context.Context, tokenHash string) (*APIToken, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	t, ok := r.byHash[tokenHash]
+	if !ok {
+		return nil, nil
+	}
+	cp := *t
+	return &cp, nil
+}
+
+func (r *mockAPITokenRepo) ListByUserID(_ context.Context, userID uuid.UUID) ([]APIToken, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var tokens []APIToken
+	for _, t := range r.byID {
+		if t.UserID == userID {
+			tokens = append(tokens, *t)
+		}
+	}
+	sort.Slice(tokens, func(i, j int) bool {
+		return tokens[i].CreatedAt.After(tokens[j].CreatedAt)
+	})
+	return tokens, nil
+}
+
+func (r *mockAPITokenRepo) CountActiveByUserID(_ context.Context, userID uuid.UUID) (int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	now := time.Now()
+	count := 0
+	for _, t := range r.byID {
+		if t.UserID == userID && t.RevokedAt == nil && t.ExpiresAt.After(now) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (r *mockAPITokenRepo) Revoke(_ context.Context, id uuid.UUID, userID uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.byID[id]
+	if !ok || t.UserID != userID {
+		return ErrTokenNotFound
+	}
+	// Idempotent: if already revoked, do nothing.
+	if t.RevokedAt != nil {
+		return nil
+	}
+	now := time.Now()
+	t.RevokedAt = &now
+	return nil
+}
+
+func (r *mockAPITokenRepo) UpdateLastUsedAt(_ context.Context, id uuid.UUID, t time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	tok, ok := r.byID[id]
+	if !ok {
+		return nil
+	}
+	tok.LastUsedAt = &t
+	return nil
 }

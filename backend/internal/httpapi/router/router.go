@@ -20,11 +20,13 @@ import (
 )
 
 type Services struct {
-	Catalog *service.CatalogService
-	Market  *service.MarketService
-	System  *service.SystemService
-	News    *service.NewsService
-	Auth    *auth.Service // nil when auth is disabled
+	Catalog         *service.CatalogService
+	Market          *service.MarketService
+	System          *service.SystemService
+	News            *service.NewsService
+	Auth            *auth.Service         // nil when auth is disabled
+	APITokenService *auth.APITokenService // nil when API tokens are not configured
+	APIRateLimiter  *auth.APIRateLimiter  // nil when rate limiting is not configured
 }
 
 type Options struct {
@@ -395,6 +397,11 @@ func New(svcs Services, opts Options) http.Handler {
 		}
 		authHandler := handlers.NewAuthHandler(svcs.Auth, env)
 
+		// Wire API token service for token management endpoints.
+		if svcs.APITokenService != nil {
+			authHandler = authHandler.WithAPITokenService(svcs.APITokenService)
+		}
+
 		hasLocal := strings.Contains(opts.AuthMode, "local")
 		hasSSO := strings.Contains(opts.AuthMode, "sso")
 
@@ -409,6 +416,22 @@ func New(svcs Services, opts Options) http.Handler {
 		mux.HandleFunc("/api/v1/auth/refresh", authHandler.Refresh)
 		mux.HandleFunc("/api/v1/auth/logout", authHandler.Logout)
 		mux.HandleFunc("/api/v1/auth/me", authHandler.Me)
+
+		// API token management routes (require JWT session auth).
+		if svcs.APITokenService != nil {
+			mux.HandleFunc("/api/v1/auth/api-tokens", func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodPost:
+					authHandler.CreateAPIToken(w, r)
+				case http.MethodGet:
+					authHandler.ListAPITokens(w, r)
+				default:
+					w.Header().Set("Allow", strings.Join([]string{http.MethodGet, http.MethodPost}, ", "))
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				}
+			})
+			mux.HandleFunc("/api/v1/auth/api-tokens/", authHandler.RevokeAPIToken)
+		}
 	}
 
 	mux.HandleFunc("/swagger/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
@@ -416,11 +439,13 @@ func New(svcs Services, opts Options) http.Handler {
 		_, _ = w.Write([]byte(defaultOpenAPIYAML(opts.APIBaseURL)))
 	})
 
-	// Wrap with auth middleware. When svcs.Auth is nil (auth disabled),
-	// the middleware passes all requests through unchanged.
+	// Wrap with middleware chain: RealIP → APITokenMW → AuthMW → RateLimitMW → mux.
+	// When services are nil, each middleware passes requests through unchanged.
+	apiTokenMW := middleware.NewAPITokenMiddleware(svcs.APITokenService)
 	authMW := middleware.NewAuthMiddleware(svcs.Auth)
+	rateLimitMW := middleware.NewRateLimitMiddleware(svcs.APIRateLimiter)
 	realIPMW := middleware.NewRealIPMiddleware(opts.TrustedProxies)
-	return withAccessLog(withCORS(realIPMW.Wrap(authMW.Wrap(mux)), opts.AllowedOrigins))
+	return withAccessLog(withCORS(realIPMW.Wrap(apiTokenMW.Wrap(authMW.Wrap(rateLimitMW.Wrap(mux)))), opts.AllowedOrigins))
 }
 
 func serveSwaggerPage(w http.ResponseWriter) {
@@ -1131,7 +1156,7 @@ func withCORS(next http.Handler, allowedOrigins []string) http.Handler {
 
 		if allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}

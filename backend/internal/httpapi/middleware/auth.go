@@ -22,6 +22,13 @@ func ClaimsFromContext(ctx context.Context) (*auth.Claims, bool) {
 	return claims, ok
 }
 
+// ContextWithClaims returns a new context with the given claims attached.
+// This is exported so that handler-level tests in other packages can simulate
+// an authenticated request without routing through the full middleware chain.
+func ContextWithClaims(ctx context.Context, claims *auth.Claims) context.Context {
+	return context.WithValue(ctx, claimsKey, claims)
+}
+
 // AuthMiddleware intercepts HTTP requests to enforce authentication and
 // role-based access control. Public routes are whitelisted; admin routes
 // require role=admin; everything else requires a valid JWT.
@@ -81,6 +88,25 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
+		// If claims are already in context (e.g. set by APITokenMiddleware),
+		// skip JWT validation and proceed directly to admin-only checks.
+		if existing, ok := ClaimsFromContext(r.Context()); ok && existing != nil {
+			if m.isAdminOnly(path) {
+				if existing.Role != "admin" {
+					writeJSONError(w, http.StatusForbidden, "forbidden")
+					return
+				}
+			}
+			// Mark as JWT auth method if not already set (preserves api_token method).
+			if _, methodSet := AuthMethodFromContext(r.Context()); !methodSet {
+				ctx := context.WithValue(r.Context(), authMethodKey, "jwt")
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Extract Bearer token from Authorization header.
 		// Fall back to ?token= query parameter for SSE/EventSource connections
 		// which cannot set custom headers.
@@ -108,8 +134,9 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			}
 		}
 
-		// Attach claims to context and proceed.
+		// Attach claims and auth method to context and proceed.
 		ctx := context.WithValue(r.Context(), claimsKey, claims)
+		ctx = context.WithValue(ctx, authMethodKey, "jwt")
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

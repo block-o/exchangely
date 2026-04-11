@@ -255,3 +255,111 @@ func TestFailOpenOnDBError(t *testing.T) {
 
 // errSimulatedDB is a sentinel error used to simulate a database failure.
 var errSimulatedDB = context.DeadlineExceeded
+
+// TestPremiumRoleRateLimitTier verifies that premium role users receive premium
+// tier rate limits and that role changes apply new tier limits on next request.
+//
+// **Validates: Requirements 10.1, 10.2, 10.3**
+func TestPremiumRoleRateLimitTier(t *testing.T) {
+	cfg := APIRateLimitConfig{
+		UserLimit:    100,
+		PremiumLimit: 500,
+		AdminLimit:   1000,
+		IPLimit:      200,
+		Window:       time.Minute,
+	}
+
+	rl := NewAPIRateLimiter(nil, cfg)
+
+	// Test that premium role gets premium tier limit.
+	premiumLimit := rl.LimitForRole("premium")
+	if premiumLimit != cfg.PremiumLimit {
+		t.Errorf("LimitForRole(premium) = %d, want %d", premiumLimit, cfg.PremiumLimit)
+	}
+
+	// Test that user role gets user tier limit.
+	userLimit := rl.LimitForRole("user")
+	if userLimit != cfg.UserLimit {
+		t.Errorf("LimitForRole(user) = %d, want %d", userLimit, cfg.UserLimit)
+	}
+
+	// Test that admin role gets admin tier limit.
+	adminLimit := rl.LimitForRole("admin")
+	if adminLimit != cfg.AdminLimit {
+		t.Errorf("LimitForRole(admin) = %d, want %d", adminLimit, cfg.AdminLimit)
+	}
+
+	// Verify premium limit is between user and admin limits (as configured).
+	if premiumLimit <= userLimit {
+		t.Errorf("Premium limit (%d) should be greater than user limit (%d)", premiumLimit, userLimit)
+	}
+	if premiumLimit >= adminLimit {
+		t.Errorf("Premium limit (%d) should be less than admin limit (%d)", premiumLimit, adminLimit)
+	}
+}
+
+// TestRoleChangeAppliesNewTierLimit verifies that when a user's role changes,
+// the new tier limit is applied on the next request without requiring a server restart.
+//
+// **Validates: Requirements 10.3**
+func TestRoleChangeAppliesNewTierLimit(t *testing.T) {
+	cfg := APIRateLimitConfig{
+		UserLimit:    100,
+		PremiumLimit: 500,
+		AdminLimit:   1000,
+		IPLimit:      200,
+		Window:       time.Minute,
+	}
+
+	// Create a mock repo that returns a count below all tier limits.
+	repo := &mockRateLimitRepo{
+		tokenCount: 50,
+		ipCount:    50,
+	}
+
+	rl := NewAPIRateLimiter(repo, cfg)
+
+	tokenID := uuid.New()
+	userID := uuid.New()
+	ip := "192.168.1.1"
+
+	// First request as "user" role.
+	result1, err := rl.Check(context.Background(), &tokenID, &userID, "user", ip)
+	if err != nil {
+		t.Fatalf("Check returned unexpected error: %v", err)
+	}
+	if result1.Limit != cfg.UserLimit {
+		t.Errorf("First request: Limit = %d, want %d (user tier)", result1.Limit, cfg.UserLimit)
+	}
+	if !result1.Allowed {
+		t.Error("First request: expected Allowed=true")
+	}
+
+	// Second request as "premium" role (simulating role change).
+	result2, err := rl.Check(context.Background(), &tokenID, &userID, "premium", ip)
+	if err != nil {
+		t.Fatalf("Check returned unexpected error: %v", err)
+	}
+	if result2.Limit != cfg.PremiumLimit {
+		t.Errorf("Second request: Limit = %d, want %d (premium tier)", result2.Limit, cfg.PremiumLimit)
+	}
+	if !result2.Allowed {
+		t.Error("Second request: expected Allowed=true")
+	}
+
+	// Third request as "admin" role (simulating another role change).
+	result3, err := rl.Check(context.Background(), &tokenID, &userID, "admin", ip)
+	if err != nil {
+		t.Fatalf("Check returned unexpected error: %v", err)
+	}
+	if result3.Limit != cfg.AdminLimit {
+		t.Errorf("Third request: Limit = %d, want %d (admin tier)", result3.Limit, cfg.AdminLimit)
+	}
+	if !result3.Allowed {
+		t.Error("Third request: expected Allowed=true")
+	}
+
+	// Verify that the tier limit changes immediately without server restart.
+	// This is guaranteed by the fact that LimitForRole is called on every request
+	// and reads from the tiers map, which is immutable after initialization.
+}

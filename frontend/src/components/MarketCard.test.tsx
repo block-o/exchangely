@@ -52,7 +52,7 @@ function renderCard(overrides: Partial<MarketCardProps> = {}) {
 /* ── Tests ─────────────────────────────────────────────────── */
 
 describe("MarketCard", () => {
-  describe("renders all required fields (Req 3.3, 3.4)", () => {
+  describe("renders all required fields", () => {
     it("renders asset name and code", () => {
       renderCard();
       expect(screen.getByText("Bitcoin")).toBeInTheDocument();
@@ -110,7 +110,7 @@ describe("MarketCard", () => {
     });
   });
 
-  describe("flash class application (Req 3.6)", () => {
+  describe("flash class application", () => {
     it("applies flash-up class when flashState is up", () => {
       const { container } = renderCard({ flashState: "up" });
       expect(container.querySelector(".market-card")).toHaveClass("flash-up");
@@ -129,7 +129,7 @@ describe("MarketCard", () => {
     });
   });
 
-  describe("variation color coding (Req 3.5)", () => {
+  describe("variation color coding", () => {
     it("applies text-up class for positive variations", () => {
       const { container } = renderCard({
         ticker: { ...ticker, variation_1h: 1.5, variation_24h: 3.2, variation_7d: 7.0 },

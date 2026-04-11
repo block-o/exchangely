@@ -20,8 +20,6 @@ import {
   formatVariation,
 } from "../lib/format";
 
-/* ── Arbitraries ──────────────────────────────────────────── */
-
 /** Asset name: 2–12 alpha chars starting with uppercase */
 const assetNameArb = fc.stringMatching(/^[A-Z][a-z]{1,11}$/);
 
@@ -61,8 +59,6 @@ const tickerArb = fc
       source: "test",
     }),
   );
-
-/* ── Property Test ────────────────────────────────────────── */
 
 describe("Feature: responsive-ui-overhaul, Property 3: MarketCard renders all required fields", () => {
   it("renders asset name, code, price, all variations, market cap, volume, high, and low for any valid ticker", () => {

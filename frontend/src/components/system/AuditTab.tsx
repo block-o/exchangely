@@ -18,8 +18,6 @@ import {
 const UPCOMING_LIMIT = 10;
 const LOG_PAGE_SIZE = 50;
 
-// ── Log line builder ────────────────────────────────────────────────────────
-
 function buildLogLine(t: Task): string {
   const time = formatDateTime(t.completed_at);
   const level = t.status === "failed" ? "ERROR" : "OK";
@@ -35,8 +33,6 @@ function buildLogLine(t: Task): string {
 
   return `${time}  ${level}  ${message}`;
 }
-
-// ── Log viewer with infinite scroll ─────────────────────────────────────────
 
 function TaskLogViewer({
   tasks,
@@ -117,8 +113,6 @@ function TaskLogViewer({
     </div>
   );
 }
-
-// ── Main component ──────────────────────────────────────────────────────────
 
 export function AuditTab() {
   const [upcoming, setUpcoming] = useState<Task[]>([]);

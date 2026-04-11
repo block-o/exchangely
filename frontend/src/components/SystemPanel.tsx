@@ -2,8 +2,9 @@ import { useState } from "react";
 import { OverviewTab } from "./system/OverviewTab";
 import { CoverageTab } from "./system/CoverageTab";
 import { AuditTab } from "./system/AuditTab";
+import { UsersTab } from "./system/UsersTab";
 
-const TABS = ["Overview", "Coverage", "Audit"] as const;
+const TABS = ["Overview", "Coverage", "Users", "Audit"] as const;
 type Tab = (typeof TABS)[number];
 
 function getInitialTab(): Tab {
@@ -24,7 +25,7 @@ export function SystemPanel() {
   }
 
   return (
-    <section className="panel">
+    <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "calc(100vh - 120px)" }}>
       <div className="panel-header">
         <h2>System Operations</h2>
         <p>Monitor platform health, live feeds, historical coverage, and task activity.</p>
@@ -51,10 +52,11 @@ export function SystemPanel() {
       </div>
 
       {/* Tab content */}
-      <div role="tabpanel">
+      <div role="tabpanel" style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
         {activeTab === "Overview" && <OverviewTab />}
         {activeTab === "Coverage" && <CoverageTab />}
         {activeTab === "Audit" && <AuditTab />}
+        {activeTab === "Users" && <UsersTab />}
       </div>
     </section>
   );

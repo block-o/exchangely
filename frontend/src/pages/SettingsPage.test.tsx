@@ -56,8 +56,6 @@ describe("SettingsPage", () => {
     };
   });
 
-  // ── Profile ──────────────────────────────────────────────────────────────
-
   it("displays user name and email", () => {
     renderPage();
     expect(screen.getByText("Alice Smith")).toBeInTheDocument();
@@ -89,8 +87,6 @@ describe("SettingsPage", () => {
     expect(screen.getByText("admin")).toBeInTheDocument();
   });
 
-  // ── Connected Accounts ───────────────────────────────────────────────────
-
   it("shows Google when has_google is true", () => {
     mockAuthValue.user = { ...defaultUser, has_google: true, has_password: false };
     renderPage();
@@ -118,8 +114,6 @@ describe("SettingsPage", () => {
     expect(screen.getByText("No connected accounts")).toBeInTheDocument();
   });
 
-  // ── Auth guards ──────────────────────────────────────────────────────────
-
   it("redirects to login when not authenticated", () => {
     mockAuthValue.user = null;
     mockAuthValue.isAuthenticated = false;
@@ -133,16 +127,12 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Loading…")).toBeInTheDocument();
   });
 
-  // ── Preferences section ──────────────────────────────────────────────────
-
   it("displays preferences section with theme and currency controls", () => {
     renderPage();
     expect(screen.getByText("Preferences")).toBeInTheDocument();
     expect(screen.getByText("Theme")).toBeInTheDocument();
     expect(screen.getByText("Default Quote Currency")).toBeInTheDocument();
   });
-
-  // ── Settings sync: theme ─────────────────────────────────────────────────
 
   it("reflects the default dark theme as active", () => {
     renderPage();
@@ -170,8 +160,6 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("button", { name: "Light" }).className).toContain("active");
     expect(screen.getByRole("button", { name: "Dark" }).className).not.toContain("active");
   });
-
-  // ── Settings sync: currency ──────────────────────────────────────────────
 
   it("reflects the default EUR currency as active", () => {
     renderPage();

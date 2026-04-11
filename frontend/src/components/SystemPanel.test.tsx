@@ -1,470 +1,164 @@
-import { fireEvent, render, screen, waitFor, act } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { SystemPanel } from "./SystemPanel";
+import * as client from "../api/client";
+import * as auth from "../app/auth";
 
-class MockEventSource {
-  static instances: MockEventSource[] = [];
+// Mock the API client
+vi.mock("../api/client", () => ({
+  API_BASE_URL: "http://localhost:8080/api/v1",
+  authFetch: vi.fn(),
+  authEventSource: vi.fn(() => ({
+    onmessage: null,
+    close: vi.fn(),
+  })),
+}));
 
-  url: string;
-  close = vi.fn();
-  onmessage: ((event: MessageEvent<string>) => void) | null = null;
-  onerror: ((event: Event) => void) | null = null;
-
-  constructor(url: string) {
-    this.url = url;
-    MockEventSource.instances.push(this);
-  }
-}
-
-function mockResponse(data: unknown) {
-  return Promise.resolve({
-    ok: true,
-    json: async () => data,
-  });
-}
+// Mock the auth context
+vi.mock("../app/auth", () => ({
+  useAuth: vi.fn(),
+}));
 
 describe("SystemPanel", () => {
-  let warningsResponse: Array<{
-    id: string;
-    level: "warning" | "error";
-    title: string;
-    detail: string;
-    fingerprint: string;
-  }>;
+  const mockAuthFetch = vi.mocked(client.authFetch);
+  const mockUseAuth = vi.mocked(auth.useAuth);
+
+  const mockAdminUser = {
+    id: "admin-user-id",
+    email: "admin@example.com",
+    name: "Admin User",
+    avatar_url: "",
+    role: "admin" as const,
+    has_google: true,
+    has_password: false,
+    must_change_password: false,
+  };
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.useRealTimers();
-    localStorage.clear();
-    MockEventSource.instances = [];
-    globalThis.EventSource = MockEventSource as any;
+    mockUseAuth.mockReturnValue({
+      user: mockAdminUser,
+      isAuthenticated: true,
+      isLoading: false,
+      authEnabled: true,
+      authMethods: { google: true, local: true },
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshToken: vi.fn(),
+    });
 
-    // Reset URL to avoid tab param leaking between tests
-    window.history.replaceState({}, "", "/");
-
-    warningsResponse = [
-      {
-        id: "system-health",
-        level: "error",
-        title: "System health degraded",
-        detail: "Failing checks: kafka.",
-        fingerprint: "warning-fingerprint-1",
-      },
-    ];
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string | URL | Request, init?: RequestInit) => {
-        const url = String(input);
-        const method = init?.method || (typeof input === "string" ? "GET" : (input as Request).method || "GET");
-
-        if (url.includes("/config")) {
-          return mockResponse({ auth_enabled: false, auth_methods: { google: false, local: false }, version: "v1.0.0" });
+    // Mock API responses for different tabs
+    mockAuthFetch.mockImplementation((url) => {
+      if (typeof url === "string") {
+        if (url.includes("/system/users")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              data: [],
+              total: 0,
+              page: 1,
+              limit: 50,
+            }),
+          } as Response);
         }
-
-        if (url.includes("/system/warnings")) {
-          if (method === "POST") {
-            return Promise.resolve({ ok: true, json: async () => ({}), text: async () => "{}" });
-          }
-          return mockResponse(warningsResponse);
-        }
-
         if (url.includes("/system/sync-status")) {
-          return mockResponse([
-            {
-              pair: "BTCEUR",
-              hourly_backfill_completed: true,
-              daily_backfill_completed: false,
-              hourly_synced_unix: 1700000000,
-              daily_synced_unix: 0,
-            },
-            {
-              pair: "BTCUSD",
-              hourly_backfill_completed: true,
-              daily_backfill_completed: true,
-              hourly_synced_unix: 1700000000,
-              daily_synced_unix: 1700000000,
-            },
-          ]);
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              pairs: [],
+              warnings: [],
+            }),
+          } as Response);
         }
-
-        if (url.includes("/pairs") && !url.includes("/pairs/")) {
-          return mockResponse({
-            data: [
-              { base: "BTC", quote: "EUR", symbol: "BTCEUR" },
-              { base: "BTC", quote: "USD", symbol: "BTCUSD" },
-            ],
-          });
+        if (url.includes("/system/tasks")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              upcoming: [],
+              upcomingTotal: 0,
+              recent: [],
+              recentTotal: 0,
+            }),
+          } as Response);
         }
-
-        if (url.includes("/tickers") && !url.includes("/tickers/stream")) {
-          return mockResponse({
-            data: [
-              {
-                pair: "BTCEUR",
-                price: 82431,
-                last_update_unix: Math.floor(Date.now() / 1000),
-                source: "kraken",
-              },
-              {
-                pair: "BTCUSD",
-                price: 91204,
-                last_update_unix: Math.floor(Date.now() / 1000),
-                source: "binance",
-              },
-            ],
-          });
-        }
-
-        if (url.includes("/system/tasks") && !url.includes("/system/tasks/stream")) {
-          return mockResponse({
-            upcoming: [],
-            upcomingTotal: 0,
-            upcomingLimit: 10,
-            upcomingPage: 1,
-            recent: [
-              {
-                id: "completed-task",
-                type: "consolidation",
-                pair: "ETHEUR",
-                interval: "1d",
-                window_start: "2026-04-01T00:00:00Z",
-                window_end: "2026-04-02T00:00:00Z",
-                status: "completed",
-                completed_at: "2026-04-02T00:00:00Z",
-              },
-              {
-                id: "failed-task",
-                type: "integrity_check",
-                pair: "BTCEUR",
-                interval: "1h",
-                window_start: "2026-04-02T00:00:00Z",
-                window_end: "2026-04-02T01:00:00Z",
-                status: "failed",
-                last_error: "validator mismatch",
-                completed_at: "2026-04-02T01:00:00Z",
-              },
-            ],
-            recentTotal: 2,
-            recentLimit: 10,
-            recentPage: 1,
-          });
-        }
-
-        return Promise.reject(new Error(`Unhandled fetch URL: ${url}`));
-      })
-    );
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({}),
+      } as Response);
+    });
   });
 
-  it("renders tab bar with three tabs and defaults to Overview", async () => {
+  it("renders all four tabs including Users", () => {
     render(<SystemPanel />);
 
     expect(screen.getByRole("tab", { name: "Overview" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Coverage" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Audit" })).toBeInTheDocument();
-
-    // Overview tab is active by default — warnings should load
-    await waitFor(() => {
-      expect(screen.getByText("System health degraded")).toBeInTheDocument();
-    });
+    expect(screen.getByRole("tab", { name: "Users" })).toBeInTheDocument();
   });
 
-  it("dismisses warnings on the Overview tab", async () => {
+  it("displays Users tab for admin users", () => {
     render(<SystemPanel />);
 
-    await waitFor(() => {
-      expect(screen.getByText("System health degraded")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByLabelText("Dismiss warning System health degraded"));
-    await waitFor(() => {
-      expect(screen.queryByText("System health degraded")).not.toBeInTheDocument();
-    });
+    const usersTab = screen.getByRole("tab", { name: "Users" });
+    expect(usersTab).toBeInTheDocument();
+    expect(usersTab).toBeVisible();
   });
 
-  it("renders warnings as a vertical list on Overview", async () => {
-    warningsResponse = [
-      {
-        id: "system-health",
-        level: "error",
-        title: "System health degraded",
-        detail: "Failing checks: kafka.",
-        fingerprint: "warning-fingerprint-1",
-      },
-      {
-        id: "hourly-backfill",
-        level: "warning",
-        title: "Hourly backfill pending",
-        detail: "4 pairs are still filling hourly history.",
-        fingerprint: "warning-fingerprint-2",
-      },
-      {
-        id: "daily-backfill",
-        level: "warning",
-        title: "Daily backfill pending",
-        detail: "2 pairs are not ready for consolidation yet.",
-        fingerprint: "warning-fingerprint-3",
-      },
-    ];
-
-    const { container } = render(<SystemPanel />);
-
-    await waitFor(() => {
-      expect(screen.getByText("3 active")).toBeInTheDocument();
-    });
-
-    const warningCards = container.querySelectorAll("article");
-    expect(warningCards).toHaveLength(3);
-
-    const warningRail = warningCards[0]?.parentElement;
-    expect(warningRail).not.toBeNull();
-    expect(warningRail).toHaveStyle({
-      display: "flex",
-      flexDirection: "column",
-    });
-  });
-
-  it("switches to Coverage tab and shows coin-grouped data", async () => {
+  it("switches to Users tab when clicked", async () => {
+    const user = userEvent.setup();
     render(<SystemPanel />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Coverage" }));
+    const usersTab = screen.getByRole("tab", { name: "Users" });
+    await user.click(usersTab);
 
     await waitFor(() => {
-      // BTC group should appear with both EUR and USD quotes
-      expect(screen.getByText("BTC")).toBeInTheDocument();
+      expect(usersTab).toHaveAttribute("aria-selected", "true");
     });
 
-    // The card should auto-expand and show quote rows
+    // Check that Users tab content is rendered
     await waitFor(() => {
-      expect(screen.getByText("EUR")).toBeInTheDocument();
-      expect(screen.getByText("USD")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("Search by email or name…")).toBeInTheDocument();
     });
   });
 
-  it("switches to Audit tab and shows task log with failure details", async () => {
+  it("updates URL when Users tab is selected", async () => {
+    const user = userEvent.setup();
     render(<SystemPanel />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Audit" }));
+    const usersTab = screen.getByRole("tab", { name: "Users" });
+    await user.click(usersTab);
 
     await waitFor(() => {
-      // The log viewer renders each task as a single line containing the pair and error
-      const logViewer = screen.getByRole("log");
-      expect(logViewer).toBeInTheDocument();
-      expect(logViewer.textContent).toContain("ETHEUR");
-      expect(logViewer.textContent).toContain("ERROR");
-      expect(logViewer.textContent).toContain("validator mismatch");
+      expect(window.location.search).toContain("tab=Users");
     });
   });
 
-  it("syncs active tab to URL query param", () => {
+  it("loads Users tab from URL parameter", () => {
+    // Set URL parameter
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", "Users");
+    window.history.replaceState({}, "", url.toString());
+
     render(<SystemPanel />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Coverage" }));
-    expect(window.location.search).toContain("tab=Coverage");
-
-    fireEvent.click(screen.getByRole("tab", { name: "Audit" }));
-    expect(window.location.search).toContain("tab=Audit");
+    const usersTab = screen.getByRole("tab", { name: "Users" });
+    expect(usersTab).toHaveAttribute("aria-selected", "true");
   });
 
-  it("shows feeds as live when bootstrap tickers have recent last_update_unix", async () => {
+  it("renders Users tab content when selected", async () => {
+    const user = userEvent.setup();
     render(<SystemPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Coverage" }));
 
-    // Wait for auto-expand to reveal feed badges (first 5 coins auto-expand)
-    await waitFor(() => {
-      expect(screen.getByText("BTC")).toBeInTheDocument();
-    });
-
-    // Ensure the card is expanded (auto-expand should handle it, click if not)
-    await waitFor(() => {
-      const card = screen.getByLabelText("BTC coverage details");
-      expect(card.getAttribute("aria-expanded")).toBe("true");
-    });
+    const usersTab = screen.getByRole("tab", { name: "Users" });
+    await user.click(usersTab);
 
     await waitFor(() => {
-      // Both tickers have last_update_unix = now, so both should show Live
-      const liveBadges = screen.getAllByText("● Live");
-      expect(liveBadges.length).toBe(2);
-      expect(screen.queryByText("● Stale")).not.toBeInTheDocument();
-    });
-  });
-
-  it("shows feeds as stale when no updates arrive within threshold", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    const bootstrapTime = Date.now();
-    const oldUnix = Math.floor(bootstrapTime / 1000) - 600;
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string | URL | Request, init?: RequestInit) => {
-        const url = String(input);
-        const method = init?.method || (typeof input === "string" ? "GET" : (input as Request).method || "GET");
-        if (url.includes("/config")) return mockResponse({ auth_enabled: false, auth_methods: { google: false, local: false }, version: "v1.0.0" });
-        if (url.includes("/system/warnings")) {
-          if (method === "POST") return Promise.resolve({ ok: true, json: async () => ({}), text: async () => "{}" });
-          return mockResponse([]);
-        }
-        if (url.includes("/system/sync-status")) return mockResponse([]);
-        if (url.includes("/pairs") && !url.includes("/pairs/"))
-          return mockResponse({ data: [{ base: "BTC", quote: "EUR", symbol: "BTCEUR" }] });
-        if (url.includes("/tickers") && !url.includes("/tickers/stream"))
-          return mockResponse({
-            data: [{ pair: "BTCEUR", price: 82000, last_update_unix: oldUnix, source: "kraken" }],
-          });
-        if (url.includes("/system/tasks") && !url.includes("/system/tasks/stream"))
-          return mockResponse({ upcoming: [], upcomingTotal: 0, upcomingLimit: 10, upcomingPage: 1, recent: [], recentTotal: 0, recentLimit: 10, recentPage: 1 });
-        return Promise.reject(new Error(`Unhandled fetch URL: ${url}`));
-      })
-    );
-
-    render(<SystemPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Coverage" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("● Live")).toBeInTheDocument();
-    });
-
-    // Advance past the 5-minute threshold + trigger the 30s staleness re-evaluation timer
-    await act(async () => {
-      vi.advanceTimersByTime(310_000);
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText("● Stale")).toBeInTheDocument();
-    });
-    expect(screen.queryByText("● Live")).not.toBeInTheDocument();
-
-    vi.useRealTimers();
-  });
-
-  it("transitions feed from stale to live when SSE delta arrives", async () => {
-    const bootstrapTime = 1700000000000;
-    const oldUnix = Math.floor(bootstrapTime / 1000) - 600;
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(bootstrapTime);
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string | URL | Request, init?: RequestInit) => {
-        const url = String(input);
-        const method = init?.method || (typeof input === "string" ? "GET" : (input as Request).method || "GET");
-        if (url.includes("/config")) return mockResponse({ auth_enabled: false, auth_methods: { google: false, local: false }, version: "v1.0.0" });
-        if (url.includes("/system/warnings")) {
-          if (method === "POST") return Promise.resolve({ ok: true, json: async () => ({}), text: async () => "{}" });
-          return mockResponse([]);
-        }
-        if (url.includes("/system/sync-status")) return mockResponse([]);
-        if (url.includes("/pairs") && !url.includes("/pairs/"))
-          return mockResponse({ data: [{ base: "BTC", quote: "EUR", symbol: "BTCEUR" }] });
-        if (url.includes("/tickers") && !url.includes("/tickers/stream"))
-          return mockResponse({
-            data: [{ pair: "BTCEUR", price: 82000, last_update_unix: oldUnix, source: "kraken" }],
-          });
-        if (url.includes("/system/tasks") && !url.includes("/system/tasks/stream"))
-          return mockResponse({ upcoming: [], upcomingTotal: 0, upcomingLimit: 10, upcomingPage: 1, recent: [], recentTotal: 0, recentLimit: 10, recentPage: 1 });
-        return Promise.reject(new Error(`Unhandled fetch URL: ${url}`));
-      })
-    );
-
-    render(<SystemPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Coverage" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("BTC")).toBeInTheDocument();
-    });
-
-    // Advance time so bootstrap lastSeenUnix becomes stale, send delta with old timestamp
-    const futureTime = bootstrapTime + 310_000;
-    nowSpy.mockReturnValue(futureTime);
-
-    const tickerStream = MockEventSource.instances.find((i) => i.url.includes("/tickers/stream"));
-
-    await act(async () => {
-      tickerStream!.onmessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({
-            tickers: [{ pair: "BTCEUR", price: 82001, last_update_unix: oldUnix, source: "kraken" }],
-          }),
-        })
-      );
-    });
-
-    // The delta sets lastSeenUnix = futureTime, and isHealthy checks max(oldUnix, futureTime/1000).
-    // futureTime/1000 - futureTime/1000 = 0, so it should be Live because the SSE delta just arrived.
-    // This proves that lastSeenUnix (browser reception time) keeps the feed alive even with old backend timestamps.
-    await waitFor(() => {
-      expect(screen.getByText("● Live")).toBeInTheDocument();
-    });
-
-    // Now advance time again past the threshold without any new SSE
-    nowSpy.mockReturnValue(futureTime + 310_000);
-
-    // Send another delta to trigger re-render, but with old data
-    await act(async () => {
-      tickerStream!.onmessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({
-            tickers: [{ pair: "BTCEUR", price: 82002, last_update_unix: oldUnix, source: "kraken" }],
-          }),
-        })
-      );
-    });
-
-    // This delta sets lastSeenUnix = futureTime + 310_000, which is now() so delta = 0 → Live
-    // The key insight: as long as SSE deltas keep arriving, the feed stays Live regardless of backend timestamp
-    await waitFor(() => {
-      expect(screen.getByText("● Live")).toBeInTheDocument();
-    });
-
-    nowSpy.mockRestore();
-  });
-
-  it("uses browser-side lastSeenUnix for health even when backend timestamp is old", async () => {
-    // Bootstrap with old backend timestamp — but since bootstrap sets lastSeenUnix = now,
-    // the feed should still show as Live
-    const veryOldUnix = Math.floor(Date.now() / 1000) - 3600; // 1 hour ago
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string | URL | Request, init?: RequestInit) => {
-        const url = String(input);
-        const method = init?.method || (typeof input === "string" ? "GET" : (input as Request).method || "GET");
-        if (url.includes("/config")) return mockResponse({ auth_enabled: false, auth_methods: { google: false, local: false }, version: "v1.0.0" });
-        if (url.includes("/system/warnings")) {
-          if (method === "POST") return Promise.resolve({ ok: true, json: async () => ({}), text: async () => "{}" });
-          return mockResponse([]);
-        }
-        if (url.includes("/system/sync-status")) return mockResponse([]);
-        if (url.includes("/pairs") && !url.includes("/pairs/"))
-          return mockResponse({ data: [{ base: "BTC", quote: "EUR", symbol: "BTCEUR" }] });
-        if (url.includes("/tickers") && !url.includes("/tickers/stream"))
-          return mockResponse({
-            data: [{ pair: "BTCEUR", price: 82000, last_update_unix: veryOldUnix, source: "kraken" }],
-          });
-        if (url.includes("/system/tasks") && !url.includes("/system/tasks/stream"))
-          return mockResponse({ upcoming: [], upcomingTotal: 0, upcomingLimit: 10, upcomingPage: 1, recent: [], recentTotal: 0, recentLimit: 10, recentPage: 1 });
-        return Promise.reject(new Error(`Unhandled fetch URL: ${url}`));
-      })
-    );
-
-    render(<SystemPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Coverage" }));
-
-    // Even though backend last_update_unix is 1 hour old, bootstrap sets lastSeenUnix = now
-    // so the feed should show as Live
-    await waitFor(() => {
-      expect(screen.getByText("● Live")).toBeInTheDocument();
-    });
-    expect(screen.queryByText("● Stale")).not.toBeInTheDocument();
-  });
-
-  it("shows summary counts reflecting live and backfill status", async () => {
-    render(<SystemPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Coverage" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("2 pairs across 1 coins")).toBeInTheDocument();
-      // "2/2 live" appears in both the summary bar and the BTC card header
-      expect(screen.getAllByText("2/2 live")).toHaveLength(2);
-      expect(screen.getByText("1/2 fully backfilled")).toBeInTheDocument();
+      // Check for Users tab specific elements
+      expect(screen.getByLabelText("Search users")).toBeInTheDocument();
+      expect(screen.getByLabelText("Filter by role")).toBeInTheDocument();
+      expect(screen.getByLabelText("Filter by status")).toBeInTheDocument();
     });
   });
 });

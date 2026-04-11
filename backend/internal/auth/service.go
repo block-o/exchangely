@@ -31,6 +31,7 @@ var (
 	ErrCSRFStateMismatch  = errors.New("CSRF state mismatch")
 	ErrOAuthExchange      = errors.New("OAuth code exchange failed")
 	ErrOAuthUserInfo      = errors.New("failed to fetch Google user info")
+	ErrAccountDisabled    = errors.New("account disabled")
 )
 
 const (
@@ -144,6 +145,16 @@ func (s *Service) GoogleCallback(ctx context.Context, code, state, expectedState
 		return "", "", User{}, fmt.Errorf("upserting Google user: %w", err)
 	}
 
+	// Check if account is disabled.
+	if user.Disabled {
+		slog.Info("auth event",
+			"event", "oauth_disabled_account",
+			"email", maskEmail(user.Email),
+			"method", "google",
+		)
+		return "", "", User{}, ErrAccountDisabled
+	}
+
 	// Issue tokens.
 	accessToken, err = IssueAccessToken(user, s.cfg.JWTSecret, s.cfg.JWTExpiry)
 	if err != nil {
@@ -205,6 +216,18 @@ func (s *Service) LocalLogin(ctx context.Context, email, password, userAgent, ip
 			"method", "local",
 		)
 		return "", "", User{}, ErrInvalidCredentials
+	}
+
+	// Check if account is disabled.
+	if u.Disabled {
+		slog.Info("auth event",
+			"event", "login_disabled_account",
+			"email", maskEmail(email),
+			"ip", ip,
+			"user_agent", userAgent,
+			"method", "local",
+		)
+		return "", "", User{}, ErrAccountDisabled
 	}
 
 	// Constant-time bcrypt comparison.
@@ -276,6 +299,15 @@ func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken string, user
 	}
 	if u == nil {
 		return "", "", ErrUserNotFound
+	}
+
+	// Check if account is disabled.
+	if u.Disabled {
+		slog.Info("auth event",
+			"event", "refresh_disabled_account",
+			"email", maskEmail(u.Email),
+		)
+		return "", "", ErrAccountDisabled
 	}
 
 	// Issue new access token.
@@ -422,9 +454,20 @@ func (s *Service) BootstrapAdmin(ctx context.Context) error {
 		return fmt.Errorf("checking existing admin: %w", err)
 	}
 	if existing != nil {
-		// Admin already exists — idempotent, do nothing.
 		slog.Info("admin bootstrap skipped — user already exists",
 			"email", maskEmail(s.cfg.AdminEmail),
+		)
+		return nil
+	}
+
+	// Skip bootstrap if any active admin already exists in the system.
+	admins, _, err := s.users.ListWithFilters(ctx, "", "admin", "active", 1, 0)
+	if err != nil {
+		return fmt.Errorf("checking existing admins: %w", err)
+	}
+	if len(admins) > 0 {
+		slog.Info("admin bootstrap skipped — active admin already exists",
+			"existing_admin", maskEmail(admins[0].Email),
 		)
 		return nil
 	}
@@ -559,6 +602,14 @@ func (s *Service) upsertGoogleUser(ctx context.Context, info *googleUserInfo) (U
 	if err := s.users.Create(ctx, user); err != nil {
 		return User{}, err
 	}
+
+	slog.Info("auth event",
+		"event", "user_signup",
+		"email", maskEmail(user.Email),
+		"method", "google",
+		"user_id", user.ID,
+	)
+
 	return *user, nil
 }
 

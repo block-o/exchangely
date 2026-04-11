@@ -103,6 +103,16 @@ func (m *APITokenMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
+		// Check if account is disabled.
+		if user.Disabled {
+			slog.Info("auth event",
+				"event", "api_token_disabled_account",
+				"email", user.Email,
+			)
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
 		// Build Claims from the validated token + user so downstream handlers
 		// see the same context shape as JWT-authenticated requests.
 		claims := &auth.Claims{

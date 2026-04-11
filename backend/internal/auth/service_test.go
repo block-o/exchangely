@@ -498,6 +498,81 @@ func TestPropertyAdminBootstrapIdempotent(t *testing.T) {
 	})
 }
 
+// TestBootstrapSkipsWhenActiveAdminExists verifies that BootstrapAdmin does not
+// create a new admin user when an active admin already exists in the system,
+// even if the existing admin has a different email than BACKEND_ADMIN_EMAIL.
+func TestBootstrapSkipsWhenActiveAdminExists(t *testing.T) {
+	users := newMockUserRepo()
+	sessions := newMockSessionRepo()
+
+	// Pre-create an admin with a different email.
+	existingAdmin := &User{
+		ID:    uuid.New(),
+		Email: "existing-admin@example.com",
+		Name:  "Existing Admin",
+		Role:  "admin",
+	}
+	_ = users.Create(context.Background(), existingAdmin)
+
+	cfg := Config{
+		AdminEmail: "new-admin@example.com",
+		BcryptCost: bcrypt.MinCost,
+	}
+	svc := newTestService(users, sessions, cfg)
+
+	if err := svc.BootstrapAdmin(context.Background()); err != nil {
+		t.Fatalf("BootstrapAdmin failed: %v", err)
+	}
+
+	// The new admin should NOT have been created.
+	newAdmin, _ := users.FindByEmail(context.Background(), "new-admin@example.com")
+	if newAdmin != nil {
+		t.Fatal("BootstrapAdmin created a new admin when an active admin already exists")
+	}
+
+	// The existing admin should still be there.
+	existing, _ := users.FindByEmail(context.Background(), "existing-admin@example.com")
+	if existing == nil {
+		t.Fatal("existing admin disappeared")
+	}
+}
+
+// TestBootstrapCreatesAdminWhenNoActiveAdminExists verifies that BootstrapAdmin
+// creates the admin when no active admin exists (e.g. only disabled admins).
+func TestBootstrapCreatesAdminWhenNoActiveAdminExists(t *testing.T) {
+	users := newMockUserRepo()
+	sessions := newMockSessionRepo()
+
+	// Pre-create a disabled admin.
+	disabledAdmin := &User{
+		ID:       uuid.New(),
+		Email:    "disabled-admin@example.com",
+		Name:     "Disabled Admin",
+		Role:     "admin",
+		Disabled: true,
+	}
+	_ = users.Create(context.Background(), disabledAdmin)
+
+	cfg := Config{
+		AdminEmail: "new-admin@example.com",
+		BcryptCost: bcrypt.MinCost,
+	}
+	svc := newTestService(users, sessions, cfg)
+
+	if err := svc.BootstrapAdmin(context.Background()); err != nil {
+		t.Fatalf("BootstrapAdmin failed: %v", err)
+	}
+
+	// The new admin should have been created since the only existing admin is disabled.
+	newAdmin, _ := users.FindByEmail(context.Background(), "new-admin@example.com")
+	if newAdmin == nil {
+		t.Fatal("BootstrapAdmin should have created admin when only disabled admins exist")
+	}
+	if newAdmin.Role != "admin" {
+		t.Fatalf("expected role admin, got %s", newAdmin.Role)
+	}
+}
+
 // =============================================================================
 // Property 14: Auth error responses are generic
 // =============================================================================
@@ -624,4 +699,80 @@ func TestLocalLoginReturnsErrIPBlocked(t *testing.T) {
 	if !errors.Is(err, ErrIPBlocked) {
 		t.Fatalf("expected ErrIPBlocked, got: %v", err)
 	}
+}
+
+// =============================================================================
+// Property 10: Disabled users are rejected by the auth service
+// =============================================================================
+
+// TestPropertyDisabledUserAuthRejection verifies that disabled users are
+// rejected by LocalLogin and RefreshToken, and no tokens are issued.
+//
+// **Validates: Requirements 7.1, 7.2**
+func TestPropertyDisabledUserAuthRejection(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		users := newMockUserRepo()
+		sessions := newMockSessionRepo()
+		cfg := testConfig()
+		svc := newTestService(users, sessions, cfg)
+
+		// Generate a random email and password.
+		email := rapid.StringMatching(`[a-z]{5,10}@example\.com`).Draw(t, "email")
+		password := rapid.StringN(12, 20, -1).Draw(t, "password")
+		role := rapid.SampledFrom([]string{"user", "premium", "admin"}).Draw(t, "role")
+
+		// Create a user with a password.
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+		if err != nil {
+			t.Fatalf("bcrypt hash failed: %v", err)
+		}
+		hashStr := string(hash)
+		u := User{
+			ID:           uuid.New(),
+			Email:        email,
+			Role:         role,
+			PasswordHash: &hashStr,
+			Disabled:     true, // Account is disabled
+		}
+		if err := users.Create(context.Background(), &u); err != nil {
+			t.Fatalf("create user failed: %v", err)
+		}
+
+		// Test 1: LocalLogin should reject disabled user.
+		accessToken, refreshToken, _, err := svc.LocalLogin(context.Background(), email, password, "test-agent", "127.0.0.1")
+		if !errors.Is(err, ErrAccountDisabled) {
+			t.Fatalf("LocalLogin: expected ErrAccountDisabled, got: %v", err)
+		}
+		if accessToken != "" || refreshToken != "" {
+			t.Fatalf("LocalLogin: tokens should not be issued for disabled user")
+		}
+
+		// Test 2: Create a session for the user (simulating they had a session before being disabled).
+		// Enable the user temporarily to create a session.
+		u.Disabled = false
+		if err := users.Update(context.Background(), &u); err != nil {
+			t.Fatalf("update user failed: %v", err)
+		}
+
+		// Create a session.
+		rawRefreshToken, err := svc.createSession(context.Background(), u.ID, "test-agent")
+		if err != nil {
+			t.Fatalf("create session failed: %v", err)
+		}
+
+		// Disable the user again.
+		u.Disabled = true
+		if err := users.Update(context.Background(), &u); err != nil {
+			t.Fatalf("update user failed: %v", err)
+		}
+
+		// Test 3: RefreshToken should reject disabled user.
+		newAccessToken, newRefreshToken, err := svc.RefreshToken(context.Background(), rawRefreshToken, "test-agent")
+		if !errors.Is(err, ErrAccountDisabled) {
+			t.Fatalf("RefreshToken: expected ErrAccountDisabled, got: %v", err)
+		}
+		if newAccessToken != "" || newRefreshToken != "" {
+			t.Fatalf("RefreshToken: tokens should not be issued for disabled user")
+		}
+	})
 }

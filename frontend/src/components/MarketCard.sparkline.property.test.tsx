@@ -13,8 +13,6 @@ import fc from "fast-check";
 import { MarketCard } from "./MarketCard";
 import type { Candle, Pair, Ticker } from "../types/api";
 
-/* ── Arbitraries ──────────────────────────────────────────── */
-
 /** Positive float for OHLCV values */
 const priceArb = fc.double({ min: 0.01, max: 1e6, noNaN: true });
 
@@ -58,8 +56,6 @@ const candlesArb = fc
   })
   .map((tuple) => [...tuple]);
 
-/* ── Fixtures ─────────────────────────────────────────────── */
-
 const fixedPair: Pair = { base: "BTC", quote: "EUR", symbol: "BTCEUR" };
 
 const fixedTicker: Ticker = {
@@ -75,8 +71,6 @@ const fixedTicker: Ticker = {
   last_update_unix: Math.floor(Date.now() / 1000),
   source: "test",
 };
-
-/* ── Property Test ────────────────────────────────────────── */
 
 describe("Feature: responsive-ui-overhaul, Property 6: Sparkline bars maintain minimum width", () => {
   it("every chart-bar is rendered for any candle array of 1–24 items", () => {

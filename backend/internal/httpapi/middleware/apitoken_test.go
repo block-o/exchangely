@@ -106,6 +106,36 @@ func TestPropertyPublicPathExemption(t *testing.T) {
 
 // No-op repository implementations for middleware-level testing
 
+// noopUserRepo satisfies auth.UserRepository with no-op implementations.
+type noopUserRepo struct{}
+
+func (r *noopUserRepo) FindByID(_ context.Context, _ uuid.UUID) (*auth.User, error) {
+	return nil, nil
+}
+func (r *noopUserRepo) FindByEmail(_ context.Context, _ string) (*auth.User, error) {
+	return nil, nil
+}
+func (r *noopUserRepo) FindByGoogleID(_ context.Context, _ string) (*auth.User, error) {
+	return nil, nil
+}
+func (r *noopUserRepo) Create(_ context.Context, _ *auth.User) error { return nil }
+func (r *noopUserRepo) Update(_ context.Context, _ *auth.User) error { return nil }
+func (r *noopUserRepo) UpdatePasswordHash(_ context.Context, _ uuid.UUID, _ string, _ bool) error {
+	return nil
+}
+func (r *noopUserRepo) ListWithFilters(_ context.Context, _ string, _ string, _ string, _ int, _ int) ([]auth.User, int, error) {
+	return []auth.User{}, 0, nil
+}
+func (r *noopUserRepo) UpdateRole(_ context.Context, _ uuid.UUID, _ string) error {
+	return nil
+}
+func (r *noopUserRepo) UpdateDisabled(_ context.Context, _ uuid.UUID, _ bool) error {
+	return nil
+}
+func (r *noopUserRepo) SetMustChangePassword(_ context.Context, _ uuid.UUID, _ bool) error {
+	return nil
+}
+
 // noopAPITokenRepo satisfies auth.APITokenRepository with no-op implementations.
 // FindByTokenHash always returns nil (token not found), which causes ValidateToken
 // to return ErrTokenUnauthorized for any token — exactly what we need to verify
@@ -336,6 +366,76 @@ func TestAPITokenMiddleware_InvalidToken401(t *testing.T) {
 
 		if rr.Code != http.StatusUnauthorized {
 			t.Fatalf("invalid X-API-Key token: expected 401, got %d", rr.Code)
+		}
+	})
+}
+
+// =============================================================================
+// Property 11: Disabled users are rejected by API token middleware
+// =============================================================================
+
+// TestPropertyDisabledUserAPITokenRejection verifies that disabled users are
+// rejected by the API token middleware with HTTP 401, and claims are not
+// attached to the request context.
+//
+// **Validates: Requirements 7.4**
+func TestPropertyDisabledUserAPITokenRejection(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		// Generate a random user with a valid API token.
+		userID := uuid.New()
+		email := rapid.StringMatching(`[a-z]{5,10}@example\.com`).Draw(t, "email")
+		role := rapid.SampledFrom([]string{"user", "premium", "admin"}).Draw(t, "role")
+
+		// Create a user that is disabled.
+		user := &auth.User{
+			ID:       userID,
+			Email:    email,
+			Role:     role,
+			Disabled: true, // Account is disabled
+		}
+
+		// Generate a valid API token.
+		rawToken := "exly_" + rapid.StringN(32, 32, -1).Draw(t, "token")
+		tokenHash := sha256.Sum256([]byte(rawToken))
+		tokenHashStr := hex.EncodeToString(tokenHash[:])
+
+		token := &auth.APIToken{
+			ID:        uuid.New(),
+			UserID:    userID,
+			TokenHash: tokenHashStr,
+			ExpiresAt: time.Now().Add(24 * time.Hour),
+			RevokedAt: nil,
+		}
+
+		// Create middleware with validating repos that return the token and user.
+		tokenRepo := &validatingAPITokenRepo{token: token}
+		userRepo := &validatingUserRepo{user: user}
+		tokenSvc := auth.NewAPITokenService(tokenRepo, userRepo, auth.DefaultAPITokenConfig())
+		mw := NewAPITokenMiddleware(tokenSvc)
+
+		// Create a handler that checks if claims were attached.
+		claimsAttached := false
+		handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := ClaimsFromContext(r.Context()); ok {
+				claimsAttached = true
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		// Make a request to a protected endpoint with the valid token.
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+		req.Header.Set("Authorization", "Bearer "+rawToken)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		// Verify that the request was rejected with 401.
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401 for disabled user, got %d", rr.Code)
+		}
+
+		// Verify that claims were not attached to the context.
+		if claimsAttached {
+			t.Fatalf("claims should not be attached for disabled user")
 		}
 	})
 }

@@ -19,6 +19,7 @@ type User struct {
 	PasswordHash       *string   `json:"-"`
 	HasGoogle          bool      `json:"has_google"`
 	HasPassword        bool      `json:"has_password"`
+	Disabled           bool      `json:"disabled"`
 	MustChangePassword bool      `json:"must_change_password"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
@@ -71,6 +72,10 @@ type UserRepository interface {
 	Create(ctx context.Context, user *User) error
 	Update(ctx context.Context, user *User) error
 	UpdatePasswordHash(ctx context.Context, userID uuid.UUID, hash string, mustChange bool) error
+	ListWithFilters(ctx context.Context, search string, role string, status string, limit int, offset int) ([]User, int, error)
+	UpdateRole(ctx context.Context, userID uuid.UUID, role string) error
+	UpdateDisabled(ctx context.Context, userID uuid.UUID, disabled bool) error
+	SetMustChangePassword(ctx context.Context, userID uuid.UUID, mustChange bool) error
 }
 
 // SessionRepository defines persistence operations for refresh-token sessions.

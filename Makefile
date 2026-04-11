@@ -1,8 +1,8 @@
 SHELL := /bin/sh
 
 .PHONY: \
-	backend-fmt backend-fmt-fix backend-lint backend-vet backend-build backend-test backend-check  \
-	frontend-deps frontend-typecheck frontend-build  frontend-test frontend-check \
+	backend-fmt backend-fmt-fix backend-lint backend-vet backend-vulncheck backend-build backend-test backend-check  \
+	frontend-deps frontend-typecheck frontend-build frontend-test frontend-check \
 	check test e2e load-test up down install-hooks
 
 backend-fmt:
@@ -22,6 +22,9 @@ backend-vet:
 backend-lint:
 	cd backend && golangci-lint run ./...
 
+backend-vulncheck:
+	cd backend && govulncheck ./...
+
 backend-build:
 	cd backend && go build ./cmd/server
 
@@ -32,20 +35,21 @@ backend-check:
 	$(MAKE) backend-fmt
 	$(MAKE) backend-vet
 	$(MAKE) backend-lint
+	$(MAKE) backend-vulncheck
 	$(MAKE) backend-build
 	$(MAKE) backend-test
 
 frontend-deps:
-	cd frontend && npm ci
+	cd frontend && pnpm install --frozen-lockfile
 
 frontend-typecheck:
-	cd frontend && npm run typecheck
+	cd frontend && pnpm run typecheck
 
 frontend-build:
-	cd frontend && npm run build
+	cd frontend && pnpm run build
 
 frontend-test:
-	cd frontend && npm test
+	cd frontend && pnpm test
 
 frontend-check:
 	$(MAKE) frontend-typecheck

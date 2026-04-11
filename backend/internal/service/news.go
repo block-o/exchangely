@@ -30,15 +30,22 @@ type NewsService struct {
 	subscribers map[chan struct{}]struct{}
 }
 
+// sourceURLMap maps source keys to their RSS feed URLs.
+var sourceURLMap = map[string]string{
+	"coindesk":      "https://www.coindesk.com/arc/outboundfeeds/rss/",
+	"cointelegraph": "https://cointelegraph.com/rss",
+	"theblock":      "https://www.theblock.co/rss.xml",
+}
+
 // NewNewsService initializes a NewsService with a repository and default RSS sources.
 func NewNewsService(repo NewsRepository) *NewsService {
+	sources := make([]string, 0, len(sourceURLMap))
+	for _, url := range sourceURLMap {
+		sources = append(sources, url)
+	}
 	return &NewsService{
-		repo: repo,
-		sources: []string{
-			"https://www.coindesk.com/arc/outboundfeeds/rss/",
-			"https://cointelegraph.com/rss",
-			"https://www.theblock.co/rss.xml",
-		},
+		repo:        repo,
+		sources:     sources,
 		subscribers: make(map[chan struct{}]struct{}),
 	}
 }
@@ -61,6 +68,30 @@ func (s *NewsService) FetchLatest(ctx context.Context) error {
 	}
 
 	if err := s.repo.UpsertNews(ctx, allNews); err != nil {
+		return err
+	}
+
+	s.notify()
+	return nil
+}
+
+// FetchSource pulls news items from a single named source and persists them.
+func (s *NewsService) FetchSource(ctx context.Context, source string) error {
+	url, ok := sourceURLMap[source]
+	if !ok {
+		return fmt.Errorf("unknown news source: %q", source)
+	}
+
+	items, err := s.fetchRSS(ctx, url)
+	if err != nil {
+		return fmt.Errorf("fetch %s: %w", source, err)
+	}
+
+	if len(items) == 0 {
+		return nil
+	}
+
+	if err := s.repo.UpsertNews(ctx, items); err != nil {
 		return err
 	}
 

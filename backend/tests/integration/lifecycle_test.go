@@ -153,8 +153,8 @@ func TestDailyPromotionMakesPairRealtimeEligible(t *testing.T) {
 	}
 
 	afterPromotion := scheduler.BuildRealtimeTasks([]pair.Pair{{Symbol: "BTCEUR"}}, state, now)
-	if len(afterPromotion) != 2 {
-		t.Fatalf("expected 2 tasks (realtime/sanity) after daily promotion, got %d", len(afterPromotion))
+	if len(afterPromotion) != 1 {
+		t.Fatalf("expected 1 realtime task after daily promotion, got %d", len(afterPromotion))
 	}
 	if afterPromotion[0].Type != task.TypeRealtime || afterPromotion[0].Interval != "realtime" {
 		t.Fatalf("unexpected realtime task: %+v", afterPromotion[0])
@@ -216,4 +216,98 @@ func (s *integrationMarketSource) FetchCandles(_ context.Context, _ provider.Req
 		return nil, s.err
 	}
 	return append([]candle.Candle{}, s.items...), nil
+}
+
+// TestIntegrityCheckSweepLifecycle verifies the end-to-end flow: planner
+// emits a stable per-pair integrity sweep task, and the scheduler skips
+// pairs that are fully verified.
+func TestIntegrityCheckSweepLifecycle(t *testing.T) {
+	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2024, 1, 5, 12, 0, 0, 0, time.UTC)
+	synced := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	state := map[string]planner.SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: true, HourlyLastSynced: synced},
+	}
+	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
+
+	// Tick 1: no verified days — should emit a sweep task.
+	tasks1 := scheduler.BuildIntegrityCheckTasks(pairs, state, make(map[string]map[string]bool), now)
+	if len(tasks1) != 1 {
+		t.Fatalf("tick 1: expected 1 integrity task, got %d", len(tasks1))
+	}
+	if tasks1[0].ID != "integrity_check:BTCEUR:sweep" {
+		t.Fatalf("expected sweep ID, got %q", tasks1[0].ID)
+	}
+
+	// Tick 2: all days verified — should emit nothing.
+	verified := map[string]map[string]bool{
+		"BTCEUR": {
+			"2024-01-02": true,
+			"2024-01-03": true,
+			"2024-01-04": true,
+		},
+	}
+	tasks2 := scheduler.BuildIntegrityCheckTasks(pairs, state, verified, now)
+	if len(tasks2) != 0 {
+		t.Fatalf("tick 2: expected 0 tasks after full verification, got %d", len(tasks2))
+	}
+}
+
+// TestGapValidationSweepLifecycle verifies the end-to-end flow: planner
+// emits a stable per-pair gap sweep task, and the scheduler skips pairs
+// that are fully covered.
+func TestGapValidationSweepLifecycle(t *testing.T) {
+	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2024, 1, 5, 12, 0, 0, 0, time.UTC)
+	synced := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	state := map[string]planner.SyncState{
+		"BTCEUR": {HourlyLastSynced: synced},
+	}
+	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
+
+	// Tick 1: no coverage — should emit a sweep task.
+	tasks1 := scheduler.BuildGapValidationTasks(pairs, state, make(map[string]map[string]bool), now)
+	if len(tasks1) != 1 {
+		t.Fatalf("tick 1: expected 1 gap validation task, got %d", len(tasks1))
+	}
+	if tasks1[0].ID != "gap_validation:BTCEUR:sweep" {
+		t.Fatalf("expected sweep ID, got %q", tasks1[0].ID)
+	}
+
+	// Tick 2: all days covered — should emit nothing.
+	coverage := map[string]map[string]bool{
+		"BTCEUR": {
+			"2024-01-02": true,
+			"2024-01-03": true,
+			"2024-01-04": true,
+		},
+	}
+	tasks2 := scheduler.BuildGapValidationTasks(pairs, state, coverage, now)
+	if len(tasks2) != 0 {
+		t.Fatalf("tick 2: expected 0 tasks after full coverage, got %d", len(tasks2))
+	}
+}
+
+// TestNewsFetchPerSourceLifecycle verifies that the scheduler emits one
+// stable task per RSS source and that the IDs don't change across ticks.
+func TestNewsFetchPerSourceLifecycle(t *testing.T) {
+	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute)
+
+	tick1 := scheduler.BuildNewsFetchTasks(time.Date(2024, 1, 5, 12, 0, 0, 0, time.UTC))
+	tick2 := scheduler.BuildNewsFetchTasks(time.Date(2024, 1, 5, 12, 5, 0, 0, time.UTC))
+
+	if len(tick1) != 3 {
+		t.Fatalf("expected 3 news tasks, got %d", len(tick1))
+	}
+
+	for i := range tick1 {
+		if tick1[i].ID != tick2[i].ID {
+			t.Fatalf("expected stable IDs across ticks, got %q vs %q", tick1[i].ID, tick2[i].ID)
+		}
+		if tick1[i].Type != task.TypeNewsFetch {
+			t.Fatalf("expected news_fetch type, got %q", tick1[i].Type)
+		}
+	}
 }

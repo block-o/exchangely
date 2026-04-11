@@ -24,6 +24,7 @@ func TestRunTickSkipsSchedulingWhenLeaseNotAcquired(t *testing.T) {
 		fakeLeaseCoordinator{acquired: false},
 		&fakeTaskSink{},
 		&fakeCoverageProvider{},
+		&fakeIntegrityCoverageProvider{},
 		&fakeTaskPublisher{},
 	)
 
@@ -61,6 +62,7 @@ func TestRunTickSeedsMissingPairsAndEnqueuesTasks(t *testing.T) {
 		fakeLeaseCoordinator{acquired: true},
 		taskSink,
 		&fakeCoverageProvider{},
+		&fakeIntegrityCoverageProvider{},
 		publisher,
 	)
 
@@ -111,6 +113,7 @@ func TestRunTickPublishesRealtimeForCaughtUpPairs(t *testing.T) {
 		fakeLeaseCoordinator{acquired: true},
 		taskSink,
 		&fakeCoverageProvider{},
+		&fakeIntegrityCoverageProvider{},
 		publisher,
 	)
 
@@ -154,6 +157,7 @@ func TestRunTickEnqueuesRealtimeBeforeCappedBackfill(t *testing.T) {
 		fakeLeaseCoordinator{acquired: true},
 		taskSink,
 		&fakeCoverageProvider{},
+		&fakeIntegrityCoverageProvider{},
 		publisher,
 	)
 
@@ -292,6 +296,21 @@ type fakeCoverageProvider struct {
 }
 
 func (f *fakeCoverageProvider) GetAllCompletedDays(_ context.Context) (map[string]map[string]bool, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.coverage == nil {
+		return make(map[string]map[string]bool), nil
+	}
+	return f.coverage, nil
+}
+
+type fakeIntegrityCoverageProvider struct {
+	coverage map[string]map[string]bool
+	err      error
+}
+
+func (f *fakeIntegrityCoverageProvider) GetAllVerifiedDays(_ context.Context) (map[string]map[string]bool, error) {
 	if f.err != nil {
 		return nil, f.err
 	}

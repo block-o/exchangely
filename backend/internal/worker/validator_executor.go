@@ -12,19 +12,32 @@ import (
 	"github.com/block-o/exchangely/backend/internal/ingest/provider"
 )
 
+// IntegrityWriter persists which days have been verified by the integrity check.
+type IntegrityWriter interface {
+	MarkDayVerified(ctx context.Context, pairSymbol string, day time.Time) error
+}
+
+// IntegrityReader provides the set of already-verified days per pair.
+type IntegrityReader interface {
+	GetAllVerifiedDays(ctx context.Context) (map[string]map[string]bool, error)
+}
+
 type ValidatorExecutor struct {
 	sources          []provider.Source
+	integrity        IntegrityWriter
+	integrityReader  IntegrityReader
 	minSources       int
 	maxDivergencePct float64
+	maxDaysPerRun    int
 }
 
 type ValidatorOptions struct {
 	MinSources       int
 	MaxDivergencePct float64
+	MaxDaysPerRun    int
 }
 
-func NewValidatorExecutor(sources []provider.Source, opts ValidatorOptions) *ValidatorExecutor {
-	// Filter out nils
+func NewValidatorExecutor(sources []provider.Source, integrity IntegrityWriter, integrityReader IntegrityReader, opts ValidatorOptions) *ValidatorExecutor {
 	filtered := make([]provider.Source, 0, len(sources))
 	for _, s := range sources {
 		if s != nil {
@@ -37,36 +50,88 @@ func NewValidatorExecutor(sources []provider.Source, opts ValidatorOptions) *Val
 	if opts.MaxDivergencePct <= 0 {
 		opts.MaxDivergencePct = 0.5
 	}
+	if opts.MaxDaysPerRun <= 0 {
+		opts.MaxDaysPerRun = 7
+	}
 	return &ValidatorExecutor{
 		sources:          filtered,
+		integrity:        integrity,
+		integrityReader:  integrityReader,
 		minSources:       opts.MinSources,
 		maxDivergencePct: opts.MaxDivergencePct,
+		maxDaysPerRun:    opts.MaxDaysPerRun,
 	}
 }
 
+// Execute walks the unverified date range for the task's pair, checking up to
+// maxDaysPerRun days per execution. Days that pass verification are marked in
+// the integrity_coverage table so they are skipped on subsequent runs.
 func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 	if item.Type != task.TypeDataSanity {
 		return fmt.Errorf("validator received non-sanity task %q", item.Type)
 	}
 
-	base, quote, err := provider.ParsePairSymbol(item.Pair)
+	slog.Info("integrity sweep started", "pair", item.Pair, "window_start", item.WindowStart, "window_end", item.WindowEnd)
+
+	// Load current verified days for this pair.
+	allVerified, err := v.integrityReader.GetAllVerifiedDays(ctx)
+	if err != nil {
+		return fmt.Errorf("load integrity coverage: %w", err)
+	}
+	pairVerified := allVerified[item.Pair]
+
+	start := item.WindowStart.UTC().Truncate(24 * time.Hour)
+	end := item.WindowEnd.UTC().Truncate(24 * time.Hour)
+	checked := 0
+	var lastErr error
+
+	for cursor := start; cursor.Before(end) && checked < v.maxDaysPerRun; cursor = cursor.Add(24 * time.Hour) {
+		dayKey := cursor.Format("2006-01-02")
+		if pairVerified[dayKey] {
+			continue
+		}
+
+		err := v.verifyDay(ctx, item.Pair, cursor)
+		if err != nil {
+			slog.Warn("integrity check day failed", "pair", item.Pair, "day", dayKey, "error", err)
+			lastErr = err
+			checked++
+			continue
+		}
+
+		if err := v.integrity.MarkDayVerified(ctx, item.Pair, cursor); err != nil {
+			return fmt.Errorf("mark day verified: %w", err)
+		}
+		slog.Info("integrity check day verified", "pair", item.Pair, "day", dayKey)
+		checked++
+	}
+
+	if lastErr != nil {
+		return fmt.Errorf("integrity sweep had failures for %s: %w", item.Pair, lastErr)
+	}
+
+	slog.Info("integrity sweep completed", "pair", item.Pair, "days_checked", checked)
+	return nil
+}
+
+func (v *ValidatorExecutor) verifyDay(ctx context.Context, pairSymbol string, day time.Time) error {
+	base, quote, err := provider.ParsePairSymbol(pairSymbol)
 	if err != nil {
 		return err
 	}
 
-	slog.Info("data integrity validator started", "pair", item.Pair, "window", item.WindowStart)
-
+	nextDay := day.Add(24 * time.Hour)
 	results := make(map[string][]candle.Candle)
 	var expectedCandleCount int
 
 	for _, source := range v.sources {
 		req := provider.Request{
-			Pair:      item.Pair,
+			Pair:      pairSymbol,
 			Base:      base,
 			Quote:     quote,
-			Interval:  item.Interval,
-			StartTime: item.WindowStart.UTC(),
-			EndTime:   item.WindowEnd.UTC(),
+			Interval:  "1h",
+			StartTime: day,
+			EndTime:   nextDay,
 		}
 
 		if !source.Supports(req) {
@@ -75,7 +140,7 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 
 		candles, err := source.FetchCandles(ctx, req)
 		if err != nil {
-			slog.Warn("data integrity source ping failed", "source", source.Name(), "error", err)
+			slog.Warn("integrity source fetch failed", "source", source.Name(), "pair", pairSymbol, "day", day.Format("2006-01-02"), "error", err)
 			continue
 		}
 
@@ -86,25 +151,23 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 	}
 
 	if len(results) < v.minSources {
-		slog.Debug("data integrity validator aborted (insufficient peer overlap)", "pair", item.Pair, "available_sources", len(results), "required_sources", v.minSources)
+		slog.Debug("integrity check aborted (insufficient peer overlap)", "pair", pairSymbol, "day", day.Format("2006-01-02"), "available_sources", len(results), "required_sources", v.minSources)
 		return nil
 	}
 
-	// 1. Check for Continuity Gaps (e.g., Binance has 60 candles but Kraken has 58)
 	gapSourceCount := 0
 	for name, set := range results {
 		if len(set) < expectedCandleCount {
 			gapSourceCount++
-			slog.Warn("data integrity GAP detected",
-				"pair", item.Pair,
+			slog.Warn("integrity GAP detected",
+				"pair", pairSymbol,
+				"day", day.Format("2006-01-02"),
 				"source", name,
 				"missing", expectedCandleCount-len(set),
 			)
 		}
 	}
 
-	// 2. Check for Price Divergence over the configured threshold.
-	// Map all candles by timestamp:
 	byTime := make(map[int64]map[string]float64)
 	for sourceName, set := range results {
 		for _, c := range set {
@@ -138,30 +201,22 @@ func (v *ValidatorExecutor) Execute(ctx context.Context, item task.Task) error {
 		variance := ((maxPrice - minPrice) / minPrice) * 100.0
 		if variance > v.maxDivergencePct {
 			breachCount++
-			slog.Warn("data integrity DIVERGENCE detected",
-				"pair", item.Pair,
+			slog.Warn("integrity DIVERGENCE detected",
+				"pair", pairSymbol,
+				"day", day.Format("2006-01-02"),
 				"timestamp", ts,
 				"variance_pct", fmt.Sprintf("%.2f%%", variance),
 				"threshold_pct", v.maxDivergencePct,
-				"max_price", maxPrice,
-				"min_price", minPrice,
-				"details", fmt.Sprintf("%v", sourceMap),
 			)
 		}
 	}
 
-	if gapSourceCount == 0 && breachCount == 0 {
-		slog.Info("data integrity successfully validated", "pair", item.Pair, "window", item.WindowStart, "sources", len(results))
-		return nil
+	if gapSourceCount > 0 || breachCount > 0 {
+		return fmt.Errorf(
+			"integrity check failed for %s on %s: %d source gaps, %d price divergences",
+			pairSymbol, day.Format("2006-01-02"), gapSourceCount, breachCount,
+		)
 	}
 
-	return fmt.Errorf(
-		"integrity check failed for %s %s window %s-%s: %d source gaps, %d price divergences",
-		item.Pair,
-		item.Interval,
-		item.WindowStart.UTC().Format(time.RFC3339),
-		item.WindowEnd.UTC().Format(time.RFC3339),
-		gapSourceCount,
-		breachCount,
-	)
+	return nil
 }

@@ -10,11 +10,12 @@ Started as a "poor man's CoinGecko" for historical data availability Exchangely 
 
 ## Features
 
-- **Real-time Market Dashboard** — Live prices, 1h/24h/7d variation, 24h volume, high/low, market cap, and trend sparklines for all tracked pairs. Updates via SSE with no polling.
+- **Real-time Market Dashboard** — Live prices, 1h/24h/7d variation, 24h volume, high/low, market cap, and embedded 24h sparkline candles for all tracked pairs. Updates via SSE with no polling.
 - **Historical OHLCV Data** — Automated backwards backfill from multiple providers with hourly and daily resolution. REST API with interval, start/end time filtering.
 - **Multi-Source Aggregation** — Five data providers (Binance, Binance Vision, Kraken, CoinGecko, CryptoDataDownload) with automatic cross-source consolidation and integrity checks.
+- **Authentication & Access Control** — Opt-in auth via `BACKEND_AUTH_MODE` supporting Google OAuth 2.0, local email/password, or both. JWT sessions with refresh tokens, role-based access (admin/user), rate limiting with progressive IP lockout, and password change flow.
 - **Market News Feed** — Horizontal scrolling ticker with curated crypto news from CoinDesk, Cointelegraph, and TheBlock RSS feeds, refreshed every 5 minutes.
-- **Operations Center** — Three-tab admin panel: system health warnings, coin-grouped coverage view (live feed health + backfill status per base asset in collapsible cards), and task audit log. All SSE-driven.
+- **Operations Center** — Three-tab admin panel (gated to admin role when auth is enabled): system health warnings, coin-grouped coverage view (live feed health + backfill status per base asset in collapsible cards), and task audit log. All SSE-driven.
 - **Event-Driven Task Engine** — Planner/worker architecture with Kafka-distributed tasks, DB-backed leader election, per-pair advisory locks, and configurable throughput controls.
 - **Data Integrity** — Gap validation, cross-source integrity checks, daily backfill probes, and automatic task cleanup with configurable retention.
 
@@ -217,3 +218,5 @@ All settings are controlled via environment variables. Override them in `.env` o
 | `BACKEND_GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 client secret. Required when auth mode includes `sso`. | _(empty)_ |
 | `BACKEND_GOOGLE_REDIRECT_URI` | OAuth callback URL | `http://localhost:8080/api/v1/auth/google/callback` |
 | `BACKEND_ADMIN_EMAIL` | Email for the local admin account. Required when auth mode includes `local`. | _(empty)_ |
+| `BACKEND_BCRYPT_COST` | Bcrypt hashing cost factor for password storage | `12` |
+| `BACKEND_TRUSTED_PROXIES` | Comma-separated proxy CIDRs/IPs for trusting `X-Forwarded-For` / `X-Real-IP` headers | _(empty)_ |

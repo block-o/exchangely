@@ -171,9 +171,9 @@ function ResolutionBadge({ available, complete }: { available: boolean; complete
         padding: "1px 8px",
         borderRadius: "6px",
         fontSize: "0.78rem",
-        background: "rgba(255,255,255,0.04)",
-        color: "rgba(255,255,255,0.3)",
-        border: "1px solid rgba(255,255,255,0.08)",
+        background: "var(--color-subtle-bg)",
+        color: "var(--color-dimmer)",
+        border: "1px solid var(--color-subtle-border)",
       }}
     >
       —

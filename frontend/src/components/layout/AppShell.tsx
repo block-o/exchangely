@@ -10,12 +10,14 @@ import { APIKeysPage } from "../../pages/APIKeysPage";
 import { NavigationDrawer } from "./NavigationDrawer";
 import { useBreakpoint } from "../../hooks/useBreakpoint";
 
-function getApiDocsUrl() {
+function getApiDocsUrl(theme: string) {
   try {
     const apiUrl = new URL(API_BASE_URL);
-    return new URL("/swagger", apiUrl.origin).toString();
+    const url = new URL("/swagger", apiUrl.origin);
+    url.searchParams.set("theme", theme);
+    return url.toString();
   } catch {
-    return "/swagger";
+    return `/swagger?theme=${theme}`;
   }
 }
 
@@ -95,7 +97,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const gearDropdownRef = useRef<HTMLDivElement>(null);
   const breakpoint = useBreakpoint();
   const pages = Children.toArray(children);
-  const apiDocsUrl = getApiDocsUrl();
+  const apiDocsUrl = getApiDocsUrl(theme);
 
   const navItems = getNavItems(isAuthenticated, user?.role, authEnabled);
 

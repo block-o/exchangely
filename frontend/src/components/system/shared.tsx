@@ -312,7 +312,7 @@ export function MultiFilter({ allOptions, labels, title, selected, onChange }: M
         onClick={() => setOpen((v) => !v)}
         style={{
           background: "var(--surface-color)",
-          border: "1px solid rgba(255,255,255,0.12)",
+          border: "1px solid var(--color-interactive-border)",
           borderRadius: "8px",
           color: "inherit",
           cursor: "pointer",
@@ -334,8 +334,8 @@ export function MultiFilter({ allOptions, labels, title, selected, onChange }: M
             top: "calc(100% + 6px)",
             right: 0,
             zIndex: 50,
-            background: "var(--bg-secondary, #1a1f2e)",
-            border: "1px solid rgba(255,255,255,0.12)",
+            background: "var(--bg-secondary)",
+            border: "1px solid var(--color-interactive-border)",
             borderRadius: "10px",
             padding: "0.5rem",
             minWidth: "190px",
@@ -358,7 +358,7 @@ export function MultiFilter({ allOptions, labels, title, selected, onChange }: M
             </button>
             <button
               onClick={clearAll}
-              style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: "0.78rem" }}
+              style={{ background: "none", border: "none", color: "var(--color-muted)", cursor: "pointer", fontSize: "0.78rem" }}
             >
               None
             </button>
@@ -376,7 +376,7 @@ export function MultiFilter({ allOptions, labels, title, selected, onChange }: M
                 fontSize: "0.85rem",
                 transition: "background 0.15s",
               }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)")}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--color-interactive-bg)")}
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "none")}
             >
               <input
@@ -412,10 +412,10 @@ export function Pagination({ total, limit, page, onPageChange }: PaginationProps
         disabled={!canPrev}
         onClick={() => onPageChange(page - 1)}
         style={{
-          background: "rgba(255,255,255,0.06)",
-          border: "1px solid rgba(255,255,255,0.1)",
+          background: "var(--color-interactive-bg)",
+          border: "1px solid var(--color-subtle-border)",
           borderRadius: "6px",
-          color: canPrev ? "inherit" : "rgba(255,255,255,0.2)",
+          color: canPrev ? "inherit" : "var(--color-disabled)",
           cursor: canPrev ? "pointer" : "default",
           padding: "0.3rem 0.6rem",
         }}
@@ -429,10 +429,10 @@ export function Pagination({ total, limit, page, onPageChange }: PaginationProps
         disabled={!canNext}
         onClick={() => onPageChange(page + 1)}
         style={{
-          background: "rgba(255,255,255,0.06)",
-          border: "1px solid rgba(255,255,255,0.1)",
+          background: "var(--color-interactive-bg)",
+          border: "1px solid var(--color-subtle-border)",
           borderRadius: "6px",
-          color: canNext ? "inherit" : "rgba(255,255,255,0.2)",
+          color: canNext ? "inherit" : "var(--color-disabled)",
           cursor: canNext ? "pointer" : "default",
           padding: "0.3rem 0.6rem",
         }}
@@ -454,10 +454,10 @@ export function StatusIcon({ status, lastError }: { status?: string; lastError?:
 
   const icon = isCompleted ? "✓" : isFailed ? "✗" : "●";
   const color = isCompleted
-    ? "var(--up-color, #4ade80)"
+    ? "var(--up-color)"
     : isFailed
-    ? "var(--down-color, #ff6b6b)"
-    : "rgba(255,255,255,0.5)";
+    ? "var(--down-color)"
+    : "var(--color-muted)";
   const label = taskStatusLabel(status);
 
   return (
@@ -533,9 +533,9 @@ export function FailureStatus({ reason }: { reason: string }) {
             padding: "0.6rem 0.7rem",
             borderRadius: "8px",
             border: "1px solid rgba(255,107,107,0.35)",
-            background: "rgba(15,18,28,0.96)",
+            background: "var(--color-tooltip-bg)",
             boxShadow: "0 12px 28px rgba(0,0,0,0.35)",
-            color: "rgba(255,255,255,0.92)",
+            color: "var(--color-tooltip-text)",
             fontSize: "0.78rem",
             lineHeight: 1.45,
             whiteSpace: "normal",

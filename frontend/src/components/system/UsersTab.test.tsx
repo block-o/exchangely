@@ -16,6 +16,11 @@ vi.mock("../../app/auth", () => ({
   useAuth: vi.fn(),
 }));
 
+// Mock the settings context
+vi.mock("../../app/settings", () => ({
+  useSettings: vi.fn(() => ({ theme: "dark", setTheme: vi.fn(), quoteCurrency: "EUR", setQuoteCurrency: vi.fn() })),
+}));
+
 describe("UsersTab", () => {
   const mockAuthFetch = vi.mocked(client.authFetch);
   const mockUseAuth = vi.mocked(auth.useAuth);

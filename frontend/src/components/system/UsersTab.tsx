@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE_URL, authFetch } from "../../api/client";
 import { useAuth } from "../../app/auth";
+import { useSettings } from "../../app/settings";
 
 type UserRecord = {
   id: string;
@@ -28,6 +29,34 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 export function UsersTab() {
   const { user: currentUser } = useAuth();
+  const { theme } = useSettings();
+  const light = theme === "light";
+
+  // Theme-aware colors for badges and action buttons
+  const colors = {
+    adminBg: "rgba(239, 68, 68, 0.2)",
+    adminText: light ? "#b91c1c" : "#fca5a5",
+    premiumBg: "rgba(59, 130, 246, 0.2)",
+    premiumText: light ? "#1d4ed8" : "#93c5fd",
+    userBg: "rgba(107, 114, 128, 0.2)",
+    userText: light ? "#374151" : "#d1d5db",
+    activeBg: "rgba(34, 197, 94, 0.2)",
+    activeText: light ? "#047857" : "#86efac",
+    disabledBg: "rgba(220, 38, 38, 0.2)",
+    disabledText: light ? "#b91c1c" : "#fca5a5",
+    enableBg: "rgba(34, 197, 94, 0.15)",
+    enableText: light ? "#047857" : "#86efac",
+    dangerBg: "rgba(220, 38, 38, 0.15)",
+    dangerText: light ? "#b91c1c" : "#fca5a5",
+    infoBg: "rgba(59, 130, 246, 0.15)",
+    infoText: light ? "#1d4ed8" : "#93c5fd",
+    successMsgBg: "rgba(34, 197, 94, 0.12)",
+    successMsgBorder: "rgba(34, 197, 94, 0.3)",
+    successMsgText: light ? "#047857" : "#86efac",
+    errorMsgBg: "rgba(220, 38, 38, 0.12)",
+    errorMsgBorder: "rgba(220, 38, 38, 0.3)",
+    errorMsgText: light ? "#b91c1c" : "#fca5a5",
+  };
 
   // List state
   const [users, setUsers] = useState<UserRecord[]>([]);
@@ -204,7 +233,7 @@ export function UsersTab() {
       <div
         style={{
           padding: "1rem",
-          backgroundColor: "var(--surface-color, rgba(22,33,44,0.5))",
+          backgroundColor: "var(--surface-color)",
           borderRadius: "12px",
           display: "flex",
           flexWrap: "wrap",
@@ -219,8 +248,8 @@ export function UsersTab() {
           placeholder="Search by email or name…"
           style={{
             flex: "1 1 200px",
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid rgba(255,255,255,0.15)",
+            background: "var(--color-interactive-bg)",
+            border: "1px solid var(--color-interactive-border)",
             borderRadius: "6px",
             color: "inherit",
             fontSize: "0.9rem",
@@ -233,8 +262,8 @@ export function UsersTab() {
           value={roleFilter}
           onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
           style={{
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid rgba(255,255,255,0.15)",
+            background: "var(--color-interactive-bg)",
+            border: "1px solid var(--color-interactive-border)",
             borderRadius: "6px",
             color: "inherit",
             fontSize: "0.9rem",
@@ -252,8 +281,8 @@ export function UsersTab() {
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
           style={{
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid rgba(255,255,255,0.15)",
+            background: "var(--color-interactive-bg)",
+            border: "1px solid var(--color-interactive-border)",
             borderRadius: "6px",
             color: "inherit",
             fontSize: "0.9rem",
@@ -272,7 +301,7 @@ export function UsersTab() {
       <div
         style={{
           padding: "1rem",
-          backgroundColor: "var(--surface-color, rgba(22,33,44,0.5))",
+          backgroundColor: "var(--surface-color)",
           borderRadius: "12px",
           display: "flex",
           flexDirection: "column",
@@ -297,7 +326,7 @@ export function UsersTab() {
               backgroundColor: "rgba(220, 38, 38, 0.1)",
               border: "1px solid rgba(220, 38, 38, 0.3)",
               borderRadius: "6px",
-              color: "#fca5a5",
+              color: colors.errorMsgText,
               marginBottom: "1rem",
             }}
           >
@@ -346,16 +375,16 @@ export function UsersTab() {
                           fontWeight: 500,
                           backgroundColor:
                             user.role === "admin"
-                              ? "rgba(239, 68, 68, 0.2)"
+                              ? colors.adminBg
                               : user.role === "premium"
-                                ? "rgba(59, 130, 246, 0.2)"
-                                : "rgba(107, 114, 128, 0.2)",
+                                ? colors.premiumBg
+                                : colors.userBg,
                           color:
                             user.role === "admin"
-                              ? "#fca5a5"
+                              ? colors.adminText
                               : user.role === "premium"
-                                ? "#93c5fd"
-                                : "#d1d5db",
+                                ? colors.premiumText
+                                : colors.userText,
                         }}
                       >
                         {user.role}
@@ -369,9 +398,9 @@ export function UsersTab() {
                           fontSize: "0.8rem",
                           fontWeight: 500,
                           backgroundColor: user.disabled
-                            ? "rgba(220, 38, 38, 0.2)"
-                            : "rgba(34, 197, 94, 0.2)",
-                          color: user.disabled ? "#fca5a5" : "#86efac",
+                            ? colors.disabledBg
+                            : colors.activeBg,
+                          color: user.disabled ? colors.disabledText : colors.activeText,
                         }}
                       >
                         {user.disabled ? "Disabled" : "Active"}
@@ -393,7 +422,7 @@ export function UsersTab() {
             alignItems: "center",
             marginTop: "1rem",
             paddingTop: "0.75rem",
-            borderTop: "1px solid rgba(255,255,255,0.1)",
+            borderTop: "1px solid var(--color-subtle-border)",
             gap: "0.5rem",
           }}
         >
@@ -404,8 +433,8 @@ export function UsersTab() {
               padding: "0.4rem 0.8rem",
               fontSize: "0.85rem",
               borderRadius: "6px",
-              border: "1px solid rgba(255,255,255,0.15)",
-              background: "rgba(255,255,255,0.06)",
+              border: "1px solid var(--color-interactive-border)",
+              background: "var(--color-interactive-bg)",
               color: "inherit",
               cursor: page === 1 ? "not-allowed" : "pointer",
               opacity: page === 1 ? 0.4 : 1,
@@ -420,8 +449,8 @@ export function UsersTab() {
               padding: "0.4rem 0.8rem",
               fontSize: "0.85rem",
               borderRadius: "6px",
-              border: "1px solid rgba(255,255,255,0.15)",
-              background: "rgba(255,255,255,0.06)",
+              border: "1px solid var(--color-interactive-border)",
+              background: "var(--color-interactive-bg)",
               color: "inherit",
               cursor: page >= totalPages ? "not-allowed" : "pointer",
               opacity: page >= totalPages ? 0.4 : 1,
@@ -452,8 +481,8 @@ export function UsersTab() {
         >
           <div
             style={{
-              backgroundColor: "#1a2332",
-              border: "1px solid rgba(255,255,255,0.12)",
+              backgroundColor: "var(--color-card-detail-bg)",
+              border: "1px solid var(--color-card-detail-border)",
               borderRadius: "12px",
               padding: "1.5rem",
               maxWidth: "560px",
@@ -471,15 +500,15 @@ export function UsersTab() {
                 alignItems: "center",
                 marginBottom: "1.25rem",
                 paddingBottom: "0.75rem",
-                borderBottom: "1px solid rgba(255,255,255,0.1)",
+                borderBottom: "1px solid var(--color-subtle-border)",
               }}
             >
               <h3 style={{ fontSize: "1.1rem", margin: 0 }}>User Details</h3>
               <button
                 onClick={() => setSelectedUser(null)}
                 style={{
-                  background: "rgba(255,255,255,0.06)",
-                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "var(--color-interactive-bg)",
+                  border: "1px solid var(--color-card-detail-border)",
                   borderRadius: "6px",
                   color: "inherit",
                   cursor: "pointer",
@@ -500,15 +529,15 @@ export function UsersTab() {
                   padding: "0.6rem 0.75rem",
                   backgroundColor:
                     actionMessage.type === "success"
-                      ? "rgba(34, 197, 94, 0.12)"
-                      : "rgba(220, 38, 38, 0.12)",
+                      ? colors.successMsgBg
+                      : colors.errorMsgBg,
                   border: `1px solid ${
                     actionMessage.type === "success"
-                      ? "rgba(34, 197, 94, 0.3)"
-                      : "rgba(220, 38, 38, 0.3)"
+                      ? colors.successMsgBorder
+                      : colors.errorMsgBorder
                   }`,
                   borderRadius: "6px",
-                  color: actionMessage.type === "success" ? "#86efac" : "#fca5a5",
+                  color: actionMessage.type === "success" ? colors.successMsgText : colors.errorMsgText,
                   marginBottom: "1rem",
                   fontSize: "0.85rem",
                 }}
@@ -573,7 +602,7 @@ export function UsersTab() {
                 flexDirection: "column",
                 gap: "0.75rem",
                 paddingTop: "1rem",
-                borderTop: "1px solid rgba(255,255,255,0.1)",
+                borderTop: "1px solid var(--color-subtle-border)",
               }}
             >
               {/* Role Selector */}
@@ -589,8 +618,8 @@ export function UsersTab() {
                   disabled={isCurrentUser(selectedUser.id) || actionLoading}
                   style={{
                     width: "100%",
-                    background: "rgba(255,255,255,0.06)",
-                    border: "1px solid rgba(255,255,255,0.15)",
+                    background: "var(--color-interactive-bg)",
+                    border: "1px solid var(--color-interactive-border)",
                     borderRadius: "6px",
                     color: "inherit",
                     fontSize: "0.88rem",
@@ -625,11 +654,11 @@ export function UsersTab() {
                     padding: "0.5rem 1rem",
                     fontSize: "0.88rem",
                     borderRadius: "6px",
-                    border: "1px solid rgba(255,255,255,0.15)",
+                    border: "1px solid var(--color-interactive-border)",
                     background: selectedUser.disabled
-                      ? "rgba(34, 197, 94, 0.15)"
-                      : "rgba(220, 38, 38, 0.15)",
-                    color: selectedUser.disabled ? "#86efac" : "#fca5a5",
+                      ? colors.enableBg
+                      : colors.dangerBg,
+                    color: selectedUser.disabled ? colors.enableText : colors.dangerText,
                     cursor: isCurrentUser(selectedUser.id) ? "not-allowed" : "pointer",
                     opacity: isCurrentUser(selectedUser.id) || actionLoading ? 0.5 : 1,
                   }}
@@ -659,9 +688,9 @@ export function UsersTab() {
                       padding: "0.5rem 1rem",
                       fontSize: "0.88rem",
                       borderRadius: "6px",
-                      border: "1px solid rgba(255,255,255,0.15)",
-                      background: "rgba(59, 130, 246, 0.15)",
-                      color: "#93c5fd",
+                      border: "1px solid var(--color-interactive-border)",
+                      background: colors.infoBg,
+                      color: colors.infoText,
                       cursor: actionLoading ? "not-allowed" : "pointer",
                       opacity: actionLoading ? 0.5 : 1,
                     }}

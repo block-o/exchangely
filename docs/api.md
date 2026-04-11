@@ -37,6 +37,11 @@ These endpoints require the `admin` role.
 | `GET` | `/api/v1/system/sync-status` | Sync status for all pairs |
 | `GET` | `/api/v1/system/tasks` | Task history |
 | `GET` | `/api/v1/system/tasks/stream` | SSE stream of task updates |
+| `GET` | `/api/v1/system/users` | List users with pagination, search, role/status filters |
+| `GET` | `/api/v1/system/users/{id}` | Get a single user by ID |
+| `PATCH` | `/api/v1/system/users/{id}/role` | Update user role (`user`, `premium`, `admin`) |
+| `PATCH` | `/api/v1/system/users/{id}/status` | Enable or disable a user account |
+| `POST` | `/api/v1/system/users/{id}/force-password-reset` | Force password reset on next login |
 
 ### Authentication
 

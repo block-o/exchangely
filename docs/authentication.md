@@ -116,7 +116,8 @@ Exchangely uses two roles:
 
 | Role | Access |
 |------|--------|
-| `admin` | Full access including the Operations panel (`/api/v1/system/*` endpoints) |
+| `admin` | Full access including the Operations panel (`/api/v1/system/*` endpoints) and user management |
+| `premium` | Same as `user` with higher API rate limits (500 req/min vs 100) |
 | `user` | Market dashboard, historical data, news, and personal settings. Operations panel is hidden. |
 
 - New users created via Google OAuth are assigned the `user` role by default.

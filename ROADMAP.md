@@ -42,13 +42,14 @@ The jump from "data service" to "platform with users." These are the enablers fo
 - [x] Unified `/api/v1/config` endpoint for frontend auth/version discovery
 
 ### 1.3 API Authentication & Rate Limiting
-- [ ] Generate per-user API tokens for programmatic access to historical data
-- [ ] Implement token-based auth middleware for `/api/v1/historical/*` and ticker endpoints
-- [ ] Add tiered rate limiting (e.g., 100 req/min for free users, higher for premium)
-- [ ] Rate limit by token + IP with sliding window counters in PostgreSQL (or Redis if added later)
-- [ ] Return standard `429 Too Many Requests` with `Retry-After` headers
-- [ ] Add API key management UI (create, revoke, view usage)
-- [ ] Public endpoints (`/health`, `/assets`, `/pairs`) remain unauthenticated
+- [x] Generate per-user API tokens (`exly_`-prefixed, SHA-256 hashed) for programmatic access to historical data
+- [x] Implement token-based auth middleware for `/api/v1/historical/*` and ticker endpoints
+- [x] Add tiered rate limiting (100 req/min user, 500 premium, 1000 admin)
+- [x] Rate limit by token + IP with sliding window counters in PostgreSQL
+- [x] Return standard `429 Too Many Requests` with `Retry-After` headers and `X-RateLimit-*` response headers
+- [x] Add API key management UI (create, revoke, view usage with rate limit progress)
+- [x] Public endpoints (`/health`, `/assets`, `/pairs`, `/config`) remain unauthenticated
+- [x] Admin user management: list, role change, disable/enable, force password reset via `/api/v1/system/users/*`
 
 ---
 

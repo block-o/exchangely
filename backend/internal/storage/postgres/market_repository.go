@@ -469,8 +469,10 @@ func (r *MarketRepository) Tickers(ctx context.Context) ([]ticker.Ticker, error)
 //
 // Performance notes:
 //   - latest_raw and native_v24h use partial indexes on raw_candles WHERE interval='1h'.
-//   - past, past_1h, past_7d use time-bounded scans (lower bound) so the planner can
-//     skip chunks older than the lookback window instead of scanning the full hypertable.
+//   - All CTEs use time-bounded scans (lower bound) so the planner can skip chunks
+//     older than the lookback window instead of scanning the full hypertable.
+//     latest_hourly and latest_raw use a 30-day window since ticker data is always
+//     recent; pairs with no data in the last 30 days are intentionally excluded.
 //   - past_1h avoids a UNION ALL between candles_1h and raw_candles; it queries only
 //     candles_1h (the consolidated source) which is sufficient for a 1h lookback.
 func tickerSnapshotQuery(filter string) string {

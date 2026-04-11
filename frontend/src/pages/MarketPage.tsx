@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { fetchAssets } from "../api/assets";
 import { fetchPairs } from "../api/pairs";
-import { fetchHistorical } from "../api/historical";
 import { useApi } from "../hooks/useApi";
 import { useSettings } from "../app/settings";
 import { useBreakpoint } from "../hooks/useBreakpoint";
@@ -14,7 +13,7 @@ import {
   formatVariation,
   getBrowserTimezone,
 } from "../lib/format";
-import type { Ticker, Candle, Pair } from "../types/api";
+import type { Ticker, Candle, Pair, SparklinePoint } from "../types/api";
 import { NewsTicker } from "../components/layout/NewsTicker";
 import { MarketCard } from "../components/MarketCard";
 
@@ -31,9 +30,6 @@ function parseTickerStreamPayload(payload: string): Ticker[] {
 
 /** Minimum scale so flat data still renders visible bars. */
 const MIN_TREND_SCALE_PCT = 0.5;
-
-/** How often (ms) to re-fetch sparkline candles so the chart stays fresh. */
-const SPARKLINE_REFRESH_MS = 5 * 60 * 1000; // 5 minutes
 
 export function MarketPage() {
   const { quoteCurrency } = useSettings();
@@ -63,40 +59,43 @@ export function MarketPage() {
     setStreamConnected(false);
 
     const loadExtras = async () => {
-      const items = pairsData.data.filter((p: Pair) => p.quote === quoteCurrency);
-      const newCandles: Record<string, Candle[]> = {};
-      const sparklineEnd = Math.floor(Date.now() / 1000);
-      const sparklineStart = sparklineEnd - 24 * 3600;
-
-      // 1. Fetch initial global state
+      // Fetch initial global state — tickers now include sparkline data
       try {
         const res = await fetch(import.meta.env.VITE_API_BASE_URL + "/tickers");
         if (res.ok) {
           const json = await res.json();
           const tMap: Record<string, Ticker> = {};
+          const cMap: Record<string, Candle[]> = {};
           if (json.data) {
-            json.data.forEach((t: Ticker) => tMap[t.pair] = t);
+            json.data.forEach((t: Ticker) => {
+              tMap[t.pair] = t;
+              // Convert sparkline points to Candle[] for the existing sparkline renderer
+              if (t.sparkline && t.sparkline.length > 0) {
+                cMap[t.pair] = t.sparkline.map((sp: SparklinePoint) => ({
+                  pair: t.pair,
+                  interval: "1h",
+                  timestamp: sp.timestamp,
+                  open: sp.open,
+                  high: sp.high,
+                  low: sp.low,
+                  close: sp.close,
+                  volume: sp.volume,
+                  source: "",
+                  finalized: true,
+                }));
+              }
+            });
           }
-          if (active) setTickers(tMap);
+          if (active) {
+            setTickers(tMap);
+            setCandles(cMap);
+          }
         }
       } catch (e) {
         console.error("Failed to fetch initial tickers", e);
       }
 
-      // 2. Fetch historical candles for sparklines
-      for (const pair of items) {
-        try {
-          const histRes = await fetchHistorical(pair.symbol, "1h", sparklineStart, sparklineEnd);
-          if (histRes?.data) {
-            newCandles[pair.symbol] = histRes.data.slice(-24);
-          }
-        } catch (e) {
-          console.warn("Failed to fetch historical for", pair.symbol, e);
-        }
-      }
-
       if (active) {
-        setCandles(newCandles);
         setLoadingExtras(false);
       }
     };
@@ -155,37 +154,6 @@ export function MarketPage() {
       active = false;
       es.close();
     };
-  }, [pairsData, quoteCurrency]);
-
-  // Periodically refresh sparkline candles so the trend chart stays current.
-  useEffect(() => {
-    if (!pairsData?.data) return;
-    let active = true;
-
-    const refreshCandles = async () => {
-      const items = pairsData.data.filter((p: Pair) => p.quote === quoteCurrency);
-      const sparklineEnd = Math.floor(Date.now() / 1000);
-      const sparklineStart = sparklineEnd - 24 * 3600;
-      const updated: Record<string, Candle[]> = {};
-
-      for (const pair of items) {
-        try {
-          const histRes = await fetchHistorical(pair.symbol, "1h", sparklineStart, sparklineEnd);
-          if (histRes?.data) {
-            updated[pair.symbol] = histRes.data.slice(-24);
-          }
-        } catch {
-          // keep previous candles on failure
-        }
-      }
-
-      if (active && Object.keys(updated).length > 0) {
-        setCandles(prev => ({ ...prev, ...updated }));
-      }
-    };
-
-    const id = setInterval(refreshCandles, SPARKLINE_REFRESH_MS);
-    return () => { active = false; clearInterval(id); };
   }, [pairsData, quoteCurrency]);
 
   const visiblePairs = useMemo(() => {

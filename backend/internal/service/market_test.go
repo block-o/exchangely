@@ -47,6 +47,19 @@ func (f *fakeMarketRepository) Tickers(_ context.Context) ([]ticker.Ticker, erro
 	return items, nil
 }
 
+func (f *fakeMarketRepository) TickersWithSparklines(_ context.Context) ([]ticker.TickerWithSparkline, error) {
+	call := f.tickersCalls
+	f.tickersCalls++
+	if call >= len(f.tickers) {
+		call = len(f.tickers) - 1
+	}
+	var items []ticker.TickerWithSparkline
+	for _, t := range f.tickers[call] {
+		items = append(items, ticker.TickerWithSparkline{Ticker: t})
+	}
+	return items, nil
+}
+
 func TestMarketServiceTickersUsesTTLCache(t *testing.T) {
 	repo := &fakeMarketRepository{
 		tickers: [][]ticker.Ticker{

@@ -29,7 +29,10 @@ func (r *noopRepo) Historical(_ context.Context, _, _ string, _, _ time.Time) ([
 func (r *noopRepo) Ticker(_ context.Context, _ string) (ticker.Ticker, error) {
 	return ticker.Ticker{}, nil
 }
-func (r *noopRepo) Tickers(_ context.Context) ([]ticker.Ticker, error)         { return nil, nil }
+func (r *noopRepo) Tickers(_ context.Context) ([]ticker.Ticker, error) { return nil, nil }
+func (r *noopRepo) TickersWithSparklines(_ context.Context) ([]ticker.TickerWithSparkline, error) {
+	return nil, nil
+}
 func (r *noopRepo) Ping(_ context.Context) error                               { return nil }
 func (r *noopRepo) SnapshotRows(_ context.Context) ([]postgres.SyncRow, error) { return nil, nil }
 func (r *noopRepo) UpcomingTasks(_ context.Context, _, _ int) ([]task.Task, int, error) {

@@ -97,10 +97,11 @@ func New(svcs Services, opts Options) http.Handler {
 		writeJSON(w, http.StatusOK, item)
 	})
 
-	// GET /api/v1/tickers — returns the freshest persisted ticker point plus 24h stats for all pairs.
-	// Price/last_update prefer the newest realtime raw sample over the current hourly aggregate.
+	// GET /api/v1/tickers — returns the freshest persisted ticker point plus 24h stats for all pairs,
+	// enriched with 24h hourly sparkline candle data so the frontend can render trend charts
+	// without issuing per-pair historical requests.
 	mux.HandleFunc("/api/v1/tickers", func(w http.ResponseWriter, r *http.Request) {
-		items, err := svcs.Market.Tickers(r.Context())
+		items, err := svcs.Market.TickersWithSparklines(r.Context())
 		if err != nil {
 			writeError(w, err)
 			return
@@ -539,12 +540,19 @@ paths:
   /api/v1/tickers:
     get:
       tags: [Market]
-      summary: Latest realtime ticker views
+      summary: Latest realtime ticker views with sparkline data
       security: []
-      description: Returns the freshest persisted ticker point for every pair. Price and last_update_unix prefer the newest realtime raw sample when it is newer than the current hourly candle; 1h, 24h, and 7d stats are derived from stored hourly candles.
+      description: >
+        Returns the freshest persisted ticker point for every pair enriched with
+        the last 24 hourly candle points (sparkline field) so the frontend can
+        render trend charts without issuing per-pair historical requests.
+        Price and last_update_unix prefer the newest realtime raw sample when it
+        is newer than the current hourly candle; 1h, 24h, and 7d stats are
+        derived from stored hourly candles. The sparkline array is cached
+        server-side with a 60-second TTL.
       responses:
         "200":
-          description: Latest tickers
+          description: Latest tickers with embedded sparkline candles
           content:
             application/json:
               schema:
@@ -704,90 +712,120 @@ components:
   schemas:
     Asset:
       type: object
+      description: "A supported asset from the catalog."
       properties:
-        symbol: { type: string }
-        name: { type: string }
-        type: { type: string }
-        circulating_supply: { type: number, format: double }
+        symbol: { type: string, description: "Ticker symbol (e.g. BTC, EUR)." }
+        name: { type: string, description: "Human-readable name (e.g. Bitcoin, Euro)." }
+        type: { type: string, description: "Asset class — crypto or fiat." }
+        circulating_supply: { type: number, format: double, description: "Current circulating supply used for market cap calculation." }
     Pair:
       type: object
+      description: "A supported trading pair from the catalog."
       properties:
-        base: { type: string }
-        quote: { type: string }
-        symbol: { type: string }
+        base: { type: string, description: "Base asset symbol (e.g. BTC)." }
+        quote: { type: string, description: "Quote asset symbol (e.g. EUR)." }
+        symbol: { type: string, description: "Concatenated pair symbol (e.g. BTCEUR)." }
     Candle:
       type: object
+      description: "A single OHLCV candle for a trading pair at a given resolution."
       properties:
-        pair: { type: string }
-        interval: { type: string }
-        timestamp: { type: integer, format: int64 }
-        open: { type: number, format: double }
-        high: { type: number, format: double }
-        low: { type: number, format: double }
-        close: { type: number, format: double }
-        volume: { type: number, format: double }
-        source: { type: string }
-        finalized: { type: boolean }
+        pair: { type: string, description: "Trading pair symbol." }
+        interval: { type: string, description: "Candle resolution — 1h or 1d." }
+        timestamp: { type: integer, format: int64, description: "Bucket start as unix epoch seconds." }
+        open: { type: number, format: double, description: "Opening price." }
+        high: { type: number, format: double, description: "Highest price." }
+        low: { type: number, format: double, description: "Lowest price." }
+        close: { type: number, format: double, description: "Closing price." }
+        volume: { type: number, format: double, description: "Traded volume." }
+        source: { type: string, description: "Data provider that produced this candle." }
+        finalized: { type: boolean, description: "Whether the candle covers a completed time window." }
     Ticker:
       type: object
+      description: >
+        Point-in-time market snapshot for a trading pair. Returned by /tickers
+        (with sparkline) and /tickers/stream (without sparkline). Price and
+        last_update_unix prefer the newest realtime raw sample over the current
+        hourly candle; variation and volume stats are derived from stored hourly
+        candles.
       properties:
-        pair: { type: string }
-        price: { type: number, format: double }
-        market_cap: { type: number, format: double }
-        variation_24h: { type: number, format: double }
-        volume_24h: { type: number, format: double, description: "Trailing 24h quote-currency turnover for this pair. Prefers provider-native 24h snapshots and otherwise estimates from stored hourly candles." }
-        high_24h: { type: number, format: double }
-        low_24h: { type: number, format: double }
-        last_update_unix: { type: integer, format: int64 }
-        source: { type: string }
+        pair: { type: string, description: "Trading pair symbol (e.g. BTCEUR)." }
+        price: { type: number, format: double, description: "Latest market price from the freshest source." }
+        market_cap: { type: number, format: double, description: "Estimated market cap (price × circulating supply)." }
+        variation_1h: { type: number, format: double, description: "Percentage price change over the last hour." }
+        variation_24h: { type: number, format: double, description: "Percentage price change over the last 24 hours." }
+        variation_7d: { type: number, format: double, description: "Percentage price change over the last 7 days." }
+        volume_24h: { type: number, format: double, description: "Trailing 24h quote-currency turnover. Prefers provider-native 24h snapshots; falls back to hourly candle aggregation." }
+        high_24h: { type: number, format: double, description: "Highest price in the last 24 hours." }
+        low_24h: { type: number, format: double, description: "Lowest price in the last 24 hours." }
+        last_update_unix: { type: integer, format: int64, description: "Unix epoch of the latest data sample." }
+        source: { type: string, description: "Provider that produced the latest sample (e.g. binance, kraken)." }
+        sparkline:
+          type: array
+          description: "Last 24 hourly OHLCV points for sparkline rendering. Present in /tickers responses; absent in /tickers/stream deltas."
+          items: { $ref: "#/components/schemas/SparklinePoint" }
+    SparklinePoint:
+      type: object
+      description: "Lightweight hourly OHLCV point used for sparkline charts."
+      properties:
+        timestamp: { type: integer, format: int64, description: "Bucket start as unix epoch seconds." }
+        open: { type: number, format: double, description: "Opening price." }
+        high: { type: number, format: double, description: "Highest price." }
+        low: { type: number, format: double, description: "Lowest price." }
+        close: { type: number, format: double, description: "Closing price." }
+        volume: { type: number, format: double, description: "Traded volume." }
     Task:
       type: object
+      description: "A scheduled or completed task in the planner/worker pipeline."
       properties:
-        id: { type: string }
-        type: { type: string }
-        pair: { type: string }
-        interval: { type: string }
-        window_start: { type: string, format: date-time }
-        window_end: { type: string, format: date-time }
-        status: { type: string }
-        last_error: { type: string }
-        completed_at: { type: string, format: date-time }
+        id: { type: string, description: "Unique task identifier." }
+        type: { type: string, description: "Task type (e.g. historical_backfill, live_ticker, consolidation)." }
+        pair: { type: string, description: "Target trading pair symbol, or * for system-wide tasks." }
+        interval: { type: string, description: "Data resolution (e.g. 1h, 1d, realtime)." }
+        window_start: { type: string, format: date-time, description: "Start of the time window this task covers." }
+        window_end: { type: string, format: date-time, description: "End of the time window this task covers." }
+        status: { type: string, description: "Current lifecycle status (pending, running, completed, failed)." }
+        last_error: { type: string, description: "Error message from the most recent failed attempt, if any." }
+        completed_at: { type: string, format: date-time, description: "Timestamp when the task completed or failed." }
     SyncStatus:
       type: object
+      description: "Per-pair backfill and consolidation progress."
       properties:
-        pair: { type: string }
-        backfill_completed: { type: boolean }
-        last_synced_unix: { type: integer, format: int64 }
-        next_target_unix: { type: integer, format: int64 }
-        hourly_backfill_completed: { type: boolean }
-        daily_backfill_completed: { type: boolean }
-        hourly_synced_unix: { type: integer, format: int64 }
-        daily_synced_unix: { type: integer, format: int64 }
-        next_hourly_target_unix: { type: integer, format: int64 }
-        next_daily_target_unix: { type: integer, format: int64 }
+        pair: { type: string, description: "Trading pair symbol." }
+        backfill_completed: { type: boolean, description: "Whether hourly backfill has reached the earliest available data." }
+        last_synced_unix: { type: integer, format: int64, description: "Unix epoch of the most recently synced candle." }
+        next_target_unix: { type: integer, format: int64, description: "Unix epoch of the next backfill target." }
+        hourly_backfill_completed: { type: boolean, description: "Whether hourly-resolution backfill is fully caught up." }
+        daily_backfill_completed: { type: boolean, description: "Whether daily-resolution consolidation is fully caught up." }
+        hourly_synced_unix: { type: integer, format: int64, description: "Unix epoch of the most recently synced hourly candle." }
+        daily_synced_unix: { type: integer, format: int64, description: "Unix epoch of the most recently synced daily candle." }
+        next_hourly_target_unix: { type: integer, format: int64, description: "Unix epoch of the next hourly backfill target." }
+        next_daily_target_unix: { type: integer, format: int64, description: "Unix epoch of the next daily consolidation target." }
     HealthStatus:
       type: object
+      description: "Service health check result."
       properties:
-        status: { type: string }
-        checks: { type: object, additionalProperties: { type: string } }
-        timestamp: { type: integer, format: int64 }
+        status: { type: string, description: "Overall status (e.g. ok, degraded)." }
+        checks: { type: object, additionalProperties: { type: string }, description: "Per-dependency health results." }
+        timestamp: { type: integer, format: int64, description: "Unix epoch when the check was performed." }
     ActiveWarning:
       type: object
+      description: "An active system warning surfaced in the Operations panel."
       properties:
-        id: { type: string }
-        level: { type: string }
-        title: { type: string }
-        detail: { type: string }
-        fingerprint: { type: string }
-        timestamp: { type: integer, format: int64 }
+        id: { type: string, description: "Unique warning identifier." }
+        level: { type: string, description: "Severity — warning or error." }
+        title: { type: string, description: "Short human-readable title." }
+        detail: { type: string, description: "Extended description with context." }
+        fingerprint: { type: string, description: "Stable fingerprint for dismissal deduplication." }
+        timestamp: { type: integer, format: int64, description: "Unix epoch when the warning was raised." }
     NewsItem:
       type: object
+      description: "A news article from an RSS feed."
       properties:
-        id: { type: string }
-        title: { type: string }
-        link: { type: string }
-        source: { type: string }
-        published_at: { type: string, format: date-time }
+        id: { type: string, description: "Unique article identifier." }
+        title: { type: string, description: "Article headline." }
+        link: { type: string, description: "URL to the full article." }
+        source: { type: string, description: "RSS feed source (e.g. CoinDesk, Cointelegraph)." }
+        published_at: { type: string, format: date-time, description: "Publication timestamp." }
 `
 }
 

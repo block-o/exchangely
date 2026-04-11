@@ -458,6 +458,149 @@ func (r *MarketRepository) Tickers(ctx context.Context) ([]ticker.Ticker, error)
 	return items, rows.Err()
 }
 
+// TickersWithSparklines returns the latest ticker snapshot for every pair together
+// with the last 24 hourly candle points (merged from candles_1h + raw_candles).
+// This allows the frontend to render sparklines without issuing per-pair historical requests.
+func (r *MarketRepository) TickersWithSparklines(ctx context.Context) ([]ticker.TickerWithSparkline, error) {
+	rows, err := r.db.QueryContext(ctx, tickerSnapshotQuery(""))
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var items []ticker.TickerWithSparkline
+	for rows.Next() {
+		var tw ticker.TickerWithSparkline
+		var oldPrice, oldPrice1H, oldPrice7D float64
+		var volume24H float64
+		var circulatingSupply sql.NullFloat64
+		var max24, min24 sql.NullFloat64
+		if err := rows.Scan(
+			&tw.Pair,
+			&tw.Price,
+			&tw.LastUpdateUnix,
+			&tw.Source,
+			&oldPrice,
+			&oldPrice1H,
+			&oldPrice7D,
+			&max24,
+			&min24,
+			&volume24H,
+			&circulatingSupply,
+		); err != nil {
+			return nil, err
+		}
+		if oldPrice != 0 {
+			tw.Variation24H = ((tw.Price - oldPrice) / oldPrice) * 100
+		}
+		if oldPrice1H != 0 {
+			tw.Variation1H = ((tw.Price - oldPrice1H) / oldPrice1H) * 100
+		}
+		if oldPrice7D != 0 {
+			tw.Variation7D = ((tw.Price - oldPrice7D) / oldPrice7D) * 100
+		}
+		tw.MarketCap = tw.Price * circulatingSupply.Float64
+		tw.High24H = max24.Float64
+		tw.Low24H = min24.Float64
+		tw.Volume24H = volume24H
+		items = append(items, tw)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Batch-fetch 24h sparkline candles for all pairs in a single query.
+	sparklines, err := r.sparklines24h(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if pts, ok := sparklines[items[i].Pair]; ok {
+			items[i].Sparkline = pts
+		}
+	}
+
+	return items, nil
+}
+
+// sparklines24h returns the last 24 hourly candle points for every pair,
+// merging consolidated candles_1h with recent raw_candles (same strategy as
+// historicalHourlyMerged but for all pairs at once).
+func (r *MarketRepository) sparklines24h(ctx context.Context) (map[string][]ticker.SparklinePoint, error) {
+	query := `
+		WITH consolidated AS (
+			SELECT pair_symbol,
+			       bucket_start,
+			       open::DOUBLE PRECISION,
+			       high::DOUBLE PRECISION,
+			       low::DOUBLE PRECISION,
+			       close::DOUBLE PRECISION,
+			       volume::DOUBLE PRECISION
+			FROM candles_1h
+			WHERE bucket_start >= NOW() - INTERVAL '25 hours'
+		),
+		raw_hourly AS (
+			SELECT DISTINCT ON (pair_symbol, date_trunc('hour', bucket_start))
+			       pair_symbol,
+			       date_trunc('hour', bucket_start) AS bucket_start,
+			       open::DOUBLE PRECISION,
+			       high::DOUBLE PRECISION,
+			       low::DOUBLE PRECISION,
+			       close::DOUBLE PRECISION,
+			       volume::DOUBLE PRECISION
+			FROM raw_candles
+			WHERE interval = '1h'
+			  AND bucket_start >= NOW() - INTERVAL '25 hours'
+			ORDER BY pair_symbol, date_trunc('hour', bucket_start), updated_at DESC
+		),
+		merged AS (
+			SELECT pair_symbol,
+			       EXTRACT(EPOCH FROM bucket_start)::BIGINT AS ts,
+			       open, high, low, close, volume
+			FROM consolidated
+			UNION ALL
+			SELECT r.pair_symbol,
+			       EXTRACT(EPOCH FROM r.bucket_start)::BIGINT AS ts,
+			       r.open, r.high, r.low, r.close, r.volume
+			FROM raw_hourly r
+			LEFT JOIN consolidated c ON c.pair_symbol = r.pair_symbol AND c.bucket_start = r.bucket_start
+			WHERE c.bucket_start IS NULL
+		)
+		SELECT pair_symbol, ts, open, high, low, close, volume
+		FROM merged
+		ORDER BY pair_symbol, ts
+	`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	result := make(map[string][]ticker.SparklinePoint)
+	for rows.Next() {
+		var pair string
+		var pt ticker.SparklinePoint
+		if err := rows.Scan(&pair, &pt.Timestamp, &pt.Open, &pt.High, &pt.Low, &pt.Close, &pt.Volume); err != nil {
+			return nil, err
+		}
+		result[pair] = append(result[pair], pt)
+	}
+
+	// Keep only the last 24 points per pair.
+	for pair, pts := range result {
+		if len(pts) > 24 {
+			result[pair] = pts[len(pts)-24:]
+		}
+	}
+
+	return result, rows.Err()
+}
+
 // tickerSnapshotQuery generates a complex SQL query to calculate real-time market stats.
 //
 // It uses Common Table Expressions (CTEs) for:

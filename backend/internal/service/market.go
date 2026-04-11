@@ -10,10 +10,24 @@ import (
 	"github.com/block-o/exchangely/backend/internal/domain/ticker"
 )
 
+// MarketRepository defines the persistence contract for market data reads.
+// Implementations live in the storage/postgres package and are injected at startup.
 type MarketRepository interface {
+	// Historical returns canonical OHLCV candles for a single pair and interval
+	// within the given time window. Used by the /historical/{pair} endpoint.
 	Historical(ctx context.Context, pairSymbol, interval string, start, end time.Time) ([]candle.Candle, error)
+
+	// Ticker returns the freshest market snapshot for a single trading pair,
+	// preferring the newest realtime raw sample over the current hourly aggregate.
 	Ticker(ctx context.Context, pairSymbol string) (ticker.Ticker, error)
+
+	// Tickers returns the freshest market snapshot for every pair, including
+	// 1h/24h/7d price variations and 24h aggregated volume.
 	Tickers(ctx context.Context) ([]ticker.Ticker, error)
+
+	// TickersWithSparklines returns the same data as Tickers but enriched with
+	// the last 24 hourly candle points per pair for sparkline rendering.
+	TickersWithSparklines(ctx context.Context) ([]ticker.TickerWithSparkline, error)
 }
 
 // MarketService provides market data access and a lightweight in-memory pub/sub EventBus.
@@ -31,6 +45,11 @@ type MarketService struct {
 	cacheMu            sync.RWMutex // guards tickerCache and tickersCache
 	cacheSize          int
 	tickersTTL         time.Duration
+
+	// Sparkline cache (separate TTL since sparklines change at most hourly)
+	sparklineCache       []ticker.TickerWithSparkline
+	sparklineCacheExpiry time.Time
+	sparklineTTL         time.Duration
 }
 
 // MarketSubscription tracks pending changed pairs for one SSE client.
@@ -45,18 +64,25 @@ type MarketSubscription struct {
 // NewMarketService returns a MarketService backed by the given repository and configured cache settings.
 func NewMarketService(repo MarketRepository, cacheSize int, tickersTTL time.Duration) *MarketService {
 	return &MarketService{
-		repo:        repo,
-		updateChs:   make([]*MarketSubscription, 0),
-		tickerCache: make(map[string]ticker.Ticker, cacheSize),
-		cacheSize:   cacheSize,
-		tickersTTL:  tickersTTL,
+		repo:         repo,
+		updateChs:    make([]*MarketSubscription, 0),
+		tickerCache:  make(map[string]ticker.Ticker, cacheSize),
+		cacheSize:    cacheSize,
+		tickersTTL:   tickersTTL,
+		sparklineTTL: 60 * time.Second, // sparklines change at most hourly; 60s is a good balance
 	}
 }
 
+// Historical delegates to the repository to fetch canonical OHLCV candles for a
+// single pair and interval. No caching is applied here because historical queries
+// are typically bounded and infrequent compared to ticker reads.
 func (s *MarketService) Historical(ctx context.Context, pairSymbol, interval string, start, end time.Time) ([]candle.Candle, error) {
 	return s.repo.Historical(ctx, pairSymbol, interval, start, end)
 }
 
+// Ticker returns the freshest market snapshot for a single pair. Results are
+// cached per-pair in an LRU-style map; NotifyUpdate invalidates the entry for
+// the specific pair that was updated so the next read fetches fresh data.
 func (s *MarketService) Ticker(ctx context.Context, pairSymbol string) (ticker.Ticker, error) {
 	s.cacheMu.RLock()
 	item, ok := s.tickerCache[pairSymbol]
@@ -102,6 +128,31 @@ func (s *MarketService) Tickers(ctx context.Context) ([]ticker.Ticker, error) {
 	defer s.cacheMu.Unlock()
 	s.tickersCache = items
 	s.tickersCacheExpiry = time.Now().Add(s.tickersTTL)
+
+	return items, nil
+}
+
+// TickersWithSparklines returns all tickers enriched with 24h hourly candle data
+// for sparkline rendering. Cached separately from plain Tickers with a longer TTL
+// since sparkline data changes at most once per hour.
+func (s *MarketService) TickersWithSparklines(ctx context.Context) ([]ticker.TickerWithSparkline, error) {
+	s.cacheMu.RLock()
+	if s.sparklineCache != nil && time.Now().Before(s.sparklineCacheExpiry) {
+		res := s.sparklineCache
+		s.cacheMu.RUnlock()
+		return res, nil
+	}
+	s.cacheMu.RUnlock()
+
+	items, err := s.repo.TickersWithSparklines(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	s.sparklineCache = items
+	s.sparklineCacheExpiry = time.Now().Add(s.sparklineTTL)
 
 	return items, nil
 }
@@ -169,6 +220,7 @@ func (s *MarketSubscription) DrainPendingPairs() []string {
 	return pairs
 }
 
+// queuePair records a changed pair and sends a non-blocking wake signal.
 func (s *MarketSubscription) queuePair(pairSymbol string) {
 	s.mu.Lock()
 	s.pending[pairSymbol] = struct{}{}

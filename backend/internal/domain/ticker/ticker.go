@@ -27,3 +27,20 @@ type Ticker struct {
 	LastUpdateUnix int64  `json:"last_update_unix"`
 	Source         string `json:"source"`
 }
+
+// SparklinePoint is a lightweight close-price sample for sparkline rendering.
+type SparklinePoint struct {
+	Timestamp int64   `json:"timestamp"`
+	Open      float64 `json:"open"`
+	High      float64 `json:"high"`
+	Low       float64 `json:"low"`
+	Close     float64 `json:"close"`
+	Volume    float64 `json:"volume"`
+}
+
+// TickerWithSparkline extends Ticker with the last 24 hourly candle points
+// so the frontend can render sparklines without separate historical requests.
+type TickerWithSparkline struct {
+	Ticker
+	Sparkline []SparklinePoint `json:"sparkline"`
+}

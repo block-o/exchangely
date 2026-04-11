@@ -82,7 +82,7 @@ describe("AppShell", () => {
 
     const apiDocsLinks = screen.getAllByRole("link", { name: "API documentation" });
     expect(apiDocsLinks.length).toBeGreaterThanOrEqual(1);
-    expect(apiDocsLinks[0]).toHaveAttribute("href", "http://localhost:8080/swagger");
+    expect(apiDocsLinks[0].getAttribute("href")).toMatch(/^http:\/\/localhost:8080\/swagger\?theme=(dark|light)$/);
   });
 
   describe("identity pill (unauthenticated)", () => {

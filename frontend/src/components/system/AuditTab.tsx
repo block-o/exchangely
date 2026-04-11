@@ -302,8 +302,8 @@ export function AuditTab() {
                 placeholder="Search logs…"
                 autoFocus
                 style={{
-                  background: "rgba(255,255,255,0.06)",
-                  border: "1px solid rgba(255,255,255,0.15)",
+                  background: "var(--color-interactive-bg)",
+                  border: "1px solid var(--color-interactive-border)",
                   borderRadius: "6px",
                   color: "inherit",
                   fontSize: "0.82rem",
@@ -319,8 +319,8 @@ export function AuditTab() {
               title="Search"
               aria-label="Toggle search"
               style={{
-                background: searchOpen ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.12)",
+                background: searchOpen ? "var(--color-interactive-hover)" : "var(--color-subtle-bg)",
+                border: "1px solid var(--color-card-detail-border)",
                 borderRadius: "6px",
                 color: "inherit",
                 cursor: "pointer",

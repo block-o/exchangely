@@ -983,7 +983,7 @@ components:
 
 func swaggerPageHTML() string {
 	return `<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -997,7 +997,38 @@ func swaggerPageHTML() string {
       --color-text-secondary: #94a3b8;
       --color-text-accent: #00f0ff;
       --color-border: rgba(255, 255, 255, 0.08);
+      --color-interactive-bg: rgba(255, 255, 255, 0.04);
+      --color-interactive-border: rgba(255, 255, 255, 0.18);
+      --color-input-bg: rgba(6, 9, 14, 0.78);
+      --color-input-border: rgba(255, 255, 255, 0.12);
+      --color-opblock-bg: rgba(255, 255, 255, 0.02);
+      --color-opblock-border: rgba(255, 255, 255, 0.08);
+      --color-scheme-bg: rgba(255, 255, 255, 0.03);
       --shadow-panel: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      --bg-gradient-1: rgba(8, 51, 68, 0.8);
+      --bg-gradient-2: rgba(15, 23, 42, 1);
+      --pill-primary-text: #02171a;
+      --pill-primary-hover: #6af7ff;
+    }
+    [data-theme="light"] {
+      --color-bg-base: #f8fafc;
+      --color-bg-panel: rgba(255, 255, 255, 0.82);
+      --color-text-primary: #0f172a;
+      --color-text-secondary: #475569;
+      --color-text-accent: #0284c7;
+      --color-border: rgba(15, 23, 42, 0.1);
+      --color-interactive-bg: rgba(15, 23, 42, 0.04);
+      --color-interactive-border: rgba(15, 23, 42, 0.15);
+      --color-input-bg: rgba(241, 245, 249, 0.8);
+      --color-input-border: rgba(15, 23, 42, 0.12);
+      --color-opblock-bg: rgba(15, 23, 42, 0.02);
+      --color-opblock-border: rgba(15, 23, 42, 0.08);
+      --color-scheme-bg: rgba(15, 23, 42, 0.03);
+      --shadow-panel: 0 8px 32px 0 rgba(15, 23, 42, 0.08);
+      --bg-gradient-1: rgba(186, 230, 253, 0.5);
+      --bg-gradient-2: rgba(241, 245, 249, 1);
+      --pill-primary-text: #fff;
+      --pill-primary-hover: #0369a1;
     }
     * { box-sizing: border-box; }
     body {
@@ -1008,10 +1039,11 @@ func swaggerPageHTML() string {
       font-family: Inter, system-ui, sans-serif;
       background-color: var(--color-bg-base);
       background-image:
-        radial-gradient(circle at top left, rgba(8, 51, 68, 0.8), transparent 40%),
-        radial-gradient(circle at bottom right, rgba(15, 23, 42, 1), transparent 60%);
+        radial-gradient(circle at top left, var(--bg-gradient-1), transparent 40%),
+        radial-gradient(circle at bottom right, var(--bg-gradient-2), transparent 60%);
       background-attachment: fixed;
       -webkit-font-smoothing: antialiased;
+      transition: background-color 0.3s ease, color 0.3s ease;
     }
     a { color: inherit; text-decoration: none; }
     .shell {
@@ -1026,6 +1058,7 @@ func swaggerPageHTML() string {
       background: var(--color-bg-panel);
       backdrop-filter: blur(16px);
       box-shadow: var(--shadow-panel);
+      transition: background 0.3s ease, border-color 0.3s ease;
     }
     .hero {
       display: flex;
@@ -1074,19 +1107,38 @@ func swaggerPageHTML() string {
       transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
     }
     .pill.primary {
-      color: #02171a;
+      color: var(--pill-primary-text);
       background: var(--color-text-accent);
       border-color: transparent;
       font-weight: 700;
     }
     .pill:hover {
       color: var(--color-text-primary);
-      border-color: rgba(255, 255, 255, 0.18);
-      background: rgba(255, 255, 255, 0.04);
+      border-color: var(--color-interactive-border);
+      background: var(--color-interactive-bg);
     }
     .pill.primary:hover {
-      color: #02171a;
-      background: #6af7ff;
+      color: var(--pill-primary-text);
+      background: var(--pill-primary-hover);
+    }
+    .theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 999px;
+      border: 1px solid var(--color-border);
+      background: none;
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      font-size: 1.1rem;
+      transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+    .theme-toggle:hover {
+      color: var(--color-text-accent);
+      border-color: var(--color-interactive-border);
+      background: var(--color-interactive-bg);
     }
     .panel {
       padding: 0;
@@ -1104,7 +1156,7 @@ func swaggerPageHTML() string {
       display: none;
     }
     .swagger-ui .scheme-container {
-      background: rgba(255, 255, 255, 0.03);
+      background: var(--color-scheme-bg);
       box-shadow: none;
       border-bottom: 1px solid var(--color-border);
     }
@@ -1146,25 +1198,30 @@ func swaggerPageHTML() string {
     .swagger-ui .responses-table tbody tr td,
     .swagger-ui table thead tr td,
     .swagger-ui table thead tr th {
-      border-color: rgba(255, 255, 255, 0.08);
+      border-color: var(--color-opblock-border);
     }
     .swagger-ui .opblock {
-      background: rgba(255, 255, 255, 0.02);
+      background: var(--color-opblock-bg);
       border-radius: 18px;
     }
     .swagger-ui .opblock.is-open .opblock-summary {
-      border-bottom-color: rgba(255, 255, 255, 0.08);
+      border-bottom-color: var(--color-opblock-border);
     }
     .swagger-ui input,
     .swagger-ui select,
     .swagger-ui textarea {
       color: var(--color-text-primary);
-      background: rgba(6, 9, 14, 0.78);
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: var(--color-input-bg);
+      border: 1px solid var(--color-input-border);
     }
     .swagger-ui .btn.execute {
       background: #00b8c5;
       border-color: #00b8c5;
+    }
+    [data-theme="light"] .swagger-ui .btn.execute {
+      background: #0284c7;
+      border-color: #0284c7;
+      color: #fff;
     }
     .swagger-ui .btn.authorize,
     .swagger-ui .btn.try-out__btn,
@@ -1185,13 +1242,59 @@ func swaggerPageHTML() string {
 </head>
 <body>
   <main class="shell">
-    <section class="panel">
+    <section class="panel" style="position:relative">
+      <button id="theme-toggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle dark/light theme" style="position:absolute;top:16px;right:16px;z-index:10">🌙</button>
       <div id="swagger-ui"></div>
     </section>
   </main>
   <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
   <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
   <script>
+    // Theme resolution: ?theme= query param > cookie > default (dark)
+    (function() {
+      function getCookie(name) {
+        var match = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+        return match ? decodeURIComponent(match[1]) : null;
+      }
+      function setCookie(name, value) {
+        document.cookie = name + "=" + encodeURIComponent(value) + "; path=/; max-age=31536000; SameSite=Lax";
+      }
+
+      var params = new URLSearchParams(window.location.search);
+      var qp = params.get("theme");
+      var cookie = getCookie("exchangely_theme");
+      var theme = "dark";
+      if (qp === "light" || qp === "dark") {
+        theme = qp;
+      } else if (cookie === "light" || cookie === "dark") {
+        theme = cookie;
+      }
+
+      document.documentElement.setAttribute("data-theme", theme);
+      setCookie("exchangely_theme", theme);
+
+      function updateToggleIcon(t) {
+        var btn = document.getElementById("theme-toggle");
+        if (btn) btn.textContent = t === "dark" ? "\u2600\uFE0F" : "\uD83C\uDF19";
+      }
+
+      window.toggleTheme = function() {
+        var current = document.documentElement.getAttribute("data-theme") || "dark";
+        var next = current === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        setCookie("exchangely_theme", next);
+        // Update URL without reload so bookmarks/shares keep the theme
+        var url = new URL(window.location);
+        url.searchParams.set("theme", next);
+        window.history.replaceState({}, "", url);
+        updateToggleIcon(next);
+      };
+
+      window.addEventListener("DOMContentLoaded", function() {
+        updateToggleIcon(theme);
+      });
+    })();
+
     window.onload = () => {
       window.ui = SwaggerUIBundle({
         url: "/swagger/openapi.yaml",

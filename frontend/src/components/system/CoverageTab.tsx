@@ -283,8 +283,8 @@ function CoinCard({
     <div
       style={{
         borderRadius: "12px",
-        border: `1px solid ${allLive && allBackfilled ? "rgba(80,200,120,0.2)" : "rgba(255,255,255,0.08)"}`,
-        background: "var(--surface-color, rgba(22,33,44,0.5))",
+        border: `1px solid ${allLive && allBackfilled ? "rgba(80,200,120,0.2)" : "var(--color-subtle-border)"}`,
+        background: "var(--surface-color)",
         overflow: "hidden",
         transition: "border-color 0.2s ease",
       }}
@@ -331,7 +331,7 @@ function CoinCard({
                 ? "rgba(80,200,120,0.9)"
                 : staleCount > 0
                   ? "rgba(255,107,107,0.9)"
-                  : "rgba(255,255,255,0.4)",
+                  : "var(--color-dimmer)",
             }}
           >
             {liveCount}/{group.quotes.length} live
@@ -362,7 +362,7 @@ function CoinCard({
                       ? "rgba(80,200,120,0.7)"
                       : partial
                         ? "rgba(255,196,61,0.6)"
-                        : "rgba(255,255,255,0.1)",
+                        : "var(--color-subtle-border)",
                     transition: "background 0.3s ease",
                   }}
                 />
@@ -576,9 +576,9 @@ function ResolutionBadge({
         padding: "1px 8px",
         borderRadius: "6px",
         fontSize: "0.78rem",
-        background: "rgba(255,255,255,0.04)",
-        color: "rgba(255,255,255,0.3)",
-        border: "1px solid rgba(255,255,255,0.08)",
+        background: "var(--color-subtle-bg)",
+        color: "var(--color-dimmer)",
+        border: "1px solid var(--color-subtle-border)",
       }}
     >
       —

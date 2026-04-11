@@ -162,7 +162,7 @@ export function OverviewTab() {
                       disabled={dismissingWarningIds.has(warning.id)}
                       style={{
                         background: "transparent",
-                        border: "1px solid rgba(255,255,255,0.18)",
+                        border: "1px solid var(--color-interactive-border)",
                         borderRadius: "999px",
                         color: "inherit",
                         cursor: dismissingWarningIds.has(warning.id) ? "default" : "pointer",

@@ -275,8 +275,6 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// --- API Token Management Endpoints ---
-
 // requireJWTSession checks that the request was authenticated via JWT (not an
 // API token). Returns true if the request should proceed, false if a 401 was
 // written. API tokens cannot manage other API tokens.
@@ -435,8 +433,6 @@ func (h *AuthHandler) RevokeAPIToken(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// --- Internal helpers ---
 
 // setSecurityHeaders sets the required security headers on auth responses.
 func (h *AuthHandler) setSecurityHeaders(w http.ResponseWriter) {

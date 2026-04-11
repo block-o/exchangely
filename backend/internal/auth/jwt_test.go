@@ -14,8 +14,6 @@ import (
 // For any valid User with any combination of id, email, and role, issuing a JWT
 // access token and then validating it SHALL produce Claims containing the same
 // user id, email, and role as the original User.
-//
-// **Validates: Requirements 3.1, 3.4**
 func TestPropertyJWTRoundTripPreservesIdentity(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		// Generate random user identity fields.
@@ -65,8 +63,6 @@ func TestPropertyJWTRoundTripPreservesIdentity(t *testing.T) {
 //
 // For any valid User, issuing a JWT with an expiration in the past SHALL cause
 // ValidateAccessToken to return an error.
-//
-// **Validates: Requirements 3.5, 12.6**
 func TestPropertyExpiredJWTRejected(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		userID := uuid.New()
@@ -112,8 +108,6 @@ func TestPropertyExpiredJWTRejected(t *testing.T) {
 //
 // For any valid User, issuing a JWT with one secret and validating with a
 // different secret SHALL cause ValidateAccessToken to return an error.
-//
-// **Validates: Requirements 3.5, 12.6**
 func TestPropertyWrongSecretJWTRejected(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		userID := uuid.New()
@@ -168,8 +162,6 @@ func TestPropertyWrongSecretJWTRejected(t *testing.T) {
 //
 // For any JWT where at least one of the required claims (sub, email, role) is
 // empty, ValidateAccessToken SHALL return an error.
-//
-// **Validates: Requirements 3.5, 12.6**
 func TestPropertyMissingClaimsJWTRejected(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		// Generate a random secret.
@@ -231,8 +223,6 @@ func TestPropertyMissingClaimsJWTRejected(t *testing.T) {
 //
 // For any random string that is not a properly structured JWT,
 // ValidateAccessToken SHALL return an error.
-//
-// **Validates: Requirements 3.5, 12.6**
 func TestPropertyMalformedJWTRejected(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		// Generate a random secret.
@@ -257,8 +247,6 @@ func TestPropertyMalformedJWTRejected(t *testing.T) {
 // For any user with MustChangePassword set to true, the issued JWT access token
 // SHALL contain a must_change_password: true claim. For any user with
 // MustChangePassword set to false, the claim SHALL be false.
-//
-// **Validates: Requirements 11.8**
 func TestPropertyMustChangePasswordPropagation(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		// Generate random user identity fields.

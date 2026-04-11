@@ -510,8 +510,6 @@ func (s *Service) BootstrapAdmin(ctx context.Context) error {
 	return nil
 }
 
-// --- Internal helpers ---
-
 // exchangeCode exchanges an OAuth authorization code for Google tokens.
 func (s *Service) exchangeCode(ctx context.Context, code string) (*googleTokenResponse, error) {
 	data := url.Values{

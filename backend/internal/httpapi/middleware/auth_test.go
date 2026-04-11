@@ -34,17 +34,11 @@ var okHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 })
 
-// =============================================================================
-// Property 8: Role-based access control for system endpoints
-// =============================================================================
-
 // TestPropertyRoleBasedAccessControl verifies Property 8.
 //
 // For any authenticated user and any /api/v1/system/* endpoint, the Auth
 // Middleware SHALL allow the request if and only if the user's role is "admin".
 // Users with role "user" SHALL receive HTTP 403 Forbidden.
-//
-// **Validates: Requirements 6.1, 6.2**
 func TestPropertyRoleBasedAccessControl(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		svc := newTestAuthService()
@@ -87,10 +81,6 @@ func TestPropertyRoleBasedAccessControl(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Public routes return 200 without any token
-// =============================================================================
-
 // TestPropertyPublicRoutesNoTokenRequired verifies that public routes return 200
 // without any authentication token.
 func TestPropertyPublicRoutesNoTokenRequired(t *testing.T) {
@@ -130,10 +120,6 @@ func TestPropertyPublicRoutesNoTokenRequired(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Protected routes return 401 without any token
-// =============================================================================
-
 // TestPropertyProtectedRoutesRequireToken verifies that protected (non-public)
 // routes return 401 when no Bearer token is provided.
 func TestPropertyProtectedRoutesRequireToken(t *testing.T) {
@@ -158,10 +144,6 @@ func TestPropertyProtectedRoutesRequireToken(t *testing.T) {
 		}
 	}
 }
-
-// =============================================================================
-// Minimal no-op repository implementations for middleware testing
-// =============================================================================
 
 // noopUserRepo satisfies auth.UserRepository with no-op implementations.
 // The middleware only needs auth.Service.ValidateAccessToken which doesn't

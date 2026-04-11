@@ -38,7 +38,7 @@ func TestPropertyPublicPathExemption(t *testing.T) {
 		mw := newTestAPITokenMiddleware()
 		handler := mw.Wrap(okHandler)
 
-		// --- Public exact-match paths ---
+		// Public exact-match paths
 		publicPaths := []string{
 			"/api/v1/health",
 			"/api/v1/assets",
@@ -50,7 +50,7 @@ func TestPropertyPublicPathExemption(t *testing.T) {
 			"/api/v1/auth/logout",
 		}
 
-		// --- Public prefix-match paths (generate random suffixes) ---
+		// Public prefix-match paths (generate random suffixes)
 		prefixBases := []string{
 			"/api/v1/ticker/",
 			"/api/v1/historical/",
@@ -89,7 +89,7 @@ func TestPropertyPublicPathExemption(t *testing.T) {
 			t.Fatalf("public prefix path %s: expected 200, got %d", prefixPath, rr.Code)
 		}
 
-		// --- Non-public path with invalid exly_ token should get 401 ---
+		// Non-public path with invalid exly_ token should get 401
 		nonPublicSuffix := rapid.StringMatching(`[a-z]{1,15}`).Draw(t, "nonPublicSuffix")
 		nonPublicPath := fmt.Sprintf("/api/v1/private/%s", nonPublicSuffix)
 
@@ -370,15 +370,9 @@ func TestAPITokenMiddleware_InvalidToken401(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Property 11: Disabled users are rejected by API token middleware
-// =============================================================================
-
 // TestPropertyDisabledUserAPITokenRejection verifies that disabled users are
 // rejected by the API token middleware with HTTP 401, and claims are not
 // attached to the request context.
-//
-// **Validates: Requirements 7.4**
 func TestPropertyDisabledUserAPITokenRejection(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		// Generate a random user with a valid API token.

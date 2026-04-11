@@ -163,8 +163,6 @@ func meetsComplexity(s string) bool {
 // length between 12 and 128 characters inclusive AND contains at least one
 // uppercase letter, one lowercase letter, one digit, and one special character.
 // All other strings SHALL be rejected.
-//
-// **Validates: Requirements 12.1**
 func TestPropertyPasswordComplexityValidation(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		// Generate a random string from a broad character set including ASCII
@@ -198,8 +196,6 @@ func isValidEmail(s string) bool {
 //
 // For any input string submitted as an email, the validator SHALL accept it
 // only if it matches a standard email format.
-//
-// **Validates: Requirements 12.9**
 func TestPropertyEmailValidation(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		// Draw from a mix of arbitrary strings and email-like patterns so we
@@ -227,8 +223,6 @@ func TestPropertyEmailValidation(t *testing.T) {
 //
 // For any input string submitted as a name, the validator SHALL reject it if
 // it exceeds 256 characters.
-//
-// **Validates: Requirements 12.9**
 func TestPropertyNameLengthValidation(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		// Generate names of varying length from 0 to 300 to exercise the
@@ -251,8 +245,6 @@ func TestPropertyNameLengthValidation(t *testing.T) {
 //
 // For any input string, leading and trailing whitespace SHALL be trimmed
 // before processing.
-//
-// **Validates: Requirements 12.9**
 func TestPropertyWhitespaceTrimming(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		// Generate a core string (may contain interior whitespace).

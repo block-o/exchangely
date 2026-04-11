@@ -50,18 +50,12 @@ func createTestUser(t interface{ Fatalf(string, ...any) }, users *mockUserRepo, 
 	return u
 }
 
-// =============================================================================
-// Property 3: Google OAuth user upsert correctness
-// =============================================================================
-
 // TestPropertyGoogleOAuthUpsertCorrectness verifies Property 3.
 //
 // For any Google profile, if no User with that google_id exists, the upsert SHALL
 // create a new User with role "user" and all profile fields populated. If a User
 // with that google_id already exists, the upsert SHALL update only name and
 // avatar_url, leaving role, email, and google_id unchanged.
-//
-// **Validates: Requirements 2.3, 2.4**
 func TestPropertyGoogleOAuthUpsertCorrectness(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		users := newMockUserRepo()
@@ -136,17 +130,11 @@ func TestPropertyGoogleOAuthUpsertCorrectness(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Property 4: Refresh token rotation
-// =============================================================================
-
 // TestPropertyRefreshTokenRotation verifies Property 4.
 //
 // For any valid session, calling RefreshToken SHALL delete the old session,
 // create a new session with a different refresh token hash, and return a valid
 // new access token.
-//
-// **Validates: Requirements 4.4**
 func TestPropertyRefreshTokenRotation(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		users := newMockUserRepo()
@@ -204,16 +192,10 @@ func TestPropertyRefreshTokenRotation(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Property 5: Invalid refresh tokens are rejected
-// =============================================================================
-
 // TestPropertyInvalidRefreshTokensRejected verifies Property 5.
 //
 // For any refresh token that is expired, does not match any active session, or
 // is an arbitrary random string, RefreshToken SHALL return an error.
-//
-// **Validates: Requirements 4.5**
 func TestPropertyInvalidRefreshTokensRejected(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		users := newMockUserRepo()
@@ -281,16 +263,10 @@ func TestPropertyInvalidRefreshTokensRejected(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Property 6: Logout deletes session
-// =============================================================================
-
 // TestPropertyLogoutDeletesSession verifies Property 6.
 //
 // For any active session, calling Logout with the corresponding refresh token
 // SHALL delete the session row, leaving zero sessions for that token hash.
-//
-// **Validates: Requirements 4.6**
 func TestPropertyLogoutDeletesSession(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		users := newMockUserRepo()
@@ -327,18 +303,12 @@ func TestPropertyLogoutDeletesSession(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Property 7: CSRF state validation on OAuth callback
-// =============================================================================
-
 // TestPropertyCSRFStateValidation verifies Property 7.
 //
 // For any pair of state values where the callback state does not equal the
 // expected state, GoogleCallback SHALL reject the request with ErrCSRFStateMismatch.
 // Only when the two state values are equal SHALL the callback proceed past state
 // validation (it will fail later on the HTTP exchange, which is expected).
-//
-// **Validates: Requirements 5.6**
 func TestPropertyCSRFStateValidation(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		users := newMockUserRepo()
@@ -362,18 +332,12 @@ func TestPropertyCSRFStateValidation(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Property 9: Admin bootstrap creates correct user
-// =============================================================================
-
 // TestPropertyAdminBootstrapCreatesCorrectUser verifies Property 9.
 //
 // For any valid email configured in AdminEmail, when no user with that email
 // exists, BootstrapAdmin SHALL create a User with role "admin",
 // must_change_password=true, a valid bcrypt password hash with cost >= the
 // configured minimum, and a null google_id.
-//
-// **Validates: Requirements 11.2**
 func TestPropertyAdminBootstrapCreatesCorrectUser(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		users := newMockUserRepo()
@@ -428,16 +392,10 @@ func TestPropertyAdminBootstrapCreatesCorrectUser(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Property 10: Admin bootstrap is idempotent
-// =============================================================================
-
 // TestPropertyAdminBootstrapIdempotent verifies Property 10.
 //
 // For any existing user matching AdminEmail, re-running BootstrapAdmin SHALL not
 // modify the user's password_hash, role, must_change_password, or any other field.
-//
-// **Validates: Requirements 11.4**
 func TestPropertyAdminBootstrapIdempotent(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		users := newMockUserRepo()
@@ -573,17 +531,11 @@ func TestBootstrapCreatesAdminWhenNoActiveAdminExists(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Property 14: Auth error responses are generic
-// =============================================================================
-
 // TestPropertyAuthErrorResponsesAreGeneric verifies Property 14.
 //
 // For any failed authentication attempt — whether the email does not exist, the
 // password is wrong, or the account has no password — the service SHALL return
 // the same ErrInvalidCredentials error, indistinguishable across failure modes.
-//
-// **Validates: Requirements 11.7, 12.5**
 func TestPropertyAuthErrorResponsesAreGeneric(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		users := newMockUserRepo()
@@ -622,16 +574,10 @@ func TestPropertyAuthErrorResponsesAreGeneric(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Property 16: Password change invalidates all sessions
-// =============================================================================
-
 // TestPropertyPasswordChangeInvalidatesAllSessions verifies Property 16.
 //
 // For any user with one or more active sessions, successfully changing the
 // password SHALL delete all session rows for that user, leaving zero active sessions.
-//
-// **Validates: Requirements 12.14**
 func TestPropertyPasswordChangeInvalidatesAllSessions(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		users := newMockUserRepo()
@@ -672,10 +618,6 @@ func TestPropertyPasswordChangeInvalidatesAllSessions(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Unit test: LocalLogin returns ErrIPBlocked when IP is blocked
-// =============================================================================
-
 // TestLocalLoginReturnsErrIPBlocked verifies that LocalLogin returns ErrIPBlocked
 // when the IP has exceeded the IP-based rate limit threshold.
 func TestLocalLoginReturnsErrIPBlocked(t *testing.T) {
@@ -701,14 +643,8 @@ func TestLocalLoginReturnsErrIPBlocked(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Property 10: Disabled users are rejected by the auth service
-// =============================================================================
-
 // TestPropertyDisabledUserAuthRejection verifies that disabled users are
 // rejected by LocalLogin and RefreshToken, and no tokens are issued.
-//
-// **Validates: Requirements 7.1, 7.2**
 func TestPropertyDisabledUserAuthRejection(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		users := newMockUserRepo()

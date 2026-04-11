@@ -267,8 +267,6 @@ func TestValidatorExecutorRespectsMaxDaysPerRun(t *testing.T) {
 	}
 }
 
-// --- IntegrityResultWriter tests ---
-
 type mockResultWriter struct {
 	results []IntegrityResult
 }

@@ -409,8 +409,6 @@ func TestLocalLoginReturns429OnIPBlocked(t *testing.T) {
 	}
 }
 
-// --- Mock repositories for API token handler testing ---
-
 // mockAPITokenRepo is an in-memory APITokenRepository for handler tests.
 type mockAPITokenRepo struct {
 	mu     sync.Mutex
@@ -550,8 +548,6 @@ func (r *mockUserRepoForTokens) addUser(u *auth.User) {
 	r.byID[u.ID] = u
 }
 
-// --- Test helpers ---
-
 // newTestAPITokenService creates an APITokenService backed by in-memory mocks.
 func newTestAPITokenService() (*auth.APITokenService, *mockAPITokenRepo, *mockUserRepoForTokens) {
 	tokenRepo := newMockAPITokenRepo()
@@ -585,8 +581,6 @@ func apiTokenRequest(method, path string, body *bytes.Buffer, userID uuid.UUID, 
 	ctx := middleware.ContextWithAuthMethod(req.Context(), "api_token")
 	return req.WithContext(ctx)
 }
-
-// --- Tests ---
 
 // TestCreateAPIToken_201 verifies that POST /api/v1/auth/api-tokens creates a
 // token and returns 201 with the raw token in the response.
@@ -872,8 +866,6 @@ func TestAPITokenEndpoints_401_APITokenAuth(t *testing.T) {
 
 // TestGoogleCallbackDisabledUserRedirect verifies that when GoogleCallback
 // returns ErrAccountDisabled, the handler redirects to /#login?error=account_disabled.
-//
-// **Validates: Requirements 7.3**
 func TestGoogleCallbackDisabledUserRedirect(t *testing.T) {
 	// Create a mock user repo that returns a disabled user.
 	userRepo := &disabledUserRepo{

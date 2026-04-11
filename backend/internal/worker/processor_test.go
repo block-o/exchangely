@@ -94,8 +94,6 @@ func (s *fakePendingSource) Pending(_ context.Context, limit, backfillLimit int)
 	return s.tasks, nil
 }
 
-// --- Concurrency tests ---
-
 // trackingExecutor records which task IDs were executed and supports
 // artificial delays to verify parallel execution.
 type trackingExecutor struct {

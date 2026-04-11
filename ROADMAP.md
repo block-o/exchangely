@@ -27,14 +27,19 @@ The jump from "data service" to "platform with users." These are the enablers fo
 - [x] Maintain the current premium dark aesthetic across all breakpoints
 
 ### 1.2 Authentication & User Management
-- [ ] Add Google OAuth 2.0 login (primary auth method)
-- [ ] Implement JWT-based session management with refresh tokens
-- [ ] Create a `users` table with roles: `admin`, `user`
-- [ ] Build login/signup UI flow integrated into the existing layout
-- [ ] Admin role gates access to the Operations panel
-- [ ] User role gets Market view, Portfolio, and Alerts
-- [ ] Add user settings page (profile, preferences, connected accounts)
-- [ ] Add DB migration for users, sessions, and roles
+- [x] Add Google OAuth 2.0 login (primary auth method)
+- [x] Implement JWT-based session management with refresh tokens
+- [x] Create a `users` table with roles: `admin`, `user`
+- [x] Build login/signup UI flow integrated into the existing layout
+- [x] Admin role gates access to the Operations panel
+- [x] User role gets Market view, Portfolio, and Alerts
+- [x] Add user settings page (profile, preferences, connected accounts)
+- [x] Add DB migration for users, sessions, and roles
+- [x] Local email/password authentication with configurable `BACKEND_AUTH_MODE`
+- [x] Rate limiting on login endpoints (per-email + IP-based progressive lockout)
+- [x] Real IP resolution middleware for reverse proxy support (`BACKEND_TRUSTED_PROXIES`)
+- [x] Password change flow with live complexity feedback
+- [x] Unified `/api/v1/config` endpoint for frontend auth/version discovery
 
 ### 1.3 API Authentication & Rate Limiting
 - [ ] Generate per-user API tokens for programmatic access to historical data

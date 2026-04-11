@@ -49,6 +49,7 @@ type AuthMethodsResponse struct {
 
 // Config holds auth-specific configuration read from environment variables.
 type Config struct {
+	AuthMode           string // "local", "sso", "local,sso", or "" (disabled)
 	GoogleClientID     string
 	GoogleClientSecret string
 	GoogleRedirectURI  string

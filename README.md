@@ -6,7 +6,7 @@
 
 Started as a "poor man's CoinGecko" for historical data availability Exchangely is an event-driven crypto market data platform focused on historical OHLCV coverage for curated crypto/fiat and crypto/stablecoin pairs.
 
-![Market Dashboard](./docs/ui/market_dashboard.png)
+![Market Dashboard](./market_dashboard.png)
 
 ## Features
 
@@ -35,16 +35,10 @@ flowchart LR
     UI -->|REST + Bearer JWT| API
 
     API[API Role]
-    API --> AuthMW[Auth Middleware]
-    AuthMW -->|validate JWT| AuthSvc[Auth Service]
-    AuthMW -->|public routes| Handlers[Route Handlers]
-    AuthMW -->|protected routes| Handlers
-    AuthMW -->|admin-only routes| Handlers
-
-    AuthSvc -->|users + sessions| TS
-    AuthSvc -->|OAuth redirect/callback| Google[Google OAuth 2.0]
-
     API -->|read candles + tickers| TS
+    API --> |users + sessions| TS
+    API -->|OAuth redirect/callback| Google[[Google]]
+
     API -.->|SSE: tickers| UI
     API -.->|SSE: news| UI
     API -.->|SSE: tasks| UI
@@ -206,7 +200,7 @@ All settings are controlled via environment variables. Override them in `.env` o
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `VITE_API_BASE_URL` | Backend API base URL (build-time arg) | `http://localhost:8080/api/v1` |
+| `API_BASE_URL` | Backend API base URL (shared by frontend build and backend OpenAPI spec) | `http://localhost:8080/api/v1` |
 
 #### Authentication
 
@@ -215,10 +209,11 @@ All settings are controlled via environment variables. Override them in `.env` o
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `BACKEND_GOOGLE_CLIENT_ID` | Google OAuth 2.0 client ID. Empty disables Google login. | _(empty)_ |
-| `BACKEND_GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 client secret | _(empty)_ |
-| `BACKEND_GOOGLE_REDIRECT_URI` | OAuth callback URL | `http://localhost:8080/api/v1/auth/google/callback` |
-| `BACKEND_JWT_SECRET` | HMAC-SHA256 secret for signing access tokens. Empty disables all auth. | _(empty)_ |
+| `BACKEND_AUTH_MODE` | Auth mode: `local`, `sso`, or `local,sso`. Empty disables all auth. | _(empty)_ |
+| `BACKEND_JWT_SECRET` | HMAC-SHA256 secret for signing access tokens. Required when auth mode is set. | _(empty)_ |
 | `BACKEND_JWT_EXPIRY` | Access token lifetime | `15m` |
 | `BACKEND_REFRESH_TOKEN_EXPIRY` | Refresh token lifetime | `168h` (7 days) |
-| `BACKEND_ADMIN_EMAIL` | Email for the local admin account. Empty disables local admin. | _(empty)_ |
+| `BACKEND_GOOGLE_CLIENT_ID` | Google OAuth 2.0 client ID. Required when auth mode includes `sso`. | _(empty)_ |
+| `BACKEND_GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 client secret. Required when auth mode includes `sso`. | _(empty)_ |
+| `BACKEND_GOOGLE_REDIRECT_URI` | OAuth callback URL | `http://localhost:8080/api/v1/auth/google/callback` |
+| `BACKEND_ADMIN_EMAIL` | Email for the local admin account. Required when auth mode includes `local`. | _(empty)_ |

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -52,7 +53,11 @@ type Config struct {
 	// NewsFetchInterval defines how often the worker should fetch news from RSS feeds.
 	NewsFetchInterval time.Duration
 
-	// Auth configuration
+	// Auth configuration.
+	// AuthMode controls which authentication methods are active.
+	// Valid values: "" (disabled), "local", "sso", "local,sso" (both).
+	// When empty, auth is completely disabled and all endpoints are public.
+	AuthMode           string
 	GoogleClientID     string
 	GoogleClientSecret string
 	GoogleRedirectURI  string
@@ -66,6 +71,11 @@ type Config struct {
 	// whose X-Forwarded-For / X-Real-IP headers are trusted for extracting the
 	// original client IP. When empty, r.RemoteAddr is always used.
 	TrustedProxies []string
+
+	// APIBaseURL is the public base URL for the API (e.g. http://localhost:8080/api/v1).
+	// Shared with the frontend via the same API_BASE_URL env var. Used in the
+	// OpenAPI spec server URL and Swagger UI configuration.
+	APIBaseURL string
 }
 
 func Load() Config {
@@ -105,6 +115,7 @@ func Load() Config {
 		TickerCacheSize:           parseInt(getenv("BACKEND_TICKER_CACHE_SIZE", "100"), 100),
 		TickersCacheTTL:           parseDuration(getenv("BACKEND_TICKERS_CACHE_TTL", "30s")),
 		NewsFetchInterval:         parseDuration(getenv("BACKEND_NEWS_FETCH_INTERVAL", "5m")),
+		AuthMode:                  normalizeAuthMode(getenv("BACKEND_AUTH_MODE", "")),
 		GoogleClientID:            getenv("BACKEND_GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret:        getenv("BACKEND_GOOGLE_CLIENT_SECRET", ""),
 		GoogleRedirectURI:         getenv("BACKEND_GOOGLE_REDIRECT_URI", "http://localhost:8080/api/v1/auth/google/callback"),
@@ -114,6 +125,7 @@ func Load() Config {
 		AdminEmail:                getenv("BACKEND_ADMIN_EMAIL", ""),
 		BcryptCost:                parseInt(getenv("BACKEND_BCRYPT_COST", "12"), 12),
 		TrustedProxies:            splitCSV(getenv("BACKEND_TRUSTED_PROXIES", "")),
+		APIBaseURL:                getenv("API_BASE_URL", "http://localhost:8080/api/v1"),
 	}
 }
 
@@ -194,4 +206,64 @@ func parsePercent(value string, fallback int) int {
 		return 100
 	}
 	return parsed
+}
+
+// normalizeAuthMode lowercases and trims the auth mode value.
+// Returns "" for empty/unset, or the cleaned value.
+func normalizeAuthMode(raw string) string {
+	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+// AuthModeHasLocal returns true if the auth mode includes local authentication.
+func (c Config) AuthModeHasLocal() bool {
+	return strings.Contains(c.AuthMode, "local")
+}
+
+// AuthModeHasSSO returns true if the auth mode includes SSO (Google OAuth).
+func (c Config) AuthModeHasSSO() bool {
+	return strings.Contains(c.AuthMode, "sso")
+}
+
+// AuthEnabled returns true if any auth mode is configured.
+func (c Config) AuthEnabled() bool {
+	return c.AuthMode != ""
+}
+
+// ValidateAuthConfig checks that the required environment variables are present
+// for the configured auth mode. Returns a list of validation errors (empty = valid).
+func (c Config) ValidateAuthConfig() []string {
+	if !c.AuthEnabled() {
+		return nil
+	}
+
+	var errs []string
+
+	// Validate the mode value itself.
+	switch c.AuthMode {
+	case "local", "sso", "local,sso", "sso,local":
+		// valid
+	default:
+		errs = append(errs, fmt.Sprintf("BACKEND_AUTH_MODE %q is not valid; use \"local\", \"sso\", or \"local,sso\"", c.AuthMode))
+		return errs // no point checking further
+	}
+
+	// JWT secret is always required when auth is enabled.
+	if c.JWTSecret == "" {
+		errs = append(errs, "BACKEND_JWT_SECRET is required when BACKEND_AUTH_MODE is set")
+	}
+
+	if c.AuthModeHasLocal() && c.AdminEmail == "" {
+		errs = append(errs, "BACKEND_ADMIN_EMAIL is required when BACKEND_AUTH_MODE includes \"local\"")
+	}
+
+	if c.AuthModeHasSSO() {
+		if c.GoogleClientID == "" {
+			errs = append(errs, "BACKEND_GOOGLE_CLIENT_ID is required when BACKEND_AUTH_MODE includes \"sso\"")
+		}
+		if c.GoogleClientSecret == "" {
+			errs = append(errs, "BACKEND_GOOGLE_CLIENT_SECRET is required when BACKEND_AUTH_MODE includes \"sso\"")
+		}
+	}
+
+	return errs
 }

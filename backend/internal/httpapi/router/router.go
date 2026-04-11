@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -32,7 +30,9 @@ type Services struct {
 type Options struct {
 	AllowedOrigins []string
 	Env            string   // "development" or "production"
+	AuthMode       string   // "local", "sso", "local,sso", or "" (disabled)
 	TrustedProxies []string // CIDR ranges or IPs whose X-Forwarded-For / X-Real-IP headers are trusted
+	APIBaseURL     string   // public API base URL for OpenAPI spec (e.g. http://localhost:8080/api/v1)
 }
 
 func New(svcs Services, opts Options) http.Handler {
@@ -171,6 +171,23 @@ func New(svcs Services, opts Options) http.Handler {
 		}
 	})
 
+	// GET /api/v1/config — public endpoint returning frontend-relevant configuration.
+	// Always registered regardless of auth mode so the frontend can bootstrap.
+	mux.HandleFunc("/api/v1/config", func(w http.ResponseWriter, r *http.Request) {
+		authMethods := map[string]bool{"google": false, "local": false}
+		authEnabled := svcs.Auth != nil
+		if authEnabled {
+			m := svcs.Auth.AuthMethods()
+			authMethods["google"] = m.Google
+			authMethods["local"] = m.Local
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"auth_enabled": authEnabled,
+			"auth_methods": authMethods,
+			"version":      "v1.0.0",
+		})
+	})
+
 	mux.HandleFunc("/api/v1/system/sync-status", func(w http.ResponseWriter, r *http.Request) {
 		item, err := svcs.System.SyncSnapshot(r.Context())
 		if err != nil {
@@ -178,12 +195,6 @@ func New(svcs Services, opts Options) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, item)
-	})
-
-	mux.HandleFunc("/api/v1/system/version", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{
-			"api_version": "v1.0.0",
-		})
 	})
 
 	// GET /api/v1/news — returns the latest news articles.
@@ -383,29 +394,25 @@ func New(svcs Services, opts Options) http.Handler {
 		}
 		authHandler := handlers.NewAuthHandler(svcs.Auth, env)
 
-		mux.HandleFunc("/api/v1/auth/google/login", authHandler.GoogleLogin)
-		mux.HandleFunc("/api/v1/auth/google/callback", authHandler.GoogleCallback)
-		mux.HandleFunc("/api/v1/auth/local/login", authHandler.LocalLogin)
+		hasLocal := strings.Contains(opts.AuthMode, "local")
+		hasSSO := strings.Contains(opts.AuthMode, "sso")
+
+		if hasSSO {
+			mux.HandleFunc("/api/v1/auth/google/login", authHandler.GoogleLogin)
+			mux.HandleFunc("/api/v1/auth/google/callback", authHandler.GoogleCallback)
+		}
+		if hasLocal {
+			mux.HandleFunc("/api/v1/auth/local/login", authHandler.LocalLogin)
+			mux.HandleFunc("/api/v1/auth/local/change-password", authHandler.ChangePassword)
+		}
 		mux.HandleFunc("/api/v1/auth/refresh", authHandler.Refresh)
 		mux.HandleFunc("/api/v1/auth/logout", authHandler.Logout)
 		mux.HandleFunc("/api/v1/auth/me", authHandler.Me)
-		mux.HandleFunc("/api/v1/auth/local/change-password", authHandler.ChangePassword)
-		mux.HandleFunc("/api/v1/auth/methods", authHandler.AuthMethods)
 	}
 
 	mux.HandleFunc("/swagger/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
-		path := filepath.Join("..", "docs", "openapi", "openapi.yaml")
-		if _, err := os.Stat(path); err == nil {
-			http.ServeFile(w, r, path)
-			return
-		}
-		path = filepath.Join("docs", "openapi", "openapi.yaml")
-		if _, err := os.Stat(path); err == nil {
-			http.ServeFile(w, r, path)
-			return
-		}
 		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
-		_, _ = w.Write([]byte(defaultOpenAPIYAML()))
+		_, _ = w.Write([]byte(defaultOpenAPIYAML(opts.APIBaseURL)))
 	})
 
 	// Wrap with auth middleware. When svcs.Auth is nil (auth disabled),
@@ -420,19 +427,28 @@ func serveSwaggerPage(w http.ResponseWriter) {
 	_, _ = w.Write([]byte(swaggerPageHTML()))
 }
 
-func defaultOpenAPIYAML() string {
+func defaultOpenAPIYAML(apiBaseURL string) string {
+	serverURL := "http://localhost:8080"
+	if apiBaseURL != "" {
+		// Strip /api/v1 suffix to get the server root.
+		serverURL = strings.TrimSuffix(apiBaseURL, "/api/v1")
+		serverURL = strings.TrimSuffix(serverURL, "/")
+	}
 	return `openapi: 3.0.3
 info:
   title: Exchangely API
   version: 0.1.0
   description: REST API for Exchangely market data and sync state. Github (https://github.com/block-o/exchangely)
 servers:
-  - url: http://localhost:8080
+  - url: ` + serverURL + `
+security:
+  - BearerAuth: []
 paths:
   /api/v1/health:
     get:
       tags: [System]
       summary: Health status
+      security: []
       responses:
         "200":
           description: Service health
@@ -443,6 +459,7 @@ paths:
     get:
       tags: [Catalog]
       summary: List supported assets
+      security: []
       responses:
         "200":
           description: Asset catalog
@@ -460,6 +477,7 @@ paths:
     get:
       tags: [Catalog]
       summary: List supported pairs
+      security: []
       responses:
         "200":
           description: Pair catalog
@@ -477,6 +495,7 @@ paths:
     get:
       tags: [Market]
       summary: Historical OHLCV data
+      security: []
       description: Returns canonical stored candles for the requested interval.
       parameters:
         - in: path
@@ -504,6 +523,7 @@ paths:
     get:
       tags: [Market]
       summary: Latest realtime ticker view
+      security: []
       description: Returns the freshest persisted ticker point for a pair. Price and last_update_unix prefer the newest realtime raw sample when it is newer than the current hourly candle; 1h, 24h, and 7d stats are derived from stored hourly candles.
       parameters:
         - in: path
@@ -520,6 +540,7 @@ paths:
     get:
       tags: [Market]
       summary: Latest realtime ticker views
+      security: []
       description: Returns the freshest persisted ticker point for every pair. Price and last_update_unix prefer the newest realtime raw sample when it is newer than the current hourly candle; 1h, 24h, and 7d stats are derived from stored hourly candles.
       responses:
         "200":
@@ -538,6 +559,7 @@ paths:
     get:
       tags: [Market]
       summary: Realtime ticker SSE stream
+      security: []
       description: Streams delta ticker updates only. Each SSE event contains the freshest persisted ticker rows for the pairs that changed since the previous event; clients should bootstrap with /api/v1/tickers and then merge incoming deltas. Use the quote parameter to receive only pairs denominated in a specific currency.
       parameters:
         - name: quote
@@ -561,7 +583,9 @@ paths:
                       $ref: "#/components/schemas/Ticker"
   /api/v1/news:
     get:
+      tags: [News]
       summary: List latest news
+      security: []
       responses:
         "200":
           description: List of news items
@@ -577,7 +601,9 @@ paths:
                     }
   /api/v1/news/stream:
     get:
+      tags: [News]
       summary: Realtime news SSE stream
+      security: []
       responses:
         "200":
           description: Server-Sent Events stream
@@ -598,19 +624,6 @@ paths:
                       type: array,
                       items: { $ref: "#/components/schemas/SyncStatus" },
                     }
-  /api/v1/system/version:
-    get:
-      tags: [System]
-      summary: Runtime version metadata
-      responses:
-        "200":
-          description: Version snapshot
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  api_version: { type: string }
   /api/v1/system/tasks:
     get:
       tags: [System]
@@ -665,6 +678,7 @@ paths:
                     items: { $ref: "#/components/schemas/SyncStatus" }
   /api/v1/system/warnings:
     get:
+      tags: [System]
       summary: Active system warnings
       responses:
         "200":
@@ -675,11 +689,18 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/ActiveWarning" }
     post:
+      tags: [System]
       summary: Dismiss a warning
       responses:
         "204":
           description: Warning dismissed
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token obtained via /api/v1/auth/local/login or /api/v1/auth/google/callback
   schemas:
     Asset:
       type: object

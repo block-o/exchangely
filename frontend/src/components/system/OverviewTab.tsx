@@ -33,9 +33,9 @@ export function OverviewTab() {
   };
 
   useEffect(() => {
-    fetch(API_BASE_URL + "/system/version")
+    fetch(API_BASE_URL + "/config")
       .then((res) => res.json())
-      .then((res) => setApiVersion(res.api_version))
+      .then((res) => setApiVersion(res.version))
       .catch(console.error);
     loadWarnings();
   }, []);

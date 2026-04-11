@@ -43,6 +43,7 @@ func NewAuthMiddleware(authService *auth.Service) *AuthMiddleware {
 			"/api/v1/pairs",
 			"/api/v1/tickers",
 			"/api/v1/news",
+			"/api/v1/config",
 		},
 		publicPrefixes: []string{
 			"/api/v1/ticker/",

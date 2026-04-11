@@ -383,12 +383,24 @@ func (s *Service) Me(ctx context.Context, userID uuid.UUID) (User, error) {
 	return *u, nil
 }
 
-// AuthMethods returns which authentication methods are currently enabled.
+// AuthMethods returns which authentication methods are currently enabled,
+// based on the configured auth mode and the presence of required credentials.
 func (s *Service) AuthMethods() AuthMethodsResponse {
 	return AuthMethodsResponse{
-		Google: s.cfg.GoogleClientID != "" && s.cfg.GoogleClientSecret != "",
-		Local:  s.cfg.AdminEmail != "",
+		Google: s.ssoEnabled(),
+		Local:  s.localEnabled(),
 	}
+}
+
+// ssoEnabled returns true when the auth mode includes SSO and Google credentials are configured.
+func (s *Service) ssoEnabled() bool {
+	return strings.Contains(s.cfg.AuthMode, "sso") &&
+		s.cfg.GoogleClientID != "" && s.cfg.GoogleClientSecret != ""
+}
+
+// localEnabled returns true when the auth mode includes local.
+func (s *Service) localEnabled() bool {
+	return strings.Contains(s.cfg.AuthMode, "local")
 }
 
 // ValidateAccessToken parses and validates a JWT access token, returning the claims.

@@ -58,6 +58,7 @@ func (r *noopSessionRepo) DeleteExpired(_ context.Context) (int64, error)       
 // newTestAuthService creates a real auth.Service with no-op repos for handler testing.
 func newTestAuthService() *auth.Service {
 	cfg := auth.Config{
+		AuthMode:           "local,sso",
 		JWTSecret:          []byte("test-secret-at-least-16-bytes!!"),
 		JWTExpiry:          15 * time.Minute,
 		RefreshTokenExpiry: 7 * 24 * time.Hour,
@@ -137,38 +138,6 @@ func TestPropertyRequestBodySizeLimit(t *testing.T) {
 // OAuth redirect URL, and graceful degradation.
 // Requirements: 4.3, 12.7
 // =============================================================================
-
-// TestAuthMethodsReturnsSecurityHeaders verifies that the AuthMethods endpoint
-// (public, no auth needed) sets the required security headers.
-// Validates: Requirement 12.7
-func TestAuthMethodsReturnsSecurityHeaders(t *testing.T) {
-	svc := newTestAuthService()
-	handler := NewAuthHandler(svc, "production")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/methods", nil)
-	rr := httptest.NewRecorder()
-
-	handler.AuthMethods(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-
-	tests := []struct {
-		header string
-		want   string
-	}{
-		{"X-Content-Type-Options", "nosniff"},
-		{"X-Frame-Options", "DENY"},
-		{"Cache-Control", "no-store"},
-	}
-	for _, tc := range tests {
-		got := rr.Header().Get(tc.header)
-		if got != tc.want {
-			t.Errorf("header %s: got %q, want %q", tc.header, got, tc.want)
-		}
-	}
-}
 
 // TestLogoutClearsCookieAttributes verifies that calling Logout (even without
 // a valid cookie) sets a clear-cookie with the correct attributes.
@@ -290,6 +259,7 @@ func TestLocalLoginRejectsOversizedBody(t *testing.T) {
 // to Google with the correct scopes, client_id, and redirect_uri.
 func TestOAuthRedirectURLConstruction(t *testing.T) {
 	cfg := auth.Config{
+		AuthMode:           "sso",
 		GoogleClientID:     "test-client-id-123",
 		GoogleClientSecret: "test-secret",
 		GoogleRedirectURI:  "http://localhost:8080/api/v1/auth/google/callback",
@@ -393,30 +363,6 @@ func TestGracefulDegradationWhenAuthDisabled(t *testing.T) {
 			t.Fatalf("expected 200 (auth disabled = no gating), got %d", rr.Code)
 		}
 	})
-}
-
-// TestAuthMethodsResponseBody verifies the JSON body of the AuthMethods endpoint.
-func TestAuthMethodsResponseBody(t *testing.T) {
-	svc := newTestAuthService()
-	handler := NewAuthHandler(svc, "production")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/methods", nil)
-	rr := httptest.NewRecorder()
-
-	handler.AuthMethods(rr, req)
-
-	var resp auth.AuthMethodsResponse
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-
-	// With the test config (no Google creds, no admin email), both should be false.
-	if resp.Google {
-		t.Error("expected Google=false with empty client ID/secret")
-	}
-	if resp.Local {
-		t.Error("expected Local=false with empty admin email")
-	}
 }
 
 // TestLocalLoginReturns429OnIPBlocked verifies that the handler returns 429

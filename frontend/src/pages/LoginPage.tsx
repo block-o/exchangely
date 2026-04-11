@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../app/auth";
-import { API_BASE_URL, apiGet, setAccessToken } from "../api/client";
-import type { AuthMethods, TokenResponse } from "../types/auth";
+import { API_BASE_URL, setAccessToken } from "../api/client";
+import type { TokenResponse } from "../types/auth";
 
 /** Map backend error codes from the URL hash to user-friendly messages. */
 function friendlyError(code: string): string {
@@ -27,24 +27,17 @@ function parseHashError(): string | null {
 }
 
 export function LoginPage() {
-  const { login, refreshToken } = useAuth();
-  const [methods, setMethods] = useState<AuthMethods | null>(null);
+  const { login, refreshToken, authMethods } = useAuth();
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Fetch available auth methods and parse any OAuth error from the URL hash.
+  // Parse any OAuth error from the URL hash on mount.
   useEffect(() => {
     const errCode = parseHashError();
     if (errCode) setOauthError(friendlyError(errCode));
-
-    apiGet<AuthMethods>("/auth/methods")
-      .then(setMethods)
-      .catch(() => {
-        // If the endpoint is unavailable, assume no methods (auth disabled).
-      });
   }, []);
 
   const handleLocalLogin = useCallback(
@@ -103,8 +96,8 @@ export function LoginPage() {
           </div>
         )}
 
-        {/* Google OAuth button */}
-        {methods?.google !== false && (
+        {/* Google OAuth button — only when SSO is enabled */}
+        {authMethods?.google && (
           <button
             type="button"
             className="login-btn login-btn-google"
@@ -137,12 +130,14 @@ export function LoginPage() {
           </button>
         )}
 
-        {/* Local email/password form */}
-        {methods?.local && (
+        {/* Local email/password form — only when local auth is enabled */}
+        {authMethods?.local && (
           <>
-            <div className="login-divider">
-              <span>or</span>
-            </div>
+            {authMethods?.google && (
+              <div className="login-divider">
+                <span>or</span>
+              </div>
+            )}
             <form onSubmit={handleLocalLogin} className="login-form">
               <label className="login-label" htmlFor="login-email">
                 Email

@@ -59,8 +59,8 @@ describe("App", () => {
         if (url.includes("/historical/")) {
           return mockResponse({ data: [] });
         }
-        if (url.includes("/system/version")) {
-          return mockResponse({ api_version: "v1.0.0" });
+        if (url.includes("/config")) {
+          return mockResponse({ auth_enabled: false, auth_methods: { google: false, local: false }, version: "v1.0.0" });
         }
         if (url.includes("/system/warnings")) {
           return mockResponse([]);

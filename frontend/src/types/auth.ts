@@ -3,10 +3,11 @@ export type User = {
   email: string;
   name: string;
   avatar_url: string;
-  role: "admin" | "user";
+  role: "admin" | "user" | "premium";
   has_google: boolean;
   has_password: boolean;
   must_change_password: boolean;
+  disabled?: boolean;
 };
 
 export type AuthMethods = {

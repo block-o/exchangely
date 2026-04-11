@@ -416,7 +416,7 @@ h1, h2, h3, h4, h5, h6 {
   margin-bottom: 24px;
 }
 
-/* ── Visibility Utility Classes ───────── */
+/* Visibility Utility Classes ─────── */
 .mobile-only { display: none !important; }
 
 @media (max-width: 639px) {
@@ -441,7 +441,7 @@ h1, h2, h3, h4, h5, h6 {
   .task-type-label { display: none !important; }
 }
 
-/* ── Hamburger Button ────────────────── */
+/* Hamburger Button ──────────────── */
 .hamburger-btn {
   display: inline-flex;
   align-items: center;
@@ -461,7 +461,7 @@ h1, h2, h3, h4, h5, h6 {
   background: rgba(255, 255, 255, 0.05);
 }
 
-/* ── Navigation Drawer ───────────────── */
+/* Navigation Drawer ─────────────── */
 .nav-drawer-backdrop {
   position: fixed;
   inset: 0;
@@ -505,7 +505,7 @@ h1, h2, h3, h4, h5, h6 {
   transform: translateX(0);
 }
 
-/* ── Market Card Styles ──────────────── */
+/* Market Card Styles ────────────── */
 .market-card-list {
   display: flex;
   flex-direction: column;
@@ -563,7 +563,7 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--color-text-primary);
 }
 
-/* ── Tablet Market Table Column Hiding ── */
+/* Tablet Market Table Column Hiding */
 .tablet-market-table th.col-1h,
 .tablet-market-table td.col-1h,
 .tablet-market-table th.col-7d,
@@ -575,7 +575,7 @@ h1, h2, h3, h4, h5, h6 {
   display: none;
 }
 
-/* ── Mobile (≤639px) ─────────────────── */
+/* Mobile (≤639px) ───────────────── */
 @media (max-width: 639px) {
   .app-shell { padding: 16px 16px 80px; }
   .hero {
@@ -623,7 +623,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
-/* ── Tablet (640px–1023px) ───────────── */
+/* Tablet (640px–1023px) ─────────── */
 @media (min-width: 640px) and (max-width: 1023px) {
   .app-shell { padding: 24px 20px 48px; }
   .hero {
@@ -885,7 +885,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
-/* ── Task Log Viewer ─────────────────── */
+/* Task Log Viewer ───────────────── */
 .task-log-viewer {
   font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
   font-size: 0.78rem;
@@ -925,7 +925,7 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--down-color, rgba(255, 107, 107, 0.9));
 }
 
-/* ── Login Page ──────────────────────── */
+/* Login Page ────────────────────── */
 .login-page {
   display: flex;
   justify-content: center;
@@ -1078,7 +1078,7 @@ h1, h2, h3, h4, h5, h6 {
   margin-top: 8px;
 }
 
-/* ── Login Page Responsive ───────────── */
+/* Login Page Responsive ─────────── */
 @media (max-width: 639px) {
   .login-card {
     padding: 28px 20px;
@@ -1089,7 +1089,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
-/* ── Settings Page ───────────────────── */
+/* Settings Page ─────────────────── */
 .settings-page {
   display: flex;
   justify-content: center;
@@ -1269,7 +1269,7 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 400;
 }
 
-/* ── Settings Page Responsive ────────── */
+/* Settings Page Responsive ──────── */
 @media (max-width: 639px) {
   .settings-page {
     padding: 16px 8px;
@@ -1294,7 +1294,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
-/* ── Password Change Page ────────────── */
+/* Password Change Page ──────────── */
 .pw-rules {
   list-style: none;
   margin: 4px 0 0;
@@ -1333,7 +1333,7 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--color-down);
 }
 
-/* ── Auth Loading Spinner ────────────── */
+/* Auth Loading Spinner ──────────── */
 .auth-loading-spinner {
   display: flex;
   flex-direction: column;
@@ -1358,7 +1358,7 @@ h1, h2, h3, h4, h5, h6 {
   to { transform: rotate(360deg); }
 }
 
-/* ── Avatar Dropdown ─────────────────── */
+/* Avatar Dropdown ───────────────── */
 .avatar-dropdown-wrapper {
   position: relative;
 }
@@ -1452,7 +1452,7 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--color-text-primary);
 }
 
-/* ── Drawer User Section ─────────────── */
+/* Drawer User Section ───────────── */
 .drawer-user-section {
   display: flex;
   flex-direction: column;
@@ -1477,7 +1477,7 @@ h1, h2, h3, h4, h5, h6 {
   white-space: nowrap;
 }
 
-/* ── Identity Pill ────────────────────── */
+/* Identity Pill ──────────────────── */
 .identity-pill {
   position: relative;
   display: inline-flex;
@@ -1551,7 +1551,7 @@ h1, h2, h3, h4, h5, h6 {
   background: rgba(0, 0, 0, 0.05);
 }
 
-/* ── Gear Settings Dropdown ──────────── */
+/* Gear Settings Dropdown ────────── */
 .gear-dropdown-wrapper {
   position: relative;
   display: inline-flex;
@@ -1579,7 +1579,7 @@ h1, h2, h3, h4, h5, h6 {
   margin: 14px 0;
 }
 
-/* ── Gear dropdown: user section ──────── */
+/* Gear dropdown: user section ────── */
 .gear-dropdown-user {
   display: flex;
   flex-direction: column;
@@ -1603,7 +1603,7 @@ h1, h2, h3, h4, h5, h6 {
   white-space: nowrap;
 }
 
-/* ── Gear dropdown: guest section (mobile only) ── */
+/* Gear dropdown: guest section (mobile only) */
 .gear-dropdown-guest {
   display: flex;
   flex-direction: column;
@@ -1651,7 +1651,7 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 0 15px var(--color-accent-glow);
 }
 
-/* ── Mobile Bottom Bar ───────────────── */
+/* Mobile Bottom Bar ─────────────── */
 .mobile-bottom-bar {
   position: fixed;
   bottom: 0;
@@ -1726,7 +1726,7 @@ h1, h2, h3, h4, h5, h6 {
   max-width: calc(100vw - 24px);
 }
 
-/* ── API Keys Page ───────────────────── */
+/* API Keys Page ─────────────────── */
 .apikeys-header {
   display: flex;
   align-items: center;
@@ -2015,7 +2015,7 @@ h1, h2, h3, h4, h5, h6 {
   cursor: not-allowed;
 }
 
-/* ── API Keys Page Responsive ────────── */
+/* API Keys Page Responsive ──────── */
 @media (max-width: 639px) {
   .apikeys-header {
     flex-direction: column;
@@ -2040,4 +2040,14 @@ h1, h2, h3, h4, h5, h6 {
   .apikeys-token-display {
     flex-direction: column;
   }
+}
+
+
+/* Hoverable Row ─────────────────── */
+.hoverable-row {
+  transition: background 0.2s ease;
+}
+
+.hoverable-row:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
 }

@@ -98,6 +98,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	var authService *auth.Service
 	var apiTokenService *auth.APITokenService
 	var apiRateLimiter *auth.APIRateLimiter
+	var adminUserService *auth.AdminUserService
 	if cfg.AuthEnabled() {
 		userRepo := postgresrepo.NewUserRepository(db)
 		sessionRepo := postgresrepo.NewSessionRepository(db)
@@ -136,6 +137,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		})
 		apiRateLimiter.StartPruner(ctx)
 
+		// Admin user management service.
+		adminUserService = auth.NewAdminUserService(userRepo, sessionRepo)
+
 		slog.Info("auth enabled", "mode", cfg.AuthMode)
 	} else {
 		slog.Info("auth disabled — BACKEND_AUTH_MODE not set")
@@ -156,13 +160,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	marketService := service.NewMarketService(marketRepo, cfg.TickerCacheSize, cfg.TickersCacheTTL)
 
 	handler := router.New(router.Services{
-		Catalog:         catalogService,
-		Market:          marketService,
-		System:          systemService,
-		News:            newsService,
-		Auth:            authService,
-		APITokenService: apiTokenService,
-		APIRateLimiter:  apiRateLimiter,
+		Catalog:          catalogService,
+		Market:           marketService,
+		System:           systemService,
+		News:             newsService,
+		Auth:             authService,
+		APITokenService:  apiTokenService,
+		APIRateLimiter:   apiRateLimiter,
+		AdminUserService: adminUserService,
 	}, router.Options{
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 		Env:            cfg.Env,

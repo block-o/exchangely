@@ -20,13 +20,14 @@ import (
 )
 
 type Services struct {
-	Catalog         *service.CatalogService
-	Market          *service.MarketService
-	System          *service.SystemService
-	News            *service.NewsService
-	Auth            *auth.Service         // nil when auth is disabled
-	APITokenService *auth.APITokenService // nil when API tokens are not configured
-	APIRateLimiter  *auth.APIRateLimiter  // nil when rate limiting is not configured
+	Catalog          *service.CatalogService
+	Market           *service.MarketService
+	System           *service.SystemService
+	News             *service.NewsService
+	Auth             *auth.Service          // nil when auth is disabled
+	APITokenService  *auth.APITokenService  // nil when API tokens are not configured
+	APIRateLimiter   *auth.APIRateLimiter   // nil when rate limiting is not configured
+	AdminUserService *auth.AdminUserService // nil when admin user management is not configured
 }
 
 type Options struct {
@@ -431,6 +432,56 @@ func New(svcs Services, opts Options) http.Handler {
 				}
 			})
 			mux.HandleFunc("/api/v1/auth/api-tokens/", authHandler.RevokeAPIToken)
+		}
+
+		// Admin user management routes (admin-only via /api/v1/system/ prefix).
+		if svcs.AdminUserService != nil {
+			adminUserHandler := handlers.NewAdminUserHandler(svcs.AdminUserService)
+
+			// GET /api/v1/system/users — list users with pagination and filters.
+			mux.HandleFunc("/api/v1/system/users", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					adminUserHandler.List(w, r)
+				} else {
+					w.Header().Set("Allow", "GET")
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				}
+			})
+
+			// /api/v1/system/users/{id}/* — route to specific user operations.
+			mux.HandleFunc("/api/v1/system/users/", func(w http.ResponseWriter, r *http.Request) {
+				path := r.URL.Path
+
+				// PATCH /api/v1/system/users/{id}/role
+				if strings.HasSuffix(path, "/role") && r.Method == http.MethodPatch {
+					adminUserHandler.UpdateRole(w, r)
+					return
+				}
+
+				// PATCH /api/v1/system/users/{id}/status
+				if strings.HasSuffix(path, "/status") && r.Method == http.MethodPatch {
+					adminUserHandler.UpdateStatus(w, r)
+					return
+				}
+
+				// POST /api/v1/system/users/{id}/force-password-reset
+				if strings.HasSuffix(path, "/force-password-reset") && r.Method == http.MethodPost {
+					adminUserHandler.ForcePasswordReset(w, r)
+					return
+				}
+
+				// GET /api/v1/system/users/{id} — must come after specific routes.
+				if r.Method == http.MethodGet {
+					// Check if this is a simple user ID path (no additional segments).
+					pathAfterUsers := strings.TrimPrefix(path, "/api/v1/system/users/")
+					if !strings.Contains(pathAfterUsers, "/") {
+						adminUserHandler.Get(w, r)
+						return
+					}
+				}
+
+				http.Error(w, "not found", http.StatusNotFound)
+			})
 		}
 	}
 
@@ -1156,7 +1207,7 @@ func withCORS(next http.Handler, allowedOrigins []string) http.Handler {
 
 		if allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}

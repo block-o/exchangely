@@ -109,6 +109,10 @@ func (h *AuthHandler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/#login?error=csrf_failed", http.StatusFound)
 			return
 		}
+		if errors.Is(err, auth.ErrAccountDisabled) {
+			http.Redirect(w, r, "/#login?error=account_disabled", http.StatusFound)
+			return
+		}
 		http.Redirect(w, r, "/#login?error=oauth_failed", http.StatusFound)
 		return
 	}
@@ -486,6 +490,8 @@ func (h *AuthHandler) writeAuthError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, auth.ErrInvalidCredentials):
 		h.writeJSONError(w, http.StatusUnauthorized, "invalid credentials")
+	case errors.Is(err, auth.ErrAccountDisabled):
+		h.writeJSONError(w, http.StatusUnauthorized, "account disabled")
 	case errors.Is(err, auth.ErrIPBlocked):
 		w.Header().Set("Retry-After", "900")
 		h.writeJSONError(w, http.StatusTooManyRequests, "too many requests")

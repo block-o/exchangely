@@ -202,6 +202,15 @@ Before starting substantial changes:
 - Check `ROADMAP.md` for current priorities.
 - Inspect the actual implementation files you will touch.
 
+Code comment style:
+
+- Do not use decorative Unicode box-drawing characters in comments (e.g. `── Section ─────`). Use plain language section comments instead.
+- In Go files, use standard `//` comments. For section headers use `// --- Section name ---`.
+- In TypeScript/TSX files, use `//` for single-line comments. For section headers, a blank line is sufficient separation; add a short `//` comment only when the purpose is non-obvious.
+- In CSS files, standard `/* Section */` comments are fine.
+- Do not reference spec task IDs, requirement numbers, or internal tracking in code comments (e.g. `(Task 1.1)`, `(Req 3.5)`). Keep comments useful for the next developer reading the code, not for tracing back to a planning document.
+- Keep comments concise and informative. If the code is self-explanatory, skip the comment.
+
 When changing backend behavior:
 
 - Respect the planner/worker separation even though they share one binary.

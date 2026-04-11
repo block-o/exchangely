@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import type { Pair, Ticker } from "../types/api";
 
-/* ── Sort logic extracted from MarketPage.tsx ─────────────── */
+// Sort logic extracted from MarketPage.tsx
 
 function sortPairsByMarketCap(
   pairs: Pair[],
@@ -25,7 +25,7 @@ function sortPairsByMarketCap(
   });
 }
 
-/* ── Arbitraries ──────────────────────────────────────────── */
+// Arbitraries
 
 /** Base symbol: 2–5 uppercase alpha chars */
 const baseArb = fc.stringMatching(/^[A-Z]{2,5}$/);
@@ -64,8 +64,6 @@ const pairTickerArb = fc
     };
     return { pair, ticker };
   });
-
-/* ── Property Test ────────────────────────────────────────── */
 
 describe("Feature: responsive-ui-overhaul, Property 5: MarketCard list preserves sort order", () => {
   it("sorts by market cap descending with alphabetical base tiebreak for any pair+ticker array", () => {

@@ -166,22 +166,6 @@ func TestPropertyProtectedRoutesRequireToken(t *testing.T) {
 // noopUserRepo satisfies auth.UserRepository with no-op implementations.
 // The middleware only needs auth.Service.ValidateAccessToken which doesn't
 // touch repositories.
-type noopUserRepo struct{}
-
-func (r *noopUserRepo) FindByID(_ context.Context, _ uuid.UUID) (*auth.User, error) {
-	return nil, nil
-}
-func (r *noopUserRepo) FindByEmail(_ context.Context, _ string) (*auth.User, error) {
-	return nil, nil
-}
-func (r *noopUserRepo) FindByGoogleID(_ context.Context, _ string) (*auth.User, error) {
-	return nil, nil
-}
-func (r *noopUserRepo) Create(_ context.Context, _ *auth.User) error { return nil }
-func (r *noopUserRepo) Update(_ context.Context, _ *auth.User) error { return nil }
-func (r *noopUserRepo) UpdatePasswordHash(_ context.Context, _ uuid.UUID, _ string, _ bool) error {
-	return nil
-}
 
 // noopSessionRepo satisfies auth.SessionRepository with no-op implementations.
 type noopSessionRepo struct{}

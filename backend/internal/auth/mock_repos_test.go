@@ -33,6 +33,9 @@ func (r *mockUserRepo) FindByID(_ context.Context, id uuid.UUID) (*User, error) 
 		return nil, nil
 	}
 	cp := *u
+	// Compute HasPassword and HasGoogle fields.
+	cp.HasPassword = (cp.PasswordHash != nil)
+	cp.HasGoogle = (cp.GoogleID != nil)
 	return &cp, nil
 }
 
@@ -44,6 +47,9 @@ func (r *mockUserRepo) FindByEmail(_ context.Context, email string) (*User, erro
 		return nil, nil
 	}
 	cp := *u
+	// Compute HasPassword and HasGoogle fields.
+	cp.HasPassword = (cp.PasswordHash != nil)
+	cp.HasGoogle = (cp.GoogleID != nil)
 	return &cp, nil
 }
 
@@ -55,6 +61,9 @@ func (r *mockUserRepo) FindByGoogleID(_ context.Context, googleID string) (*User
 		return nil, nil
 	}
 	cp := *u
+	// Compute HasPassword and HasGoogle fields.
+	cp.HasPassword = (cp.PasswordHash != nil)
+	cp.HasGoogle = (cp.GoogleID != nil)
 	return &cp, nil
 }
 
@@ -108,6 +117,138 @@ func (r *mockUserRepo) UpdatePasswordHash(_ context.Context, userID uuid.UUID, h
 	u.PasswordHash = &hash
 	u.MustChangePassword = mustChange
 	return nil
+}
+
+func (r *mockUserRepo) ListWithFilters(_ context.Context, search string, role string, status string, limit int, offset int) ([]User, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// Collect all users into a slice.
+	var all []User
+	for _, u := range r.byID {
+		all = append(all, *u)
+	}
+
+	// Sort by created_at DESC for consistent ordering.
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].CreatedAt.After(all[j].CreatedAt)
+	})
+
+	// Apply filters.
+	var filtered []User
+	for _, u := range all {
+		// Search filter: case-insensitive substring match on email or name.
+		if search != "" {
+			searchLower := toLower(search)
+			emailLower := toLower(u.Email)
+			nameLower := toLower(u.Name)
+			if !contains(emailLower, searchLower) && !contains(nameLower, searchLower) {
+				continue
+			}
+		}
+
+		// Role filter: exact match.
+		if role != "" && u.Role != role {
+			continue
+		}
+
+		// Status filter: active means disabled=false, disabled means disabled=true.
+		if status == "active" && u.Disabled {
+			continue
+		}
+		if status == "disabled" && !u.Disabled {
+			continue
+		}
+
+		filtered = append(filtered, u)
+	}
+
+	totalCount := len(filtered)
+
+	// Apply pagination.
+	if offset >= len(filtered) {
+		return []User{}, totalCount, nil
+	}
+	end := offset + limit
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	page := filtered[offset:end]
+
+	// Compute HasPassword and HasGoogle fields for each user in the page.
+	for i := range page {
+		page[i].HasPassword = (page[i].PasswordHash != nil)
+		page[i].HasGoogle = (page[i].GoogleID != nil)
+	}
+
+	return page, totalCount, nil
+}
+
+func (r *mockUserRepo) UpdateRole(_ context.Context, userID uuid.UUID, role string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, ok := r.byID[userID]
+	if !ok {
+		return nil
+	}
+	u.Role = role
+	u.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
+func (r *mockUserRepo) UpdateDisabled(_ context.Context, userID uuid.UUID, disabled bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, ok := r.byID[userID]
+	if !ok {
+		return nil
+	}
+	u.Disabled = disabled
+	u.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
+func (r *mockUserRepo) SetMustChangePassword(_ context.Context, userID uuid.UUID, mustChange bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, ok := r.byID[userID]
+	if !ok {
+		return nil
+	}
+	u.MustChangePassword = mustChange
+	u.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
+// Helper functions for case-insensitive string operations.
+func toLower(s string) string {
+	// Simple ASCII lowercase conversion for testing.
+	result := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			result[i] = c + ('a' - 'A')
+		} else {
+			result[i] = c
+		}
+	}
+	return string(result)
+}
+
+func contains(s, substr string) bool {
+	// Simple substring check.
+	if len(substr) == 0 {
+		return true
+	}
+	if len(substr) > len(s) {
+		return false
+	}
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // mockSessionRepo is an in-memory implementation of SessionRepository for testing.

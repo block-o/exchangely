@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 
-// ── Shared types ────────────────────────────────────────────────────────────
-
 export interface Task {
   id: string;
   type: string;
@@ -52,8 +50,6 @@ export const STATUS_LABELS: Record<string, string> = {
   completed: "Completed",
   failed: "Failed",
 };
-
-// ── Task type icons ─────────────────────────────────────────────────────────
 
 /** Inline SVG icon props matching the app's Feather-style convention. */
 const ICON_STYLE = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
@@ -148,8 +144,6 @@ export function DescriptionCell({ task }: { task: Task }) {
   );
 }
 
-// ── Compact task description ─────────────────────────────────────────────────
-
 /** Build a short description from structured task fields, falling back to the
  *  server-provided description when the type isn't one we can shorten. */
 export function compactDescription(t: Task): string {
@@ -202,8 +196,6 @@ export function compactDescription(t: Task): string {
       return t.description || "—";
   }
 }
-
-// ── Formatting helpers ──────────────────────────────────────────────────────
 
 export function formatDateTime(isoString?: string) {
   if (!isoString) return "—";
@@ -266,8 +258,6 @@ export function taskStatusLabel(status?: string) {
       return status || "Pending";
   }
 }
-
-// ── Reusable UI components ──────────────────────────────────────────────────
 
 interface MultiFilterProps {
   allOptions: string[];

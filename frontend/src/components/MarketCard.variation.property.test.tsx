@@ -14,8 +14,6 @@ import fc from "fast-check";
 import { MarketCard } from "./MarketCard";
 import type { Ticker, Pair } from "../types/api";
 
-/* ── Arbitraries ──────────────────────────────────────────── */
-
 /** Variation value: any finite double including zero, positive, and negative */
 const variationArb = fc.double({ min: -99, max: 99, noNaN: true });
 
@@ -38,8 +36,6 @@ function makeTicker(v1h: number, v24h: number, v7d: number): Ticker {
 
 const defaultPair: Pair = { base: "BTC", quote: "EUR", symbol: "BTCEUR" };
 
-/* ── Helpers ──────────────────────────────────────────────── */
-
 function expectedClass(value: number): string {
   return value >= 0 ? "text-up" : "text-down";
 }
@@ -47,8 +43,6 @@ function expectedClass(value: number): string {
 function oppositeClass(value: number): string {
   return value >= 0 ? "text-down" : "text-up";
 }
-
-/* ── Property Test ────────────────────────────────────────── */
 
 describe("Feature: responsive-ui-overhaul, Property 4: MarketCard variation color coding matches sign", () => {
   it("applies text-up for non-negative and text-down for negative variations across all three variation fields", () => {

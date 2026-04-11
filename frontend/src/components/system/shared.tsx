@@ -150,7 +150,7 @@ export function compactDescription(t: Task): string {
   const fmtShort = (iso?: string) => {
     if (!iso) return "";
     const d = new Date(iso);
-    return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   };
   const fmtTimeOnly = (iso?: string) => {
     if (!iso) return "";
@@ -201,6 +201,7 @@ export function formatDateTime(isoString?: string) {
   if (!isoString) return "—";
   const d = new Date(isoString);
   return d.toLocaleString(undefined, {
+    year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -213,6 +214,7 @@ export function formatShortDate(isoString?: string) {
   if (!isoString) return "";
   const d = new Date(isoString);
   return d.toLocaleString(undefined, {
+    year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -225,6 +227,7 @@ export function formatUnixTimestamp(unix?: number) {
   if (!unix) return "";
   const d = new Date(unix * 1000);
   return d.toLocaleString(undefined, {
+    year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",

@@ -266,3 +266,210 @@ func TestValidatorExecutorRespectsMaxDaysPerRun(t *testing.T) {
 		t.Fatalf("expected 2 verified days (capped), got %d", len(writer.days))
 	}
 }
+
+// --- IntegrityResultWriter tests ---
+
+type mockResultWriter struct {
+	results []IntegrityResult
+}
+
+func (m *mockResultWriter) RecordResult(_ context.Context, r IntegrityResult) error {
+	m.results = append(m.results, r)
+	return nil
+}
+
+func TestValidatorExecutorRecordsVerifiedResult(t *testing.T) {
+	source1 := &fakeMarketSource{
+		name:  "s1",
+		items: []candle.Candle{{Pair: "BTCEUR", Timestamp: 1000, Close: 100.0, Source: "s1"}},
+	}
+	source2 := &fakeMarketSource{
+		name:  "s2",
+		items: []candle.Candle{{Pair: "BTCEUR", Timestamp: 1000, Close: 100.0, Source: "s2"}},
+	}
+
+	writer := &mockIntegrityWriter{}
+	reader := &mockIntegrityReader{}
+	rw := &mockResultWriter{}
+
+	executor := NewValidatorExecutor([]provider.Source{source1, source2}, writer, reader, ValidatorOptions{})
+	executor.SetResultWriter(rw)
+
+	day := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+	item := task.Task{
+		Type:        task.TypeDataSanity,
+		Pair:        "BTCEUR",
+		Interval:    "1h",
+		WindowStart: day,
+		WindowEnd:   day.Add(24 * time.Hour),
+	}
+
+	err := executor.Execute(context.Background(), item)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(rw.results) != 1 {
+		t.Fatalf("expected 1 result recorded, got %d", len(rw.results))
+	}
+
+	r := rw.results[0]
+	if !r.Verified {
+		t.Fatal("expected result to be verified")
+	}
+	if r.PairSymbol != "BTCEUR" {
+		t.Fatalf("expected pair BTCEUR, got %s", r.PairSymbol)
+	}
+	if r.SourcesChecked != 2 {
+		t.Fatalf("expected 2 sources checked, got %d", r.SourcesChecked)
+	}
+	if r.GapCount != 0 || r.DivergenceCount != 0 {
+		t.Fatalf("expected zero gaps/divergences for verified day, got gaps=%d divergences=%d", r.GapCount, r.DivergenceCount)
+	}
+	if r.ErrorMessage != "" {
+		t.Fatalf("expected empty error message for verified day, got %q", r.ErrorMessage)
+	}
+}
+
+func TestValidatorExecutorRecordsFailedResult(t *testing.T) {
+	source1 := &fakeMarketSource{
+		name: "s1",
+		items: []candle.Candle{
+			{Pair: "BTCEUR", Timestamp: 1000, Close: 100.0, Source: "s1"},
+		},
+	}
+	source2 := &fakeMarketSource{
+		name: "s2",
+		items: []candle.Candle{
+			{Pair: "BTCEUR", Timestamp: 1000, Close: 102.0, Source: "s2"},
+		},
+	}
+
+	writer := &mockIntegrityWriter{}
+	reader := &mockIntegrityReader{}
+	rw := &mockResultWriter{}
+
+	executor := NewValidatorExecutor([]provider.Source{source1, source2}, writer, reader, ValidatorOptions{})
+	executor.SetResultWriter(rw)
+
+	day := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+	item := task.Task{
+		Type:        task.TypeDataSanity,
+		Pair:        "BTCEUR",
+		Interval:    "1h",
+		WindowStart: day,
+		WindowEnd:   day.Add(24 * time.Hour),
+	}
+
+	err := executor.Execute(context.Background(), item)
+	if err == nil {
+		t.Fatal("expected error from divergence")
+	}
+
+	if len(rw.results) != 1 {
+		t.Fatalf("expected 1 result recorded, got %d", len(rw.results))
+	}
+
+	r := rw.results[0]
+	if r.Verified {
+		t.Fatal("expected result to NOT be verified")
+	}
+	if r.DivergenceCount != 1 {
+		t.Fatalf("expected 1 divergence, got %d", r.DivergenceCount)
+	}
+	if r.SourcesChecked != 2 {
+		t.Fatalf("expected 2 sources checked, got %d", r.SourcesChecked)
+	}
+	if r.ErrorMessage == "" {
+		t.Fatal("expected non-empty error message for failed day")
+	}
+
+	// MarkDayVerified should NOT have been called for a failed day.
+	if len(writer.days) != 0 {
+		t.Fatalf("expected 0 days marked verified, got %d", len(writer.days))
+	}
+}
+
+func TestValidatorExecutorRecordsMixedResults(t *testing.T) {
+	// day1: passes (same close prices), day2: fails (divergent prices)
+	source1 := &fakeMarketSource{
+		name:  "s1",
+		items: []candle.Candle{{Pair: "BTCEUR", Timestamp: 1000, Close: 100.0, Source: "s1"}},
+	}
+	source2Divergent := &fakeMarketSource{
+		name:  "s2",
+		items: []candle.Candle{{Pair: "BTCEUR", Timestamp: 1000, Close: 105.0, Source: "s2"}},
+	}
+
+	writer := &mockIntegrityWriter{}
+	reader := &mockIntegrityReader{}
+	rw := &mockResultWriter{}
+
+	// Use the divergent source so both days see the same data.
+	// day1 will pass because we set it as already verified in the reader.
+	// day2 will fail because of divergence.
+	day1 := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+	day3 := time.Date(2024, 1, 4, 0, 0, 0, 0, time.UTC)
+
+	reader.coverage = map[string]map[string]bool{
+		"BTCEUR": {day1.Format("2006-01-02"): true},
+	}
+
+	executor := NewValidatorExecutor([]provider.Source{source1, source2Divergent}, writer, reader, ValidatorOptions{})
+	executor.SetResultWriter(rw)
+
+	item := task.Task{
+		Type:        task.TypeDataSanity,
+		Pair:        "BTCEUR",
+		Interval:    "1h",
+		WindowStart: day1,
+		WindowEnd:   day3,
+	}
+
+	err := executor.Execute(context.Background(), item)
+	if err == nil {
+		t.Fatal("expected error from day2 divergence")
+	}
+
+	// day1 was skipped (already verified), day2 should have a failed result.
+	if len(rw.results) != 1 {
+		t.Fatalf("expected 1 result (day2 failed), got %d", len(rw.results))
+	}
+	if rw.results[0].Verified {
+		t.Fatal("expected day2 result to be failed, not verified")
+	}
+}
+
+func TestValidatorExecutorNoResultWriterStillWorks(t *testing.T) {
+	source1 := &fakeMarketSource{
+		name:  "s1",
+		items: []candle.Candle{{Pair: "BTCEUR", Timestamp: 1000, Close: 100.0, Source: "s1"}},
+	}
+	source2 := &fakeMarketSource{
+		name:  "s2",
+		items: []candle.Candle{{Pair: "BTCEUR", Timestamp: 1000, Close: 100.0, Source: "s2"}},
+	}
+
+	writer := &mockIntegrityWriter{}
+	reader := &mockIntegrityReader{}
+
+	// No SetResultWriter call — should still work fine.
+	executor := NewValidatorExecutor([]provider.Source{source1, source2}, writer, reader, ValidatorOptions{})
+
+	day := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+	item := task.Task{
+		Type:        task.TypeDataSanity,
+		Pair:        "BTCEUR",
+		Interval:    "1h",
+		WindowStart: day,
+		WindowEnd:   day.Add(24 * time.Hour),
+	}
+
+	err := executor.Execute(context.Background(), item)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(writer.days) != 1 {
+		t.Fatalf("expected 1 day verified, got %d", len(writer.days))
+	}
+}

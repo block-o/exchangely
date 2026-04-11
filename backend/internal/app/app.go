@@ -204,6 +204,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		MinSources:       cfg.IntegrityMinSources,
 		MaxDivergencePct: cfg.IntegrityMaxDivergencePct,
 	})
+	validatorExe.SetResultWriter(&integrityResultAdapter{repo: integrityRepo})
 	cleanupExe := worker.NewCleanupExecutor(taskRepo, cfg.TaskRetentionPeriod, cfg.TaskRetentionCount)
 	gapValidatorExe := worker.NewGapValidatorExecutor(marketRepo, coverageRepo, coverageRepo)
 
@@ -234,6 +235,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		cfg.WorkerPollInterval,
 		cfg.WorkerBatchSize,
 		planner.ComputeBackfillTaskCap(cfg.WorkerBatchSize, cfg.WorkerBackfillBatchPct),
+		cfg.WorkerConcurrency,
 	)
 	marketConsumer := kafka.NewMarketEventConsumer(
 		cfg.KafkaBrokers,
@@ -438,4 +440,22 @@ func effectiveRole(role string) string {
 		return "all"
 	}
 	return role
+}
+
+// integrityResultAdapter bridges the worker.IntegrityResultWriter interface
+// to the postgres IntegrityRepository, mapping between the two IntegrityResult types.
+type integrityResultAdapter struct {
+	repo *postgresrepo.IntegrityRepository
+}
+
+func (a *integrityResultAdapter) RecordResult(ctx context.Context, r worker.IntegrityResult) error {
+	return a.repo.RecordResult(ctx, postgresrepo.IntegrityResult{
+		PairSymbol:      r.PairSymbol,
+		Day:             r.Day,
+		Verified:        r.Verified,
+		GapCount:        r.GapCount,
+		DivergenceCount: r.DivergenceCount,
+		SourcesChecked:  r.SourcesChecked,
+		ErrorMessage:    r.ErrorMessage,
+	})
 }

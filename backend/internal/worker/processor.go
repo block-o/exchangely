@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/block-o/exchangely/backend/internal/domain/task"
@@ -110,15 +111,20 @@ type Runner struct {
 	interval                 time.Duration
 	batchSize                int
 	maxBackfillTasksPerBatch int
+	concurrency              int
 }
 
-func NewRunner(source PendingSource, processor *Processor, interval time.Duration, batchSize int, maxBackfillTasksPerBatch int) *Runner {
+func NewRunner(source PendingSource, processor *Processor, interval time.Duration, batchSize int, maxBackfillTasksPerBatch int, concurrency int) *Runner {
+	if concurrency <= 0 {
+		concurrency = 1
+	}
 	return &Runner{
 		source:                   source,
 		processor:                processor,
 		interval:                 interval,
 		batchSize:                batchSize,
 		maxBackfillTasksPerBatch: maxBackfillTasksPerBatch,
+		concurrency:              concurrency,
 	}
 }
 
@@ -144,15 +150,36 @@ func (r *Runner) runBatch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(items) > 0 {
-		slog.Info("worker batch fetched", "task_count", len(items))
+	if len(items) == 0 {
+		return nil
 	}
+
+	slog.Info("worker batch fetched", "task_count", len(items), "concurrency", r.concurrency)
+
+	if r.concurrency <= 1 {
+		for _, item := range items {
+			if err := r.processor.Process(ctx, item); err != nil {
+				slog.Warn("worker task failed", "task_id", item.ID, "pair", item.Pair, "interval", item.Interval, "error", err)
+			}
+		}
+		return nil
+	}
+
+	sem := make(chan struct{}, r.concurrency)
+	var wg sync.WaitGroup
 
 	for _, item := range items {
-		if err := r.processor.Process(ctx, item); err != nil {
-			slog.Warn("worker task failed", "task_id", item.ID, "pair", item.Pair, "interval", item.Interval, "error", err)
-		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(t task.Task) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := r.processor.Process(ctx, t); err != nil {
+				slog.Warn("worker task failed", "task_id", t.ID, "pair", t.Pair, "interval", t.Interval, "error", err)
+			}
+		}(item)
 	}
 
+	wg.Wait()
 	return nil
 }

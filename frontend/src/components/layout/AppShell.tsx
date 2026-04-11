@@ -6,6 +6,7 @@ import { useSettings } from "../../app/settings";
 import { LoginPage } from "../../pages/LoginPage";
 import { SettingsPage } from "../../pages/SettingsPage";
 import { PasswordChangePage } from "../../pages/PasswordChangePage";
+import { APIKeysPage } from "../../pages/APIKeysPage";
 import { NavigationDrawer } from "./NavigationDrawer";
 import { useBreakpoint } from "../../hooks/useBreakpoint";
 
@@ -148,6 +149,7 @@ export function AppShell({ children }: PropsWithChildren) {
     if (activeHash === "#login") return <LoginPage />;
     if (activeHash === "#settings") return <SettingsPage />;
     if (activeHash === "#change-password") return <PasswordChangePage />;
+    if (activeHash === "#api-keys") return <APIKeysPage />;
     const idx = sections.findIndex((s) => `#${s.id}` === activeHash);
     return pages[idx] ?? pages[0] ?? null;
   };
@@ -230,6 +232,9 @@ export function AppShell({ children }: PropsWithChildren) {
                         <a href="#settings" className="avatar-dropdown-item" role="menuitem" onClick={() => setIsGearDropdownOpen(false)}>
                           Profile
                         </a>
+                        <a href="#api-keys" className="avatar-dropdown-item" role="menuitem" onClick={() => setIsGearDropdownOpen(false)}>
+                          API Keys
+                        </a>
                         <button className="avatar-dropdown-item" role="menuitem" onClick={handleLogout}>
                           Logout
                         </button>
@@ -290,6 +295,9 @@ export function AppShell({ children }: PropsWithChildren) {
                     </div>
                     <a href="#settings" className="avatar-dropdown-item" role="menuitem" onClick={() => setIsGearDropdownOpen(false)}>
                       Profile
+                    </a>
+                    <a href="#api-keys" className="avatar-dropdown-item" role="menuitem" onClick={() => setIsGearDropdownOpen(false)}>
+                      API Keys
                     </a>
                     <button className="avatar-dropdown-item" role="menuitem" onClick={handleLogout}>
                       Logout

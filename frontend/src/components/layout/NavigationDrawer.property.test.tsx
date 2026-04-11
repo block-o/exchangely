@@ -1,8 +1,4 @@
 /**
- * Feature: responsive-ui-overhaul, Property 1: Navigation drawer link click navigates and closes
- *
- * Validates: Requirements 2.5
- *
  * For any section link rendered in the NavigationDrawer, clicking that link
  * should call onNavigate with the corresponding section hash and call onClose.
  */

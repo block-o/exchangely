@@ -48,10 +48,6 @@ describe("PasswordChangePage", () => {
     };
   });
 
-  /**
-   * Validates: Requirements 12.13
-   * Renders the password change form with all required fields.
-   */
   it("renders the password change form", () => {
     render(<PasswordChangePage />);
 
@@ -61,10 +57,6 @@ describe("PasswordChangePage", () => {
     expect(screen.getByText("Change password")).toBeInTheDocument();
   });
 
-  /**
-   * Validates: Requirements 11.9
-   * Shows must-change message when must_change_password is true.
-   */
   it("shows forced change message when must_change_password is true", () => {
     render(<PasswordChangePage />);
 
@@ -82,10 +74,6 @@ describe("PasswordChangePage", () => {
     ).toBeInTheDocument();
   });
 
-  /**
-   * Validates: Requirements 12.13
-   * Client-side password complexity validation with rule feedback.
-   */
   it("displays password complexity rules", () => {
     render(<PasswordChangePage />);
 
@@ -120,10 +108,6 @@ describe("PasswordChangePage", () => {
     expect(unmetRules.length).toBe(4);
   });
 
-  /**
-   * Validates: Requirements 12.13
-   * Shows mismatch feedback when passwords don't match.
-   */
   it("shows mismatch message when confirm password differs", () => {
     render(<PasswordChangePage />);
 
@@ -147,10 +131,6 @@ describe("PasswordChangePage", () => {
     expect(screen.queryByText("Passwords do not match.")).not.toBeInTheDocument();
   });
 
-  /**
-   * Validates: Requirements 12.13
-   * Submit button is disabled until all validation passes.
-   */
   it("disables submit when form is incomplete", () => {
     render(<PasswordChangePage />);
 
@@ -175,10 +155,6 @@ describe("PasswordChangePage", () => {
     expect(submitBtn).not.toBeDisabled();
   });
 
-  /**
-   * Validates: Requirements 12.13
-   * Shows server error feedback on failed change.
-   */
   it("displays server error on failed password change", async () => {
     const { authFetch } = await import("../api/client");
     (authFetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({

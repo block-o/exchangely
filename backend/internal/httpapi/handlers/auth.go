@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/block-o/exchangely/backend/internal/auth"
 	"github.com/block-o/exchangely/backend/internal/httpapi/middleware"
@@ -22,13 +23,22 @@ const (
 
 // AuthHandler exposes HTTP handler methods for the auth endpoints.
 type AuthHandler struct {
-	service *auth.Service
-	env     string // "development" or "production"
+	service         *auth.Service
+	apiTokenService *auth.APITokenService
+	env             string // "development" or "production"
 }
 
 // NewAuthHandler creates an AuthHandler.
 func NewAuthHandler(service *auth.Service, env string) *AuthHandler {
 	return &AuthHandler{service: service, env: env}
+}
+
+// WithAPITokenService returns a copy of the handler with the given
+// APITokenService attached. The token management endpoints (Create, List,
+// Revoke) require this service to be set.
+func (h *AuthHandler) WithAPITokenService(svc *auth.APITokenService) *AuthHandler {
+	h.apiTokenService = svc
+	return h
 }
 
 // GoogleLogin redirects the user to the Google OAuth authorization URL.
@@ -254,6 +264,167 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Error("change password failed", "error", err)
+		h.writeJSONError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- API Token Management Endpoints ---
+
+// requireJWTSession checks that the request was authenticated via JWT (not an
+// API token). Returns true if the request should proceed, false if a 401 was
+// written. API tokens cannot manage other API tokens.
+func (h *AuthHandler) requireJWTSession(w http.ResponseWriter, r *http.Request) (*auth.Claims, bool) {
+	method, _ := middleware.AuthMethodFromContext(r.Context())
+	if method == "api_token" {
+		h.writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return nil, false
+	}
+
+	claims, ok := middleware.ClaimsFromContext(r.Context())
+	if !ok {
+		h.writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return nil, false
+	}
+	return claims, true
+}
+
+// CreateAPIToken handles POST /api/v1/auth/api-tokens.
+// It creates a new API token for the authenticated user and returns the raw
+// token exactly once in the response body with a 201 status.
+func (h *AuthHandler) CreateAPIToken(w http.ResponseWriter, r *http.Request) {
+	h.setSecurityHeaders(w)
+
+	claims, ok := h.requireJWTSession(w, r)
+	if !ok {
+		return
+	}
+
+	userID, err := uuid.Parse(claims.Sub)
+	if err != nil {
+		h.writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req struct {
+		Label string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	label := strings.TrimSpace(req.Label)
+	if label == "" {
+		h.writeJSONError(w, http.StatusBadRequest, "label is required")
+		return
+	}
+
+	rawToken, token, err := h.apiTokenService.CreateToken(r.Context(), userID, label)
+	if err != nil {
+		if errors.Is(err, auth.ErrTokenLimitReached) {
+			h.writeJSONError(w, http.StatusConflict, "token limit reached")
+			return
+		}
+		slog.Error("create api token failed", "error", err)
+		h.writeJSONError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	h.writeJSON(w, http.StatusCreated, map[string]any{
+		"token":      rawToken,
+		"id":         token.ID.String(),
+		"label":      token.Label,
+		"prefix":     token.Prefix,
+		"created_at": token.CreatedAt,
+		"expires_at": token.ExpiresAt,
+	})
+}
+
+// ListAPITokens handles GET /api/v1/auth/api-tokens.
+// It returns all tokens for the authenticated user.
+func (h *AuthHandler) ListAPITokens(w http.ResponseWriter, r *http.Request) {
+	h.setSecurityHeaders(w)
+
+	claims, ok := h.requireJWTSession(w, r)
+	if !ok {
+		return
+	}
+
+	userID, err := uuid.Parse(claims.Sub)
+	if err != nil {
+		h.writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	tokens, err := h.apiTokenService.ListTokens(r.Context(), userID)
+	if err != nil {
+		slog.Error("list api tokens failed", "error", err)
+		h.writeJSONError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	// Build response items with status field.
+	type tokenResponse struct {
+		ID         uuid.UUID  `json:"id"`
+		Label      string     `json:"label"`
+		Prefix     string     `json:"prefix"`
+		Status     string     `json:"status"`
+		CreatedAt  time.Time  `json:"created_at"`
+		LastUsedAt *time.Time `json:"last_used_at"`
+		RevokedAt  *time.Time `json:"revoked_at"`
+		ExpiresAt  time.Time  `json:"expires_at"`
+	}
+
+	items := make([]tokenResponse, len(tokens))
+	for i, t := range tokens {
+		items[i] = tokenResponse{
+			ID:         t.ID,
+			Label:      t.Label,
+			Prefix:     t.Prefix,
+			Status:     t.TokenStatus(),
+			CreatedAt:  t.CreatedAt,
+			LastUsedAt: t.LastUsedAt,
+			RevokedAt:  t.RevokedAt,
+			ExpiresAt:  t.ExpiresAt,
+		}
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+// RevokeAPIToken handles DELETE /api/v1/auth/api-tokens/{id}.
+// It revokes the specified token for the authenticated user.
+func (h *AuthHandler) RevokeAPIToken(w http.ResponseWriter, r *http.Request) {
+	h.setSecurityHeaders(w)
+
+	claims, ok := h.requireJWTSession(w, r)
+	if !ok {
+		return
+	}
+
+	userID, err := uuid.Parse(claims.Sub)
+	if err != nil {
+		h.writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	// Extract token ID from the URL path.
+	tokenIDStr := strings.TrimPrefix(r.URL.Path, "/api/v1/auth/api-tokens/")
+	tokenID, err := uuid.Parse(tokenIDStr)
+	if err != nil {
+		h.writeJSONError(w, http.StatusBadRequest, "invalid token id")
+		return
+	}
+
+	if err := h.apiTokenService.RevokeToken(r.Context(), tokenID, userID); err != nil {
+		if errors.Is(err, auth.ErrTokenNotFound) {
+			h.writeJSONError(w, http.StatusNotFound, "not found")
+			return
+		}
+		slog.Error("revoke api token failed", "error", err)
 		h.writeJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,9 +24,7 @@ func newNilAuthMiddleware() *middleware.AuthMiddleware {
 	return middleware.NewAuthMiddleware(nil)
 }
 
-// =============================================================================
 // Minimal no-op repository implementations for handler testing
-// =============================================================================
 
 // noopUserRepo satisfies auth.UserRepository with no-op implementations.
 type noopUserRepo struct{}
@@ -67,18 +67,11 @@ func newTestAuthService() *auth.Service {
 	return auth.NewService(&noopUserRepo{}, &noopSessionRepo{}, cfg)
 }
 
-// =============================================================================
-// Property 17: Request body size limit enforcement
-// =============================================================================
-
-// TestPropertyRequestBodySizeLimit verifies Property 17.
-//
-// For any POST request to /api/v1/auth/local/login with a body larger than 1KB,
-// the Auth Service SHALL reject the request before processing credentials.
-// Payloads at or below 1KB SHALL be processed normally (returning 401 since
-// credentials are fake, but NOT 413).
-//
-// **Validates: Requirements 12.8**
+// TestPropertyRequestBodySizeLimit verifies that for any POST request to
+// /api/v1/auth/local/login with a body larger than 1KB, the Auth Service
+// rejects the request before processing credentials. Payloads at or below
+// 1KB are processed normally (returning 401 since credentials are fake,
+// but NOT 413).
 func TestPropertyRequestBodySizeLimit(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		svc := newTestAuthService()
@@ -133,15 +126,8 @@ func TestPropertyRequestBodySizeLimit(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Unit Tests for Task 7.6: Auth handler cookie attributes, security headers,
-// OAuth redirect URL, and graceful degradation.
-// Requirements: 4.3, 12.7
-// =============================================================================
-
 // TestLogoutClearsCookieAttributes verifies that calling Logout (even without
 // a valid cookie) sets a clear-cookie with the correct attributes.
-// Validates: Requirement 4.3
 func TestLogoutClearsCookieAttributes(t *testing.T) {
 	svc := newTestAuthService()
 	handler := NewAuthHandler(svc, "production")
@@ -209,7 +195,6 @@ func TestLogoutCookieNotSecureInDev(t *testing.T) {
 
 // TestLocalLoginSetsSecurityHeaders verifies that even a failed LocalLogin
 // response includes the required security headers.
-// Validates: Requirement 12.7
 func TestLocalLoginSetsSecurityHeaders(t *testing.T) {
 	svc := newTestAuthService()
 	handler := NewAuthHandler(svc, "production")
@@ -236,8 +221,7 @@ func TestLocalLoginSetsSecurityHeaders(t *testing.T) {
 }
 
 // TestLocalLoginRejectsOversizedBody is a specific example test for the 1KB
-// body limit (complements Property 17).
-// Validates: Requirement 12.8
+// body limit (complements the property test above).
 func TestLocalLoginRejectsOversizedBody(t *testing.T) {
 	svc := newTestAuthService()
 	handler := NewAuthHandler(svc, "production")
@@ -410,5 +394,454 @@ func TestLocalLoginReturns429OnIPBlocked(t *testing.T) {
 	}
 	if resp["error"] != "too many requests" {
 		t.Errorf("error message: got %q, want %q", resp["error"], "too many requests")
+	}
+}
+
+// --- Mock repositories for API token handler testing ---
+
+// mockAPITokenRepo is an in-memory APITokenRepository for handler tests.
+type mockAPITokenRepo struct {
+	mu     sync.Mutex
+	byID   map[uuid.UUID]*auth.APIToken
+	byHash map[string]*auth.APIToken
+}
+
+func newMockAPITokenRepo() *mockAPITokenRepo {
+	return &mockAPITokenRepo{
+		byID:   make(map[uuid.UUID]*auth.APIToken),
+		byHash: make(map[string]*auth.APIToken),
+	}
+}
+
+func (r *mockAPITokenRepo) Create(_ context.Context, token *auth.APIToken) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *token
+	r.byID[cp.ID] = &cp
+	r.byHash[cp.TokenHash] = &cp
+	return nil
+}
+
+func (r *mockAPITokenRepo) FindByTokenHash(_ context.Context, hash string) (*auth.APIToken, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.byHash[hash]
+	if !ok {
+		return nil, nil
+	}
+	cp := *t
+	return &cp, nil
+}
+
+func (r *mockAPITokenRepo) ListByUserID(_ context.Context, userID uuid.UUID) ([]auth.APIToken, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var tokens []auth.APIToken
+	for _, t := range r.byID {
+		if t.UserID == userID {
+			tokens = append(tokens, *t)
+		}
+	}
+	// Sort by created_at desc.
+	sort.Slice(tokens, func(i, j int) bool {
+		return tokens[i].CreatedAt.After(tokens[j].CreatedAt)
+	})
+	return tokens, nil
+}
+
+func (r *mockAPITokenRepo) CountActiveByUserID(_ context.Context, userID uuid.UUID) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	count := 0
+	for _, t := range r.byID {
+		if t.UserID == userID && t.RevokedAt == nil && t.ExpiresAt.After(now) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (r *mockAPITokenRepo) Revoke(_ context.Context, id uuid.UUID, userID uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.byID[id]
+	if !ok || t.UserID != userID {
+		return auth.ErrTokenNotFound
+	}
+	if t.RevokedAt != nil {
+		return nil
+	}
+	now := time.Now()
+	t.RevokedAt = &now
+	return nil
+}
+
+func (r *mockAPITokenRepo) UpdateLastUsedAt(_ context.Context, id uuid.UUID, t time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	tok, ok := r.byID[id]
+	if !ok {
+		return nil
+	}
+	tok.LastUsedAt = &t
+	return nil
+}
+
+// mockUserRepoForTokens is a minimal UserRepository that stores users by ID.
+type mockUserRepoForTokens struct {
+	mu   sync.Mutex
+	byID map[uuid.UUID]*auth.User
+}
+
+func newMockUserRepoForTokens() *mockUserRepoForTokens {
+	return &mockUserRepoForTokens{byID: make(map[uuid.UUID]*auth.User)}
+}
+
+func (r *mockUserRepoForTokens) FindByID(_ context.Context, id uuid.UUID) (*auth.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, ok := r.byID[id]
+	if !ok {
+		return nil, nil
+	}
+	cp := *u
+	return &cp, nil
+}
+func (r *mockUserRepoForTokens) FindByEmail(_ context.Context, _ string) (*auth.User, error) {
+	return nil, nil
+}
+func (r *mockUserRepoForTokens) FindByGoogleID(_ context.Context, _ string) (*auth.User, error) {
+	return nil, nil
+}
+func (r *mockUserRepoForTokens) Create(_ context.Context, _ *auth.User) error { return nil }
+func (r *mockUserRepoForTokens) Update(_ context.Context, _ *auth.User) error { return nil }
+func (r *mockUserRepoForTokens) UpdatePasswordHash(_ context.Context, _ uuid.UUID, _ string, _ bool) error {
+	return nil
+}
+
+func (r *mockUserRepoForTokens) addUser(u *auth.User) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.byID[u.ID] = u
+}
+
+// --- Test helpers ---
+
+// newTestAPITokenService creates an APITokenService backed by in-memory mocks.
+func newTestAPITokenService() (*auth.APITokenService, *mockAPITokenRepo, *mockUserRepoForTokens) {
+	tokenRepo := newMockAPITokenRepo()
+	userRepo := newMockUserRepoForTokens()
+	svc := auth.NewAPITokenService(tokenRepo, userRepo, auth.DefaultAPITokenConfig())
+	return svc, tokenRepo, userRepo
+}
+
+// jwtRequest creates an HTTP request with JWT claims in context (simulating
+// auth middleware). Auth method is left unset (defaults to JWT session).
+func jwtRequest(method, path string, body *bytes.Buffer, userID uuid.UUID, role string) *http.Request {
+	var req *http.Request
+	if body != nil {
+		req = httptest.NewRequest(method, path, body)
+	} else {
+		req = httptest.NewRequest(method, path, nil)
+	}
+	claims := &auth.Claims{
+		Sub:   userID.String(),
+		Email: "test@exchangely.io",
+		Role:  role,
+	}
+	ctx := middleware.ContextWithClaims(req.Context(), claims)
+	return req.WithContext(ctx)
+}
+
+// apiTokenRequest creates an HTTP request with claims AND auth method set to
+// "api_token", simulating a request authenticated via API token.
+func apiTokenRequest(method, path string, body *bytes.Buffer, userID uuid.UUID, role string) *http.Request {
+	req := jwtRequest(method, path, body, userID, role)
+	ctx := middleware.ContextWithAuthMethod(req.Context(), "api_token")
+	return req.WithContext(ctx)
+}
+
+// --- Tests ---
+
+// TestCreateAPIToken_201 verifies that POST /api/v1/auth/api-tokens creates a
+// token and returns 201 with the raw token in the response.
+func TestCreateAPIToken_201(t *testing.T) {
+	svc, _, userRepo := newTestAPITokenService()
+	userID := uuid.New()
+	userRepo.addUser(&auth.User{ID: userID, Email: "dev@exchangely.io", Role: "user"})
+
+	handler := NewAuthHandler(newTestAuthService(), "development").WithAPITokenService(svc)
+
+	body := bytes.NewBufferString(`{"label":"my-key"}`)
+	req := jwtRequest(http.MethodPost, "/api/v1/auth/api-tokens", body, userID, "user")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.CreateAPIToken(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	rawToken, ok := resp["token"].(string)
+	if !ok || rawToken == "" {
+		t.Fatal("expected non-empty 'token' in response")
+	}
+	if !strings.HasPrefix(rawToken, "exly_") {
+		t.Errorf("raw token should start with exly_, got %q", rawToken[:10])
+	}
+	if resp["label"] != "my-key" {
+		t.Errorf("expected label 'my-key', got %v", resp["label"])
+	}
+	if resp["id"] == nil || resp["id"] == "" {
+		t.Error("expected non-empty 'id' in response")
+	}
+}
+
+// TestListAPITokens_200 verifies that GET /api/v1/auth/api-tokens returns the
+// user's token list with a 200 status.
+func TestListAPITokens_200(t *testing.T) {
+	svc, _, userRepo := newTestAPITokenService()
+	userID := uuid.New()
+	userRepo.addUser(&auth.User{ID: userID, Email: "dev@exchangely.io", Role: "user"})
+
+	handler := NewAuthHandler(newTestAuthService(), "development").WithAPITokenService(svc)
+
+	// Create two tokens first.
+	for _, label := range []string{"key-1", "key-2"} {
+		body := bytes.NewBufferString(`{"label":"` + label + `"}`)
+		req := jwtRequest(http.MethodPost, "/api/v1/auth/api-tokens", body, userID, "user")
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.CreateAPIToken(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("setup: expected 201, got %d", w.Code)
+		}
+	}
+
+	// List tokens.
+	req := jwtRequest(http.MethodGet, "/api/v1/auth/api-tokens", nil, userID, "user")
+	rr := httptest.NewRecorder()
+	handler.ListAPITokens(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	data, ok := resp["data"].([]any)
+	if !ok {
+		t.Fatalf("expected 'data' array in response, got %T", resp["data"])
+	}
+	if len(data) != 2 {
+		t.Fatalf("expected 2 tokens, got %d", len(data))
+	}
+
+	// Verify each token has expected fields.
+	for _, item := range data {
+		tok, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("expected token object, got %T", item)
+		}
+		if tok["id"] == nil || tok["label"] == nil || tok["status"] == nil {
+			t.Error("token missing required fields (id, label, status)")
+		}
+		if tok["status"] != "active" {
+			t.Errorf("expected status 'active', got %v", tok["status"])
+		}
+	}
+}
+
+// TestRevokeAPIToken_204 verifies that DELETE /api/v1/auth/api-tokens/{id}
+// revokes the token and returns 204.
+func TestRevokeAPIToken_204(t *testing.T) {
+	svc, _, userRepo := newTestAPITokenService()
+	userID := uuid.New()
+	userRepo.addUser(&auth.User{ID: userID, Email: "dev@exchangely.io", Role: "user"})
+
+	handler := NewAuthHandler(newTestAuthService(), "development").WithAPITokenService(svc)
+
+	// Create a token.
+	body := bytes.NewBufferString(`{"label":"to-revoke"}`)
+	req := jwtRequest(http.MethodPost, "/api/v1/auth/api-tokens", body, userID, "user")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.CreateAPIToken(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("setup: expected 201, got %d", w.Code)
+	}
+
+	var createResp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&createResp); err != nil {
+		t.Fatalf("failed to decode create response: %v", err)
+	}
+	tokenID := createResp["id"].(string)
+
+	// Revoke the token.
+	req = jwtRequest(http.MethodDelete, "/api/v1/auth/api-tokens/"+tokenID, nil, userID, "user")
+	rr := httptest.NewRecorder()
+	handler.RevokeAPIToken(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestCreateAPIToken_409_LimitReached verifies that creating a token when the
+// user already has 5 active tokens returns 409 Conflict.
+func TestCreateAPIToken_409_LimitReached(t *testing.T) {
+	svc, _, userRepo := newTestAPITokenService()
+	userID := uuid.New()
+	userRepo.addUser(&auth.User{ID: userID, Email: "dev@exchangely.io", Role: "user"})
+
+	handler := NewAuthHandler(newTestAuthService(), "development").WithAPITokenService(svc)
+
+	// Create 5 tokens (the maximum).
+	for i := 0; i < 5; i++ {
+		body := bytes.NewBufferString(`{"label":"key-` + strings.Repeat("x", i+1) + `"}`)
+		req := jwtRequest(http.MethodPost, "/api/v1/auth/api-tokens", body, userID, "user")
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.CreateAPIToken(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("setup token %d: expected 201, got %d", i+1, w.Code)
+		}
+	}
+
+	// The 6th token should be rejected with 409.
+	body := bytes.NewBufferString(`{"label":"one-too-many"}`)
+	req := jwtRequest(http.MethodPost, "/api/v1/auth/api-tokens", body, userID, "user")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.CreateAPIToken(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp["error"] != "token limit reached" {
+		t.Errorf("expected error 'token limit reached', got %q", resp["error"])
+	}
+}
+
+// TestRevokeAPIToken_404_WrongUser verifies that revoking another user's token
+// returns 404 Not Found.
+func TestRevokeAPIToken_404_WrongUser(t *testing.T) {
+	svc, _, userRepo := newTestAPITokenService()
+	userA := uuid.New()
+	userB := uuid.New()
+	userRepo.addUser(&auth.User{ID: userA, Email: "a@exchangely.io", Role: "user"})
+	userRepo.addUser(&auth.User{ID: userB, Email: "b@exchangely.io", Role: "user"})
+
+	handler := NewAuthHandler(newTestAuthService(), "development").WithAPITokenService(svc)
+
+	// User A creates a token.
+	body := bytes.NewBufferString(`{"label":"a-key"}`)
+	req := jwtRequest(http.MethodPost, "/api/v1/auth/api-tokens", body, userA, "user")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.CreateAPIToken(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("setup: expected 201, got %d", w.Code)
+	}
+
+	var createResp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&createResp); err != nil {
+		t.Fatalf("failed to decode create response: %v", err)
+	}
+	tokenID := createResp["id"].(string)
+
+	// User B tries to revoke User A's token.
+	req = jwtRequest(http.MethodDelete, "/api/v1/auth/api-tokens/"+tokenID, nil, userB, "user")
+	rr := httptest.NewRecorder()
+	handler.RevokeAPIToken(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp["error"] != "not found" {
+		t.Errorf("expected error 'not found', got %q", resp["error"])
+	}
+}
+
+// TestAPITokenEndpoints_401_APITokenAuth verifies that using an API token
+// (instead of JWT) on management endpoints returns 401 Unauthorized.
+func TestAPITokenEndpoints_401_APITokenAuth(t *testing.T) {
+	svc, _, userRepo := newTestAPITokenService()
+	userID := uuid.New()
+	userRepo.addUser(&auth.User{ID: userID, Email: "dev@exchangely.io", Role: "user"})
+
+	handler := NewAuthHandler(newTestAuthService(), "development").WithAPITokenService(svc)
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   *bytes.Buffer
+		fn     func(http.ResponseWriter, *http.Request)
+	}{
+		{
+			name:   "POST create token via API token auth",
+			method: http.MethodPost,
+			path:   "/api/v1/auth/api-tokens",
+			body:   bytes.NewBufferString(`{"label":"sneaky"}`),
+			fn:     handler.CreateAPIToken,
+		},
+		{
+			name:   "GET list tokens via API token auth",
+			method: http.MethodGet,
+			path:   "/api/v1/auth/api-tokens",
+			body:   nil,
+			fn:     handler.ListAPITokens,
+		},
+		{
+			name:   "DELETE revoke token via API token auth",
+			method: http.MethodDelete,
+			path:   "/api/v1/auth/api-tokens/" + uuid.New().String(),
+			body:   nil,
+			fn:     handler.RevokeAPIToken,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := apiTokenRequest(tc.method, tc.path, tc.body, userID, "user")
+			if tc.body != nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			rr := httptest.NewRecorder()
+			tc.fn(rr, req)
+
+			if rr.Code != http.StatusUnauthorized {
+				t.Fatalf("expected 401, got %d; body: %s", rr.Code, rr.Body.String())
+			}
+
+			var resp map[string]string
+			if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if resp["error"] != "unauthorized" {
+				t.Errorf("expected error 'unauthorized', got %q", resp["error"])
+			}
+		})
 	}
 }

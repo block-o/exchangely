@@ -85,6 +85,8 @@ Default quote assets: `EUR` and `USD`.
 - Google OAuth 2.0 + local admin authentication with JWT sessions
 - Role-based access control (admin/user) with Operations panel gating
 - Auth middleware with graceful degradation (disabled when `BACKEND_JWT_SECRET` is empty)
+- Per-user API tokens (`exly_`-prefixed) for programmatic access with SHA-256 hashed storage
+- Tiered PostgreSQL-backed rate limiting (user/premium/admin) with sliding window counters and per-IP abuse prevention
 
 ### Frontend
 - Premium dark-themed dashboard with SSE-driven realtime market updates
@@ -92,6 +94,7 @@ Default quote assets: `EUR` and `USD`.
 - Operations panel with three tabs: Overview (warnings + version), Coverage (coin-grouped), Audit (task history)
 - Coverage tab: pairs grouped by base asset in collapsible cards with live feed health, backfill badges, earliest data
 - Horizontal scrolling news ticker from RSS feeds
+- API Key management page (create, list, revoke tokens with rate limit usage display)
 - Vitest testing stack
 - Dynamic `__APP_VERSION__` injection
 
@@ -115,6 +118,9 @@ Default quote assets: `EUR` and `USD`.
 - `POST /api/v1/auth/logout` (session invalidation)
 - `GET /api/v1/auth/me` (authenticated user profile)
 - `POST /api/v1/auth/local/change-password` (password update)
+- `POST /api/v1/auth/api-tokens` (create API token, JWT session only)
+- `GET /api/v1/auth/api-tokens` (list user's API tokens, JWT session only)
+- `DELETE /api/v1/auth/api-tokens/{id}` (revoke API token, JWT session only)
 - `GET /api/v1/config` (frontend-facing app configuration: auth state, version)
 
 When changing API behavior, update `router.go:defaultOpenAPIYAML()` if the contract changes materially.
@@ -167,14 +173,23 @@ Key implementation files:
 - `frontend/src/components/*`: UI building blocks.
 - `frontend/src/components/system/*`: system operations tab components (OverviewTab, CoverageTab, AuditTab, shared utilities).
 - `backend/internal/auth/*`: auth service, JWT, validation, rate limiting.
-- `backend/internal/httpapi/middleware/auth.go`: auth middleware.
-- `backend/internal/httpapi/handlers/auth.go`: auth HTTP handlers.
+- `backend/internal/auth/apitoken.go`: API token service (create, validate, revoke, list).
+- `backend/internal/auth/apiratelimit.go`: PostgreSQL-backed tiered rate limiter.
+- `backend/internal/httpapi/middleware/auth.go`: JWT auth middleware.
+- `backend/internal/httpapi/middleware/apitoken.go`: API token auth middleware.
+- `backend/internal/httpapi/middleware/ratelimit.go`: rate limit middleware.
+- `backend/internal/httpapi/handlers/auth.go`: auth HTTP handlers (login, OAuth, token management).
 - `backend/internal/storage/postgres/user_repository.go`: user persistence.
 - `backend/internal/storage/postgres/session_repository.go`: session persistence.
+- `backend/internal/storage/postgres/apitoken_repository.go`: API token persistence.
+- `backend/internal/storage/postgres/ratelimit_repository.go`: rate limit counter persistence.
 - `frontend/src/app/auth.tsx`: auth context provider.
 - `frontend/src/pages/LoginPage.tsx`: login page.
 - `frontend/src/pages/SettingsPage.tsx`: settings page.
 - `frontend/src/pages/PasswordChangePage.tsx`: password change page.
+- `frontend/src/pages/APIKeysPage.tsx`: API key management page.
+- `docs/authentication.md`: authentication setup guide.
+- `docs/api.md`: API documentation (endpoints, tokens, rate limiting).
 - `market_dashboard.png`: current dashboard reference image.
 
 ---

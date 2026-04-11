@@ -235,3 +235,81 @@ func TestValidateAuthConfigBothModesValid(t *testing.T) {
 		t.Fatalf("expected no errors for valid local,sso config, got %v", errs)
 	}
 }
+
+func TestLoadRateLimitDefaults(t *testing.T) {
+	_ = os.Unsetenv("BACKEND_RATELIMIT_USER")
+	_ = os.Unsetenv("BACKEND_RATELIMIT_PREMIUM")
+	_ = os.Unsetenv("BACKEND_RATELIMIT_ADMIN")
+	_ = os.Unsetenv("BACKEND_RATELIMIT_IP")
+	_ = os.Unsetenv("BACKEND_RATELIMIT_WINDOW")
+
+	cfg := Load()
+
+	if cfg.RateLimitUser != 100 {
+		t.Fatalf("expected RateLimitUser default 100, got %d", cfg.RateLimitUser)
+	}
+	if cfg.RateLimitPremium != 500 {
+		t.Fatalf("expected RateLimitPremium default 500, got %d", cfg.RateLimitPremium)
+	}
+	if cfg.RateLimitAdmin != 1000 {
+		t.Fatalf("expected RateLimitAdmin default 1000, got %d", cfg.RateLimitAdmin)
+	}
+	if cfg.RateLimitIP != 200 {
+		t.Fatalf("expected RateLimitIP default 200, got %d", cfg.RateLimitIP)
+	}
+	if cfg.RateLimitWindow != 1*time.Minute {
+		t.Fatalf("expected RateLimitWindow default 1m, got %v", cfg.RateLimitWindow)
+	}
+}
+
+func TestLoadRateLimitCustomValues(t *testing.T) {
+	t.Setenv("BACKEND_RATELIMIT_USER", "50")
+	t.Setenv("BACKEND_RATELIMIT_PREMIUM", "250")
+	t.Setenv("BACKEND_RATELIMIT_ADMIN", "2000")
+	t.Setenv("BACKEND_RATELIMIT_IP", "400")
+	t.Setenv("BACKEND_RATELIMIT_WINDOW", "2m")
+
+	cfg := Load()
+
+	if cfg.RateLimitUser != 50 {
+		t.Fatalf("expected RateLimitUser 50, got %d", cfg.RateLimitUser)
+	}
+	if cfg.RateLimitPremium != 250 {
+		t.Fatalf("expected RateLimitPremium 250, got %d", cfg.RateLimitPremium)
+	}
+	if cfg.RateLimitAdmin != 2000 {
+		t.Fatalf("expected RateLimitAdmin 2000, got %d", cfg.RateLimitAdmin)
+	}
+	if cfg.RateLimitIP != 400 {
+		t.Fatalf("expected RateLimitIP 400, got %d", cfg.RateLimitIP)
+	}
+	if cfg.RateLimitWindow != 2*time.Minute {
+		t.Fatalf("expected RateLimitWindow 2m, got %v", cfg.RateLimitWindow)
+	}
+}
+
+func TestLoadRateLimitFallbackOnInvalidValues(t *testing.T) {
+	t.Setenv("BACKEND_RATELIMIT_USER", "not-a-number")
+	t.Setenv("BACKEND_RATELIMIT_PREMIUM", "")
+	t.Setenv("BACKEND_RATELIMIT_ADMIN", "abc")
+	t.Setenv("BACKEND_RATELIMIT_IP", "12.5")
+	t.Setenv("BACKEND_RATELIMIT_WINDOW", "invalid")
+
+	cfg := Load()
+
+	if cfg.RateLimitUser != 100 {
+		t.Fatalf("expected RateLimitUser fallback 100, got %d", cfg.RateLimitUser)
+	}
+	if cfg.RateLimitPremium != 500 {
+		t.Fatalf("expected RateLimitPremium fallback 500, got %d", cfg.RateLimitPremium)
+	}
+	if cfg.RateLimitAdmin != 1000 {
+		t.Fatalf("expected RateLimitAdmin fallback 1000, got %d", cfg.RateLimitAdmin)
+	}
+	if cfg.RateLimitIP != 200 {
+		t.Fatalf("expected RateLimitIP fallback 200, got %d", cfg.RateLimitIP)
+	}
+	if cfg.RateLimitWindow != 15*time.Second {
+		t.Fatalf("expected RateLimitWindow fallback 15s (parseDuration default), got %v", cfg.RateLimitWindow)
+	}
+}

@@ -67,6 +67,13 @@ type Config struct {
 	AdminEmail         string
 	BcryptCost         int
 
+	// API rate limiting configuration.
+	RateLimitUser    int           // BACKEND_RATELIMIT_USER, default: 100
+	RateLimitPremium int           // BACKEND_RATELIMIT_PREMIUM, default: 500
+	RateLimitAdmin   int           // BACKEND_RATELIMIT_ADMIN, default: 1000
+	RateLimitIP      int           // BACKEND_RATELIMIT_IP, default: 200
+	RateLimitWindow  time.Duration // BACKEND_RATELIMIT_WINDOW, default: 1m
+
 	// TrustedProxies is a comma-separated list of CIDR ranges or IP addresses
 	// whose X-Forwarded-For / X-Real-IP headers are trusted for extracting the
 	// original client IP. When empty, r.RemoteAddr is always used.
@@ -124,6 +131,11 @@ func Load() Config {
 		RefreshTokenExpiry:        parseDuration(getenv("BACKEND_REFRESH_TOKEN_EXPIRY", "168h")),
 		AdminEmail:                getenv("BACKEND_ADMIN_EMAIL", ""),
 		BcryptCost:                parseInt(getenv("BACKEND_BCRYPT_COST", "12"), 12),
+		RateLimitUser:             parseInt(getenv("BACKEND_RATELIMIT_USER", "100"), 100),
+		RateLimitPremium:          parseInt(getenv("BACKEND_RATELIMIT_PREMIUM", "500"), 500),
+		RateLimitAdmin:            parseInt(getenv("BACKEND_RATELIMIT_ADMIN", "1000"), 1000),
+		RateLimitIP:               parseInt(getenv("BACKEND_RATELIMIT_IP", "200"), 200),
+		RateLimitWindow:           parseDuration(getenv("BACKEND_RATELIMIT_WINDOW", "1m")),
 		TrustedProxies:            splitCSV(getenv("BACKEND_TRUSTED_PROXIES", "")),
 		APIBaseURL:                getenv("API_BASE_URL", "http://localhost:8080/api/v1"),
 	}

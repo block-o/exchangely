@@ -96,6 +96,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	// Auth service — conditionally enabled when BACKEND_AUTH_MODE is set.
 	var authService *auth.Service
+	var apiTokenService *auth.APITokenService
+	var apiRateLimiter *auth.APIRateLimiter
 	if cfg.AuthEnabled() {
 		userRepo := postgresrepo.NewUserRepository(db)
 		sessionRepo := postgresrepo.NewSessionRepository(db)
@@ -119,6 +121,21 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 				// Non-fatal: the app can still run without the admin account.
 			}
 		}
+
+		// API token service and rate limiter.
+		apiTokenRepo := postgresrepo.NewAPITokenRepository(db)
+		rateLimitRepo := postgresrepo.NewRateLimitRepository(db)
+
+		apiTokenService = auth.NewAPITokenService(apiTokenRepo, userRepo, auth.DefaultAPITokenConfig())
+		apiRateLimiter = auth.NewAPIRateLimiter(rateLimitRepo, auth.APIRateLimitConfig{
+			UserLimit:    cfg.RateLimitUser,
+			PremiumLimit: cfg.RateLimitPremium,
+			AdminLimit:   cfg.RateLimitAdmin,
+			IPLimit:      cfg.RateLimitIP,
+			Window:       cfg.RateLimitWindow,
+		})
+		apiRateLimiter.StartPruner(ctx)
+
 		slog.Info("auth enabled", "mode", cfg.AuthMode)
 	} else {
 		slog.Info("auth disabled — BACKEND_AUTH_MODE not set")
@@ -139,11 +156,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	marketService := service.NewMarketService(marketRepo, cfg.TickerCacheSize, cfg.TickersCacheTTL)
 
 	handler := router.New(router.Services{
-		Catalog: catalogService,
-		Market:  marketService,
-		System:  systemService,
-		News:    newsService,
-		Auth:    authService,
+		Catalog:         catalogService,
+		Market:          marketService,
+		System:          systemService,
+		News:            newsService,
+		Auth:            authService,
+		APITokenService: apiTokenService,
+		APIRateLimiter:  apiRateLimiter,
 	}, router.Options{
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 		Env:            cfg.Env,

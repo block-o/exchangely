@@ -1,7 +1,5 @@
 /**
- * Feature: responsive-ui-overhaul, Property 5: MarketCard list preserves sort order
- *
- * Validates: Requirements 3.7
+ * MarketCard list preserves sort order
  *
  * For any array of Pairs with associated Tickers, the rendered MarketCard list
  * should be ordered by market cap descending, with ties broken by alphabetical

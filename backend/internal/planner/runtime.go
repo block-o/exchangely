@@ -28,6 +28,10 @@ type CoverageProvider interface {
 	GetAllCompletedDays(ctx context.Context) (map[string]map[string]bool, error)
 }
 
+type IntegrityCoverageProvider interface {
+	GetAllVerifiedDays(ctx context.Context) (map[string]map[string]bool, error)
+}
+
 type TaskSink interface {
 	Enqueue(ctx context.Context, tasks []task.Task) ([]task.Task, error)
 	ActiveBackfillPairs(ctx context.Context) (map[string]bool, error)
@@ -50,6 +54,7 @@ type Runner struct {
 	leases                  LeaseCoordinator
 	tasks                   TaskSink
 	coverage                CoverageProvider
+	integrity               IntegrityCoverageProvider
 	publisher               TaskPublisher
 	isLeader                bool
 }
@@ -65,6 +70,7 @@ func NewRunner(
 	leases LeaseCoordinator,
 	tasks TaskSink,
 	coverage CoverageProvider,
+	integrity IntegrityCoverageProvider,
 	publisher TaskPublisher,
 ) *Runner {
 	return &Runner{
@@ -79,6 +85,7 @@ func NewRunner(
 		leases:                  leases,
 		tasks:                   tasks,
 		coverage:                coverage,
+		integrity:               integrity,
 		publisher:               publisher,
 	}
 }
@@ -153,6 +160,11 @@ func (r *Runner) runTick(ctx context.Context) error {
 		return err
 	}
 
+	integrityCov, err := r.integrity.GetAllVerifiedDays(ctx)
+	if err != nil {
+		return err
+	}
+
 	activePairs, err := r.tasks.ActiveBackfillPairs(ctx)
 	if err != nil {
 		return err
@@ -172,13 +184,14 @@ func (r *Runner) runTick(ctx context.Context) error {
 		)
 	}
 
-	followUpTasks := make([]task.Task, 0, len(backfillTasks)+4)
+	followUpTasks := make([]task.Task, 0, len(backfillTasks)+8)
 	followUpTasks = append(followUpTasks, backfillTasks...)
 	followUpTasks = append(followUpTasks, r.scheduler.BuildBackfillProbeTasks(pairs, adapted, now)...)
 	followUpTasks = append(followUpTasks, r.scheduler.BuildGapValidationTasks(pairs, adapted, coverage, now)...)
+	followUpTasks = append(followUpTasks, r.scheduler.BuildIntegrityCheckTasks(pairs, adapted, integrityCov, now)...)
 	followUpTasks = append(followUpTasks, r.scheduler.BuildConsolidationTasks(pairs, adapted, now)...)
-	followUpTasks = append(followUpTasks, r.scheduler.BuildCleanupTask(now))   // daily task log pruning
-	followUpTasks = append(followUpTasks, r.scheduler.BuildNewsFetchTask(now)) // periodic news fetch
+	followUpTasks = append(followUpTasks, r.scheduler.BuildCleanupTask(now))
+	followUpTasks = append(followUpTasks, r.scheduler.BuildNewsFetchTasks(now)...)
 
 	if len(realtimeTasks) == 0 && len(followUpTasks) == 0 {
 		slog.Debug("planner tick complete", "instance_id", r.instanceID, "pair_count", len(pairs), "task_count", 0)

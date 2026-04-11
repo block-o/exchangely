@@ -166,8 +166,10 @@ func (s *Scheduler) BuildInitialBackfillTasksLimited(pairs []pair.Pair, state ma
 	return tasks
 }
 
-// BuildGapValidationTasks emits tasks to verify coverage for days between the oldest
-// synced point and yesterday that are not yet marked as complete.
+// BuildGapValidationTasks emits one stable sweep task per pair. The executor
+// walks all uncovered days for that pair in a single run, marking complete
+// days in data_coverage. The stable ID ensures at most one pending/running
+// gap validation task per pair exists at a time.
 func (s *Scheduler) BuildGapValidationTasks(pairs []pair.Pair, state map[string]SyncState, coverage map[string]map[string]bool, now time.Time) []task.Task {
 	yesterday := now.UTC().Truncate(24 * time.Hour).Add(-24 * time.Hour)
 	tasks := make([]task.Task, 0)
@@ -177,50 +179,48 @@ func (s *Scheduler) BuildGapValidationTasks(pairs []pair.Pair, state map[string]
 		if !ok {
 			continue
 		}
-		pairCoverage := coverage[trackedPair.Symbol]
 
-		// Use the oldest synced timestamp as the start of the gap scan.
 		start := pairState.HourlyLastSynced.UTC().Truncate(24 * time.Hour)
 		if start.IsZero() {
 			continue
 		}
 
-		// Only check up to yesterday
+		// Check if there are any uncovered days remaining.
+		pairCoverage := coverage[trackedPair.Symbol]
+		hasGaps := false
 		for cursor := start; !cursor.After(yesterday); cursor = cursor.Add(24 * time.Hour) {
-			dayKey := cursor.Format("2006-01-02")
-			if pairCoverage[dayKey] {
-				continue
-			}
-
-			// Add gap validation task for this day
-			t := task.Task{
-				ID:          taskID(task.TypeGapValidation, trackedPair.Symbol, "1d", cursor, cursor.Add(24*time.Hour)),
-				Type:        task.TypeGapValidation,
-				Pair:        trackedPair.Symbol,
-				Interval:    "1d",
-				WindowStart: cursor,
-				WindowEnd:   cursor.Add(24 * time.Hour),
-			}
-			t.Description = task.BuildDescription(t)
-			tasks = append(tasks, t)
-
-			// Limit the number of validation tasks per tick to avoid flooding (e.g. max 5 per pair)
-			if len(tasks) > 50 { // total across all pairs
-				return tasks
+			if !pairCoverage[cursor.Format("2006-01-02")] {
+				hasGaps = true
+				break
 			}
 		}
+		if !hasGaps {
+			continue
+		}
+
+		t := task.Task{
+			ID:          fmt.Sprintf("%s:%s:sweep", task.TypeGapValidation, trackedPair.Symbol),
+			Type:        task.TypeGapValidation,
+			Pair:        trackedPair.Symbol,
+			Interval:    "1d",
+			WindowStart: start,
+			WindowEnd:   yesterday.Add(24 * time.Hour),
+		}
+		t.Description = task.BuildDescription(t)
+		tasks = append(tasks, t)
 	}
 
 	return tasks
 }
 
-// BuildCleanupTask emits a single task_cleanup task per calendar day (keyed by midnight UTC).
-// The planner's idempotent Enqueue ensures it only executes once per day regardless of restart count.
+// BuildCleanupTask emits a single task_cleanup task with a stable ID.
+// The planner's idempotent Enqueue ensures only one pending/running cleanup
+// task exists at a time. Once completed, the next planner tick re-enqueues it.
 func (s *Scheduler) BuildCleanupTask(now time.Time) task.Task {
 	dayStart := now.UTC().Truncate(24 * time.Hour)
 	dayEnd := dayStart.Add(24 * time.Hour)
 	t := task.Task{
-		ID:          fmt.Sprintf("%s:daily:%d", task.TypeCleanup, dayStart.Unix()),
+		ID:          fmt.Sprintf("%s:daily", task.TypeCleanup),
 		Type:        task.TypeCleanup,
 		Pair:        "*", // global
 		Interval:    "1d",
@@ -231,20 +231,31 @@ func (s *Scheduler) BuildCleanupTask(now time.Time) task.Task {
 	return t
 }
 
-// BuildNewsFetchTask emits a task_news_fetch task based on the configured interval.
-func (s *Scheduler) BuildNewsFetchTask(now time.Time) task.Task {
+// NewsSources lists the RSS source keys used for per-source news fetch tasks.
+var NewsSources = []string{"coindesk", "cointelegraph", "theblock"}
+
+// BuildNewsFetchTasks emits one news_fetch task per RSS source with a stable ID.
+// Only one pending/running task per source can exist at a time. Once a worker
+// completes the task, the next planner tick re-enqueues it via ON CONFLICT.
+func (s *Scheduler) BuildNewsFetchTasks(now time.Time) []task.Task {
 	windowStart := now.UTC().Truncate(s.newsFetchInterval)
 	windowEnd := windowStart.Add(s.newsFetchInterval)
-	t := task.Task{
-		ID:          fmt.Sprintf("%s:periodic:%d", task.TypeNewsFetch, windowStart.Unix()),
-		Type:        task.TypeNewsFetch,
-		Pair:        "*", // global
-		Interval:    s.newsFetchInterval.String(),
-		WindowStart: windowStart,
-		WindowEnd:   windowEnd,
+	tasks := make([]task.Task, 0, len(NewsSources))
+
+	for _, source := range NewsSources {
+		t := task.Task{
+			ID:          fmt.Sprintf("%s:%s:periodic", task.TypeNewsFetch, source),
+			Type:        task.TypeNewsFetch,
+			Pair:        source,
+			Interval:    s.newsFetchInterval.String(),
+			WindowStart: windowStart,
+			WindowEnd:   windowEnd,
+		}
+		t.Description = task.BuildDescription(t)
+		tasks = append(tasks, t)
 	}
-	t.Description = task.BuildDescription(t)
-	return t
+
+	return tasks
 }
 
 // BuildConsolidationTasks emits one daily consolidation task per pair for the last fully-closed UTC day.
@@ -282,15 +293,13 @@ func (s *Scheduler) BuildConsolidationTasks(pairs []pair.Pair, state map[string]
 //
 // WindowStart/WindowEnd span the full current hour so the exchange API returns
 // enough context for consolidation.
-// Integrity checks only start once the preceding hour is expected to be covered either
-// by completed backfill or by the live cutover.
 func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncState, now time.Time) []task.Task {
 	currentHour := now.UTC().Truncate(time.Hour)
 	nextHour := currentHour.Add(time.Hour)
 	tasks := make([]task.Task, 0)
 
 	for _, trackedPair := range pairs {
-		pairState, ok := state[trackedPair.Symbol]
+		_, ok := state[trackedPair.Symbol]
 		if !ok {
 			continue
 		}
@@ -304,20 +313,59 @@ func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncS
 			WindowStart: currentHour,
 			WindowEnd:   nextHour,
 		})
+	}
 
-		prevHour := currentHour.Add(-time.Hour)
-		if pairState.HourlyBackfillCompleted || (!pairState.HourlyRealtimeStartedAt.IsZero() && !prevHour.Before(pairState.HourlyRealtimeStartedAt.UTC())) {
-			t := task.Task{
-				ID:          taskID(task.TypeDataSanity, trackedPair.Symbol, "1h", prevHour, currentHour),
-				Type:        task.TypeDataSanity,
-				Pair:        trackedPair.Symbol,
-				Interval:    "1h",
-				WindowStart: prevHour,
-				WindowEnd:   currentHour,
-			}
-			t.Description = task.BuildDescription(t)
-			tasks = append(tasks, t)
+	return tasks
+}
+
+// BuildIntegrityCheckTasks emits one stable sweep task per pair that has
+// enough coverage to validate. The executor walks the pair's unverified
+// date range, comparing sources and marking verified days in the
+// integrity_coverage table. The stable ID ensures at most one pending/running
+// integrity task per pair.
+func (s *Scheduler) BuildIntegrityCheckTasks(pairs []pair.Pair, state map[string]SyncState, integrityCoverage map[string]map[string]bool, now time.Time) []task.Task {
+	yesterday := now.UTC().Truncate(24 * time.Hour).Add(-24 * time.Hour)
+	tasks := make([]task.Task, 0)
+
+	for _, trackedPair := range pairs {
+		pairState, ok := state[trackedPair.Symbol]
+		if !ok {
+			continue
 		}
+
+		// Only run integrity checks for pairs with some coverage.
+		if !pairState.HourlyBackfillCompleted && pairState.HourlyRealtimeStartedAt.IsZero() {
+			continue
+		}
+
+		start := pairState.HourlyLastSynced.UTC().Truncate(24 * time.Hour)
+		if start.IsZero() {
+			continue
+		}
+
+		// Check if there are any unverified days remaining.
+		pairIntegrity := integrityCoverage[trackedPair.Symbol]
+		hasUnverified := false
+		for cursor := start; !cursor.After(yesterday); cursor = cursor.Add(24 * time.Hour) {
+			if !pairIntegrity[cursor.Format("2006-01-02")] {
+				hasUnverified = true
+				break
+			}
+		}
+		if !hasUnverified {
+			continue
+		}
+
+		t := task.Task{
+			ID:          fmt.Sprintf("%s:%s:sweep", task.TypeDataSanity, trackedPair.Symbol),
+			Type:        task.TypeDataSanity,
+			Pair:        trackedPair.Symbol,
+			Interval:    "1h",
+			WindowStart: start,
+			WindowEnd:   yesterday.Add(24 * time.Hour),
+		}
+		t.Description = task.BuildDescription(t)
+		tasks = append(tasks, t)
 	}
 
 	return tasks

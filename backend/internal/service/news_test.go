@@ -82,3 +82,23 @@ func TestParseRSSDate(t *testing.T) {
 		})
 	}
 }
+
+func TestNewsService_FetchSourceUnknown(t *testing.T) {
+	repo := &mockNewsRepo{}
+	svc := NewNewsService(repo)
+
+	err := svc.FetchSource(context.Background(), "unknown_source")
+	if err == nil {
+		t.Fatal("expected error for unknown source")
+	}
+}
+
+func TestNewsService_SourceURLMapContainsAllSources(t *testing.T) {
+	// Verify the source URL map has entries for all known source keys.
+	expectedSources := []string{"coindesk", "cointelegraph", "theblock"}
+	for _, src := range expectedSources {
+		if _, ok := sourceURLMap[src]; !ok {
+			t.Fatalf("sourceURLMap missing entry for %q", src)
+		}
+	}
+}

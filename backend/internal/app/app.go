@@ -91,6 +91,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	pairLocker := postgresrepo.NewAdvisoryPairLocker(db)
 	newsRepo := postgresrepo.NewNewsRepository(db)
 	coverageRepo := postgresrepo.NewCoverageRepository(db)
+	integrityRepo := postgresrepo.NewIntegrityRepository(db)
 
 	newsService := service.NewNewsService(newsRepo)
 
@@ -193,17 +194,18 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		leaseRepo,
 		taskRepo,
 		coverageRepo,
+		integrityRepo,
 		taskPublisher,
 	)
 
 	backfillExe := worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry.WithCapability(provider.CapHistorical), marketService)
 	realtimeExe := worker.NewRealtimeExecutor(marketRepo, syncRepo, sourceRegistry.WithCapability(provider.CapRealtime), marketPublisher, marketService)
-	validatorExe := worker.NewValidatorExecutor(sources.validatorSources, worker.ValidatorOptions{
+	validatorExe := worker.NewValidatorExecutor(sources.validatorSources, integrityRepo, integrityRepo, worker.ValidatorOptions{
 		MinSources:       cfg.IntegrityMinSources,
 		MaxDivergencePct: cfg.IntegrityMaxDivergencePct,
 	})
 	cleanupExe := worker.NewCleanupExecutor(taskRepo, cfg.TaskRetentionPeriod, cfg.TaskRetentionCount)
-	gapValidatorExe := worker.NewGapValidatorExecutor(marketRepo, coverageRepo)
+	gapValidatorExe := worker.NewGapValidatorExecutor(marketRepo, coverageRepo, coverageRepo)
 
 	routerExe := worker.NewRouterExecutor(map[string]worker.Executor{
 		task.TypeBackfill:      backfillExe,

@@ -42,12 +42,15 @@ func BuildDescription(t Task) string {
 	case TypeConsolidate:
 		return fmt.Sprintf("Rebuild daily candle for %s", fmtTime(t.WindowStart))
 	case TypeDataSanity:
-		return fmt.Sprintf("Verify %s coverage %s → %s", t.Interval, fmtTime(t.WindowStart), fmtTime(t.WindowEnd))
+		return fmt.Sprintf("Integrity sweep %s %s → %s", t.Pair, fmtTime(t.WindowStart), fmtTime(t.WindowEnd))
 	case TypeGapValidation:
-		return fmt.Sprintf("Gap check %s", fmtTime(t.WindowStart))
+		return fmt.Sprintf("Gap sweep %s %s → %s", t.Pair, fmtTime(t.WindowStart), fmtTime(t.WindowEnd))
 	case TypeCleanup:
 		return "Prune completed/failed task log"
 	case TypeNewsFetch:
+		if t.Pair != "" && t.Pair != "*" {
+			return fmt.Sprintf("Fetch news from %s", t.Pair)
+		}
 		return "Fetch latest crypto news"
 	default:
 		return ""

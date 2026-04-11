@@ -188,12 +188,25 @@ func (r *TaskRepository) Pending(ctx context.Context, limit, backfillLimit int) 
 		backfillLimit = limit
 	}
 
-	items, err := r.pendingByType(ctx, limit, false)
+	// Phase 1: Always fetch live_ticker tasks first — they get priority slots.
+	realtimeItems, err := r.pendingByTaskType(ctx, limit, task.TypeRealtime)
 	if err != nil {
 		return nil, err
 	}
 
-	remaining := limit - len(items)
+	remaining := limit - len(realtimeItems)
+	if remaining <= 0 {
+		return realtimeItems, nil
+	}
+
+	// Phase 2: Fetch non-backfill, non-realtime tasks.
+	otherItems, err := r.pendingNonBackfillNonRealtime(ctx, remaining)
+	if err != nil {
+		return nil, err
+	}
+
+	items := append(realtimeItems, otherItems...)
+	remaining = limit - len(items)
 	if remaining <= 0 || backfillLimit == 0 {
 		return items, nil
 	}
@@ -201,12 +214,86 @@ func (r *TaskRepository) Pending(ctx context.Context, limit, backfillLimit int) 
 		backfillLimit = remaining
 	}
 
+	// Phase 3: Fill remaining slots with backfill tasks.
 	backfillItems, err := r.pendingByType(ctx, backfillLimit, true)
 	if err != nil {
 		return nil, err
 	}
 
 	return append(items, backfillItems...), nil
+}
+
+func (r *TaskRepository) pendingByTaskType(ctx context.Context, limit int, taskType string) ([]task.Task, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, task_type, pair_symbol, interval, window_start, window_end, description
+		FROM tasks
+		WHERE status = 'pending'
+		  AND (retry_at IS NULL OR retry_at <= NOW())
+		  AND task_type = $2
+		ORDER BY created_at ASC
+		LIMIT $1
+	`, limit, taskType)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var items []task.Task
+	for rows.Next() {
+		var item task.Task
+		if err := rows.Scan(&item.ID, &item.Type, &item.Pair, &item.Interval, &item.WindowStart, &item.WindowEnd, &item.Description); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	return items, rows.Err()
+}
+
+func (r *TaskRepository) pendingNonBackfillNonRealtime(ctx context.Context, limit int) ([]task.Task, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, task_type, pair_symbol, interval, window_start, window_end, description
+		FROM tasks
+		WHERE status = 'pending'
+		  AND (retry_at IS NULL OR retry_at <= NOW())
+		  AND task_type <> $1
+		  AND task_type <> $2
+		ORDER BY CASE task_type
+		             WHEN 'integrity_check' THEN 0
+		             WHEN 'consolidation' THEN 1
+		             ELSE 2
+		         END,
+		         window_start ASC,
+		         created_at ASC
+		LIMIT $3
+	`, task.TypeBackfill, task.TypeRealtime, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var items []task.Task
+	for rows.Next() {
+		var item task.Task
+		if err := rows.Scan(&item.ID, &item.Type, &item.Pair, &item.Interval, &item.WindowStart, &item.WindowEnd, &item.Description); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	return items, rows.Err()
 }
 
 func (r *TaskRepository) pendingByType(ctx context.Context, limit int, backfillOnly bool) ([]task.Task, error) {

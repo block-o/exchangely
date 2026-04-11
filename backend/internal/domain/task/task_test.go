@@ -30,13 +30,13 @@ func TestBuildDescriptionPerTaskType(t *testing.T) {
 		},
 		{
 			name: "integrity check",
-			task: Task{Type: TypeDataSanity, Interval: "1h", WindowStart: base, WindowEnd: base.Add(time.Hour)},
-			want: "Verify 1h coverage Apr 1 2026 10:00 → Apr 1 2026 11:00",
+			task: Task{Type: TypeDataSanity, Pair: "BTCEUR", Interval: "1h", WindowStart: base, WindowEnd: base.Add(time.Hour)},
+			want: "Integrity sweep BTCEUR Apr 1 2026 10:00 → Apr 1 2026 11:00",
 		},
 		{
 			name: "gap validation",
-			task: Task{Type: TypeGapValidation, WindowStart: base},
-			want: "Gap check Apr 1 2026 10:00",
+			task: Task{Type: TypeGapValidation, Pair: "BTCEUR", WindowStart: base, WindowEnd: base.Add(24 * time.Hour)},
+			want: "Gap sweep BTCEUR Apr 1 2026 10:00 → Apr 2 2026 10:00",
 		},
 		{
 			name: "cleanup",
@@ -44,8 +44,13 @@ func TestBuildDescriptionPerTaskType(t *testing.T) {
 			want: "Prune completed/failed task log",
 		},
 		{
-			name: "news fetch",
-			task: Task{Type: TypeNewsFetch},
+			name: "news fetch with source",
+			task: Task{Type: TypeNewsFetch, Pair: "coindesk"},
+			want: "Fetch news from coindesk",
+		},
+		{
+			name: "news fetch global",
+			task: Task{Type: TypeNewsFetch, Pair: "*"},
 			want: "Fetch latest crypto news",
 		},
 		{

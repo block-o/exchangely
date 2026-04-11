@@ -18,18 +18,12 @@ Started as a "poor man's CoinGecko" for historical data availability Exchangely 
 - **API Tokens & Rate Limiting** — Per-user `exly_`-prefixed API tokens for programmatic access. Tiered rate limits (user/premium/admin) backed by PostgreSQL sliding window counters, per-IP abuse prevention, and a frontend API key management page. See [API documentation](./docs/api.md).
 - **Admin User Management** — List, search, and filter users. Change roles (user/premium/admin), disable/enable accounts with automatic session invalidation, and force password resets. All operations are admin-only and audit-logged.
 - **Operations Center** — Three-tab admin panel (gated to admin role when auth is enabled): system health warnings, coin-grouped coverage view (live feed health + backfill status per base asset in collapsible cards), and task audit log. All SSE-driven.
-- **Event-Driven Task Engine** — Planner/worker architecture with Kafka-distributed tasks, DB-backed leader election, per-pair advisory locks, and configurable throughput controls.
+- **Event-Driven Task Engine** — Planner/worker architecture with Kafka-distributed tasks, DB-backed leader election, per-pair advisory locks, and configurable throughput controls. See [Task Lifecycle](./docs/lifecycle.md).
 - **Data Integrity** — Gap validation, cross-source integrity checks, daily backfill probes, and automatic task cleanup with configurable retention.
 
 ## Architecture
 
-Exchangely runs as a single Go binary (with a React static frontend on top) with three roles that can be enabled independently via `BACKEND_ROLE`:
 
-| Role | Responsibility |
-|------|---------------|
-| **Planner** | Acquires a DB-backed lease for leadership, reads sync state, and schedules tasks (backfill, realtime, consolidation, cleanup, news, integrity checks). Publishes task references to Kafka. |
-| **Worker** | Claims tasks from Kafka, acquires per-pair advisory locks in PostgreSQL, fetches data from external providers, consolidates candles, and writes results to TimescaleDB. |
-| **API** | Serves REST endpoints and SSE streams. Reads from TimescaleDB and pushes live updates to connected clients. |
 
 ```mermaid
 flowchart LR

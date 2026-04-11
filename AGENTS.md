@@ -41,6 +41,10 @@ These are non-negotiable unless the user explicitly changes the architecture.
 - `1h` is the preferred canonical historical resolution. Historical fetch granularity must never be coarser than `1d`.
 - Month/year rollups, if added, must be derived from canonical stored candles, not provider-native month archives.
 - Realtime tasks use a stable ID per pair (`live_ticker:{PAIR}:realtime`). Enqueue logic guarantees at most one pending/running realtime task per pair. Do not add poll-window timestamps to realtime task IDs.
+- News fetch tasks use a stable ID per RSS source (`news_fetch:{source}:periodic`). One pending/running task per source at a time. Do not add timestamps to news fetch task IDs.
+- Integrity check tasks use a stable per-pair sweep ID (`integrity_check:{PAIR}:sweep`). The executor walks unverified days and marks results in the `integrity_coverage` table. Do not create per-hour windowed integrity tasks.
+- Gap validation tasks use a stable per-pair sweep ID (`gap_validation:{PAIR}:sweep`). The executor walks uncovered days and marks complete days in the `data_coverage` table. Do not create per-day windowed gap tasks.
+- Worker batch processing reserves slots for live_ticker tasks first, then fills remaining capacity with other task types, then backfill. This ensures realtime tasks always get worker slots regardless of queue depth.
 - Prefer SSE for live UI updates when a stream already exists. Do not replace stream-driven flows with aggressive polling.
 - The backend is intentionally one binary with role gating. Preserve that unless a deliberate architecture change is requested.
 - Keep the project educational and local-first. Do not quietly harden it toward production assumptions without discussing the tradeoff.
@@ -70,6 +74,10 @@ Default quote assets: `EUR` and `USD`.
 - Backwards backfill strategy (yesterday → past, no fixed start date)
 - Daily backfill probe: one task per pair per day extending coverage into the past
 - Realtime dedup: stable per-pair task IDs, at most one live_ticker per pair
+- Stable per-source news fetch tasks (one per RSS source, no duplicates)
+- Stable per-pair integrity sweep with persistent verification tracking
+- Stable per-pair gap validation sweep with persistent coverage tracking
+- Worker batch reservation: live_ticker tasks always get priority slots
 - Hourly + daily consolidation pipeline (`FromRaw` → `DailyFromHourly`)
 - Advisory pair-level locking for concurrent worker safety
 - Multi-layered ticker caching (per-ticker invalidation + time-based global)
@@ -144,11 +152,11 @@ When changing API behavior, update `router.go:defaultOpenAPIYAML()` if the contr
 |-----------------------|----------------------------------------------------------------|
 | `historical_backfill` | Walks backwards from yesterday; also used for daily probes     |
 | `live_ticker`         | Stable ID per pair; at most one pending/running per pair       |
-| `integrity_check`     | Cross-source validation for caught-up pairs                    |
+| `integrity_check`     | Stable per-pair sweep; walks unverified days, marks results    |
 | `consolidation`       | Hourly → daily aggregation (future: monthly, yearly)           |
 | `task_cleanup`        | Scheduled pruning of completed/failed task logs                |
-| `news_fetch`          | RSS feed ingestion from crypto news sources                    |
-| `gap_validation`      | Detects missing data windows in synced ranges                  |
+| `news_fetch`          | Stable per-source RSS fetch (coindesk, cointelegraph, theblock)|
+| `gap_validation`      | Stable per-pair sweep; validates coverage, marks complete days |
 
 ---
 
@@ -164,6 +172,7 @@ Key implementation files:
 - `backend/internal/worker/processor.go`: worker claim/execute path.
 - `backend/internal/httpapi/router/router.go`: REST and SSE endpoints.
 - `backend/internal/storage/postgres/*`: persistence, task state, sync state, leases, locks.
+- `backend/internal/storage/postgres/integrity_repository.go`: integrity coverage persistence (integrity checks).
 - `frontend/src/components/SystemPanel.tsx`: operations dashboard with three tabs.
 - `frontend/src/components/system/CoverageTab.tsx`: coin-grouped coverage view.
 - `docker-compose.yml`: local topology and default environment wiring.
@@ -199,6 +208,7 @@ Key implementation files:
 - `frontend/src/pages/APIKeysPage.tsx`: API key management page.
 - `docs/authentication.md`: authentication setup guide.
 - `docs/api.md`: API documentation (endpoints, tokens, rate limiting).
+- `docs/lifecycle.md`: task lifecycle documentation (planner, worker, coordinator interaction).
 - `market_dashboard.png`: current dashboard reference image.
 
 ---

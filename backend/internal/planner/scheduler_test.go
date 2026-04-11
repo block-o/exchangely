@@ -75,24 +75,17 @@ func TestBuildRealtimeTasksStartBeforeBackfillCompletion(t *testing.T) {
 		},
 	}, now)
 
-	if len(tasks) != 3 {
-		t.Fatalf("expected 3 tasks (2 realtime, 1 sanity), got %d", len(tasks))
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 realtime tasks, got %d", len(tasks))
 	}
 	foundETHRealtime := false
-	foundETHIntegrity := false
 	for _, task := range tasks {
 		if task.Pair == "ETHUSD" && task.Type == "live_ticker" {
 			foundETHRealtime = true
 		}
-		if task.Pair == "ETHUSD" && task.Type == "integrity_check" {
-			foundETHIntegrity = true
-		}
 	}
 	if !foundETHRealtime {
 		t.Fatalf("expected realtime task for ETHUSD before hourly backfill completion")
-	}
-	if foundETHIntegrity {
-		t.Fatalf("did not expect integrity task for ETHUSD before live coverage matures")
 	}
 }
 
@@ -181,8 +174,8 @@ func TestRealtimeTasksUseStableIDPerPair(t *testing.T) {
 	tasks1 := scheduler.BuildRealtimeTasks(pairs, caughtUp, t1)
 	tasks2 := scheduler.BuildRealtimeTasks(pairs, caughtUp, t2)
 
-	if len(tasks1) != 2 || len(tasks2) != 2 {
-		t.Fatalf("expected 2 tasks each (1 realtime, 1 sanity), got %d and %d", len(tasks1), len(tasks2))
+	if len(tasks1) != 1 || len(tasks2) != 1 {
+		t.Fatalf("expected 1 realtime task each, got %d and %d", len(tasks1), len(tasks2))
 	}
 	if tasks1[0].Interval != "realtime" {
 		t.Fatalf("expected realtime interval, got %q", tasks1[0].Interval)
@@ -210,8 +203,8 @@ func TestNewSchedulerDefaultsPollInterval(t *testing.T) {
 	}
 }
 
-// TestBuildCleanupTask verifies that the cleanup task is correctly generated
-// with a unique ID per day.
+// TestBuildCleanupTask verifies that the cleanup task uses a stable ID
+// so only one pending/running cleanup task exists at a time.
 func TestBuildCleanupTask(t *testing.T) {
 	s := NewScheduler(5*time.Second, 5*time.Minute)
 	now1 := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
@@ -224,13 +217,14 @@ func TestBuildCleanupTask(t *testing.T) {
 		t.Errorf("expected cleanup type, got %s", task1.Type)
 	}
 
-	if task1.ID == task2.ID {
-		t.Errorf("expected distinct daily IDs, both got %s", task1.ID)
+	// Stable ID — same across days so only one can be pending at a time.
+	if task1.ID != task2.ID {
+		t.Errorf("expected same stable ID across days, got %s vs %s", task1.ID, task2.ID)
 	}
 
-	expectedID1 := "task_cleanup:daily:1775088000"
-	if task1.ID != expectedID1 {
-		t.Errorf("expected ID %s, got %s", expectedID1, task1.ID)
+	expectedID := "task_cleanup:daily"
+	if task1.ID != expectedID {
+		t.Errorf("expected ID %s, got %s", expectedID, task1.ID)
 	}
 }
 
@@ -419,38 +413,63 @@ func TestRealtimeTaskSkipsPairWithoutSyncState(t *testing.T) {
 	}
 }
 
-// TestRealtimeTaskEmitsIntegrityOnlyWhenCovered verifies the integrity check
-// is only emitted when the preceding hour is expected to be covered.
-func TestRealtimeTaskEmitsIntegrityOnlyWhenCovered(t *testing.T) {
+// TestIntegrityCheckTasksUseStablePerPairIDs verifies that integrity check
+// tasks use stable per-pair sweep IDs and only emit for pairs with coverage.
+func TestIntegrityCheckTasksUseStablePerPairIDs(t *testing.T) {
 	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
-	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	pairs := []pair.Pair{{Symbol: "BTCEUR"}, {Symbol: "ETHUSD"}}
+
+	// BTCEUR has backfill complete, ETHUSD has no coverage yet.
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: true, HourlyLastSynced: synced},
+		"ETHUSD": {HourlyBackfillCompleted: false},
+	}
+
+	tasks := scheduler.BuildIntegrityCheckTasks(pairs, state, make(map[string]map[string]bool), now)
+
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 integrity task (BTCEUR only), got %d", len(tasks))
+	}
+	if tasks[0].Pair != "BTCEUR" {
+		t.Fatalf("expected BTCEUR, got %s", tasks[0].Pair)
+	}
+	expectedID := "integrity_check:BTCEUR:sweep"
+	if tasks[0].ID != expectedID {
+		t.Fatalf("expected ID %q, got %q", expectedID, tasks[0].ID)
+	}
+
+	// Same call should produce the same ID (stable).
+	tasks2 := scheduler.BuildIntegrityCheckTasks(pairs, state, make(map[string]map[string]bool), now.Add(time.Hour))
+	if tasks2[0].ID != tasks[0].ID {
+		t.Fatalf("expected stable ID across ticks, got %q vs %q", tasks[0].ID, tasks2[0].ID)
+	}
+}
+
+// TestIntegrityCheckSkipsFullyVerifiedPairs verifies that pairs with all
+// days already verified don't get new integrity tasks.
+func TestIntegrityCheckSkipsFullyVerifiedPairs(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+	synced := time.Date(2026, 4, 3, 0, 0, 0, 0, time.UTC)
 	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
 
-	// Case 1: hourly backfill not complete, no realtime started → no integrity.
-	tasks := scheduler.BuildRealtimeTasks(pairs, map[string]SyncState{
-		"BTCEUR": {HourlyBackfillCompleted: false},
-	}, now)
-	if findTaskByType(tasks, "integrity_check") != nil {
-		t.Fatal("did not expect integrity task when backfill incomplete and no realtime")
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: true, HourlyLastSynced: synced},
 	}
 
-	// Case 2: hourly backfill complete → integrity emitted.
-	tasks = scheduler.BuildRealtimeTasks(pairs, map[string]SyncState{
-		"BTCEUR": {HourlyBackfillCompleted: true},
-	}, now)
-	if findTaskByType(tasks, "integrity_check") == nil {
-		t.Fatal("expected integrity task when hourly backfill complete")
-	}
-
-	// Case 3: realtime started and preceding hour is covered → integrity emitted.
-	tasks = scheduler.BuildRealtimeTasks(pairs, map[string]SyncState{
+	// All days between synced (Apr 3) and yesterday (Apr 4) are verified.
+	verified := map[string]map[string]bool{
 		"BTCEUR": {
-			HourlyBackfillCompleted: false,
-			HourlyRealtimeStartedAt: time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC),
+			"2026-04-03": true,
+			"2026-04-04": true,
 		},
-	}, now)
-	if findTaskByType(tasks, "integrity_check") == nil {
-		t.Fatal("expected integrity task when realtime covers preceding hour")
+	}
+
+	tasks := scheduler.BuildIntegrityCheckTasks(pairs, state, verified, now)
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 integrity tasks for fully verified pair, got %d", len(tasks))
 	}
 }
 
@@ -679,14 +698,52 @@ func TestCleanupTaskHasDescription(t *testing.T) {
 	}
 }
 
-// TestNewsFetchTaskHasDescription verifies the news fetch task gets a description.
-func TestNewsFetchTaskHasDescription(t *testing.T) {
+// TestNewsFetchTaskHasDescription verifies the news fetch tasks get descriptions.
+func TestNewsFetchTasksHaveDescriptions(t *testing.T) {
 	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
-	item := scheduler.BuildNewsFetchTask(now)
-	if item.Description == "" {
-		t.Fatal("expected non-empty description for news fetch task")
+	items := scheduler.BuildNewsFetchTasks(now)
+	if len(items) != 3 {
+		t.Fatalf("expected 3 news fetch tasks (one per source), got %d", len(items))
+	}
+	for _, item := range items {
+		if item.Description == "" {
+			t.Fatalf("expected non-empty description for news fetch task %s", item.ID)
+		}
+		if item.Type != task.TypeNewsFetch {
+			t.Fatalf("expected news_fetch type, got %s", item.Type)
+		}
+	}
+}
+
+// TestNewsFetchTasksUseStableIDs verifies that news fetch tasks use stable
+// per-source IDs so only one pending/running task per source can exist.
+func TestNewsFetchTasksUseStableIDs(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	t1 := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 4, 5, 14, 5, 0, 0, time.UTC)
+
+	tasks1 := scheduler.BuildNewsFetchTasks(t1)
+	tasks2 := scheduler.BuildNewsFetchTasks(t2)
+
+	if len(tasks1) != len(tasks2) {
+		t.Fatalf("expected same count, got %d vs %d", len(tasks1), len(tasks2))
+	}
+
+	for i := range tasks1 {
+		if tasks1[i].ID != tasks2[i].ID {
+			t.Fatalf("expected stable ID across ticks, got %q vs %q", tasks1[i].ID, tasks2[i].ID)
+		}
+	}
+
+	// Verify IDs are distinct per source.
+	ids := map[string]bool{}
+	for _, item := range tasks1 {
+		if ids[item.ID] {
+			t.Fatalf("duplicate news fetch task ID %q", item.ID)
+		}
+		ids[item.ID] = true
 	}
 }
 
@@ -702,31 +759,34 @@ func TestRealtimeTasksHaveNoDescription(t *testing.T) {
 		"BTCEUR": {HourlyBackfillCompleted: true, DailyBackfillCompleted: true},
 	}, now)
 
-	for _, item := range tasks {
-		if item.Type == task.TypeRealtime && item.Description != "" {
-			t.Fatalf("expected empty description for live_ticker task, got %q", item.Description)
-		}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 realtime task, got %d", len(tasks))
+	}
+	if tasks[0].Description != "" {
+		t.Fatalf("expected empty description for live_ticker task, got %q", tasks[0].Description)
 	}
 }
 
 // TestIntegrityCheckTasksHaveDescriptions verifies that integrity_check tasks
-// emitted by BuildRealtimeTasks include a description.
+// emitted by BuildIntegrityCheckTasks include a description.
 func TestIntegrityCheckTasksHaveDescriptions(t *testing.T) {
 	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 
-	tasks := scheduler.BuildRealtimeTasks([]pair.Pair{
+	tasks := scheduler.BuildIntegrityCheckTasks([]pair.Pair{
 		{Symbol: "BTCEUR"},
 	}, map[string]SyncState{
-		"BTCEUR": {HourlyBackfillCompleted: true, DailyBackfillCompleted: true},
-	}, now)
+		"BTCEUR": {HourlyBackfillCompleted: true, HourlyLastSynced: synced},
+	}, make(map[string]map[string]bool), now)
 
-	integrity := findTaskByType(tasks, task.TypeDataSanity)
-	if integrity == nil {
-		t.Fatal("expected integrity check task")
+	if len(tasks) == 0 {
+		t.Fatal("expected at least one integrity check task")
 	}
-	if integrity.Description == "" {
-		t.Fatal("expected non-empty description for integrity check task")
+	for _, item := range tasks {
+		if item.Description == "" {
+			t.Fatal("expected non-empty description for integrity check task")
+		}
 	}
 }
 
@@ -743,13 +803,15 @@ func TestGapValidationTasksHaveDescriptions(t *testing.T) {
 		"BTCEUR": {HourlyLastSynced: synced},
 	}, map[string]map[string]bool{}, now)
 
-	if len(tasks) == 0 {
-		t.Fatal("expected at least one gap validation task")
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 gap validation sweep task, got %d", len(tasks))
 	}
-	for _, item := range tasks {
-		if item.Description == "" {
-			t.Fatalf("expected non-empty description for gap validation task %s", item.ID)
-		}
+	if tasks[0].Description == "" {
+		t.Fatalf("expected non-empty description for gap validation task %s", tasks[0].ID)
+	}
+	expectedID := "gap_validation:BTCEUR:sweep"
+	if tasks[0].ID != expectedID {
+		t.Fatalf("expected ID %q, got %q", expectedID, tasks[0].ID)
 	}
 }
 
@@ -1224,5 +1286,276 @@ func TestMixedActiveAndCompletedPairsBudgetGoesToNeedy(t *testing.T) {
 	}
 	if counts["ADAEUR"] != 3 {
 		t.Fatalf("expected 3 tasks for ADAEUR, got %d", counts["ADAEUR"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Gap validation sweep tests
+// ---------------------------------------------------------------------------
+
+// TestGapValidationSweepUsesStablePerPairID verifies that gap validation
+// tasks use a stable per-pair sweep ID so only one can be pending at a time.
+func TestGapValidationSweepUsesStablePerPairID(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyLastSynced: synced},
+	}
+	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
+
+	t1 := time.Date(2026, 4, 5, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 4, 5, 18, 0, 0, 0, time.UTC)
+
+	tasks1 := scheduler.BuildGapValidationTasks(pairs, state, make(map[string]map[string]bool), t1)
+	tasks2 := scheduler.BuildGapValidationTasks(pairs, state, make(map[string]map[string]bool), t2)
+
+	if len(tasks1) != 1 || len(tasks2) != 1 {
+		t.Fatalf("expected 1 task each, got %d and %d", len(tasks1), len(tasks2))
+	}
+	if tasks1[0].ID != tasks2[0].ID {
+		t.Fatalf("expected stable ID across ticks, got %q vs %q", tasks1[0].ID, tasks2[0].ID)
+	}
+	if tasks1[0].ID != "gap_validation:BTCEUR:sweep" {
+		t.Fatalf("expected sweep ID, got %q", tasks1[0].ID)
+	}
+}
+
+// TestGapValidationSkipsFullyCoveredPairs verifies that pairs with all days
+// already marked complete in data_coverage don't get new gap validation tasks.
+func TestGapValidationSkipsFullyCoveredPairs(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+	synced := time.Date(2026, 4, 3, 0, 0, 0, 0, time.UTC)
+	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
+
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyLastSynced: synced},
+	}
+
+	// All days between synced (Apr 3) and yesterday (Apr 4) are covered.
+	coverage := map[string]map[string]bool{
+		"BTCEUR": {
+			"2026-04-03": true,
+			"2026-04-04": true,
+		},
+	}
+
+	tasks := scheduler.BuildGapValidationTasks(pairs, state, coverage, now)
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 gap validation tasks for fully covered pair, got %d", len(tasks))
+	}
+}
+
+// TestGapValidationSkipsPairsWithNoSyncHistory verifies that pairs without
+// any sync history don't get gap validation tasks.
+func TestGapValidationSkipsPairsWithNoSyncHistory(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
+
+	tasks := scheduler.BuildGapValidationTasks(pairs, map[string]SyncState{
+		"BTCEUR": {},
+	}, make(map[string]map[string]bool), now)
+
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 tasks for pair with no sync history, got %d", len(tasks))
+	}
+}
+
+// TestGapValidationEmitsForMultiplePairs verifies that each pair with gaps
+// gets its own independent sweep task.
+func TestGapValidationEmitsForMultiplePairs(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	pairs := []pair.Pair{{Symbol: "BTCEUR"}, {Symbol: "ETHUSD"}}
+	state := map[string]SyncState{
+		"BTCEUR": {HourlyLastSynced: synced},
+		"ETHUSD": {HourlyLastSynced: synced},
+	}
+
+	tasks := scheduler.BuildGapValidationTasks(pairs, state, make(map[string]map[string]bool), now)
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 gap validation tasks, got %d", len(tasks))
+	}
+
+	ids := map[string]bool{}
+	for _, item := range tasks {
+		ids[item.ID] = true
+	}
+	if !ids["gap_validation:BTCEUR:sweep"] || !ids["gap_validation:ETHUSD:sweep"] {
+		t.Fatalf("expected sweep IDs for both pairs, got %v", ids)
+	}
+}
+
+// TestGapValidationWindowSpansFullRange verifies that the sweep task window
+// covers from the oldest synced point to yesterday.
+func TestGapValidationWindowSpansFullRange(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 10, 14, 0, 0, 0, time.UTC)
+	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	tasks := scheduler.BuildGapValidationTasks(
+		[]pair.Pair{{Symbol: "BTCEUR"}},
+		map[string]SyncState{"BTCEUR": {HourlyLastSynced: synced}},
+		make(map[string]map[string]bool),
+		now,
+	)
+
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if !tasks[0].WindowStart.Equal(synced) {
+		t.Fatalf("expected WindowStart %s, got %s", synced, tasks[0].WindowStart)
+	}
+	expectedEnd := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
+	if !tasks[0].WindowEnd.Equal(expectedEnd) {
+		t.Fatalf("expected WindowEnd %s, got %s", expectedEnd, tasks[0].WindowEnd)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Integrity check sweep tests
+// ---------------------------------------------------------------------------
+
+// TestIntegrityCheckEmitsForRealtimeCoveredPairs verifies that pairs with
+// realtime started (but not hourly backfill complete) still get integrity tasks.
+func TestIntegrityCheckEmitsForRealtimeCoveredPairs(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	tasks := scheduler.BuildIntegrityCheckTasks(
+		[]pair.Pair{{Symbol: "BTCEUR"}},
+		map[string]SyncState{
+			"BTCEUR": {
+				HourlyBackfillCompleted: false,
+				HourlyRealtimeStartedAt: time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC),
+				HourlyLastSynced:        synced,
+			},
+		},
+		make(map[string]map[string]bool),
+		now,
+	)
+
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 integrity task for realtime-covered pair, got %d", len(tasks))
+	}
+}
+
+// TestIntegrityCheckSkipsPairsWithNoCoverage verifies that pairs without
+// backfill or realtime coverage don't get integrity tasks.
+func TestIntegrityCheckSkipsPairsWithNoCoverage(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	tasks := scheduler.BuildIntegrityCheckTasks(
+		[]pair.Pair{{Symbol: "BTCEUR"}},
+		map[string]SyncState{
+			"BTCEUR": {HourlyBackfillCompleted: false},
+		},
+		make(map[string]map[string]bool),
+		now,
+	)
+
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 integrity tasks for uncovered pair, got %d", len(tasks))
+	}
+}
+
+// TestIntegrityCheckEmitsForMultiplePairs verifies independent sweep tasks
+// per pair.
+func TestIntegrityCheckEmitsForMultiplePairs(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	tasks := scheduler.BuildIntegrityCheckTasks(
+		[]pair.Pair{{Symbol: "BTCEUR"}, {Symbol: "ETHUSD"}},
+		map[string]SyncState{
+			"BTCEUR": {HourlyBackfillCompleted: true, HourlyLastSynced: synced},
+			"ETHUSD": {HourlyBackfillCompleted: true, HourlyLastSynced: synced},
+		},
+		make(map[string]map[string]bool),
+		now,
+	)
+
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 integrity tasks, got %d", len(tasks))
+	}
+	ids := map[string]bool{}
+	for _, item := range tasks {
+		ids[item.ID] = true
+	}
+	if !ids["integrity_check:BTCEUR:sweep"] || !ids["integrity_check:ETHUSD:sweep"] {
+		t.Fatalf("expected sweep IDs for both pairs, got %v", ids)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// News fetch per-source tests
+// ---------------------------------------------------------------------------
+
+// TestNewsFetchTasksMatchSourceList verifies that the scheduler emits one
+// task per known RSS source.
+func TestNewsFetchTasksMatchSourceList(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	tasks := scheduler.BuildNewsFetchTasks(now)
+
+	if len(tasks) != len(NewsSources) {
+		t.Fatalf("expected %d tasks, got %d", len(NewsSources), len(tasks))
+	}
+
+	sources := map[string]bool{}
+	for _, item := range tasks {
+		sources[item.Pair] = true
+	}
+	for _, src := range NewsSources {
+		if !sources[src] {
+			t.Fatalf("expected task for source %q, not found", src)
+		}
+	}
+}
+
+// TestNewsFetchTasksHaveCorrectType verifies all news tasks have the right type.
+func TestNewsFetchTasksHaveCorrectType(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	for _, item := range scheduler.BuildNewsFetchTasks(now) {
+		if item.Type != task.TypeNewsFetch {
+			t.Fatalf("expected type %q, got %q", task.TypeNewsFetch, item.Type)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Realtime-only emission tests (no integrity in realtime batch)
+// ---------------------------------------------------------------------------
+
+// TestRealtimeTasksDoNotEmitIntegrityChecks verifies that BuildRealtimeTasks
+// no longer emits integrity_check tasks (they are now separate sweep tasks).
+func TestRealtimeTasksDoNotEmitIntegrityChecks(t *testing.T) {
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+
+	tasks := scheduler.BuildRealtimeTasks([]pair.Pair{
+		{Symbol: "BTCEUR"},
+		{Symbol: "ETHUSD"},
+	}, map[string]SyncState{
+		"BTCEUR": {HourlyBackfillCompleted: true, DailyBackfillCompleted: true},
+		"ETHUSD": {HourlyBackfillCompleted: true, DailyBackfillCompleted: true},
+	}, now)
+
+	for _, item := range tasks {
+		if item.Type == task.TypeDataSanity {
+			t.Fatalf("did not expect integrity_check in realtime batch, got %+v", item)
+		}
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 realtime tasks (one per pair), got %d", len(tasks))
 	}
 }

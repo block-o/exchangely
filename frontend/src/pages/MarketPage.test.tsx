@@ -3,13 +3,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MarketPage } from "./MarketPage";
 import { SettingsProvider } from "../app/settings";
 import * as pairsApi from "../api/pairs";
-import * as historicalApi from "../api/historical";
 import * as newsApi from "../api/news";
 
 vi.mock("../api/pairs");
 vi.mock("../api/system");
 vi.mock("../api/news", () => ({ getNews: vi.fn() }));
-vi.mock("../api/historical", () => ({ fetchHistorical: vi.fn() }));
 
 class MockEventSource {
   static instances: MockEventSource[] = [];
@@ -31,7 +29,6 @@ describe("MarketPage", () => {
     vi.clearAllMocks();
     localStorage.clear();
     MockEventSource.instances = [];
-    vi.mocked(historicalApi.fetchHistorical).mockResolvedValue({ data: [] });
     vi.mocked(newsApi.getNews).mockResolvedValue([]);
     vi.stubGlobal(
       "fetch",
@@ -153,8 +150,7 @@ describe("MarketPage", () => {
     // USD pair should not be displayed while EUR is selected
     expect(screen.queryByText("BTCUSD")).not.toBeInTheDocument();
     
-    // Wait for the chart to render 24-item arrays so the background async fetchHistorical resolves
-    // before the test tears down (which prevents the React act() "Should not already be working" error)
+    // Wait for the chart to render 24-item arrays
     await waitFor(() => {
       expect(container.querySelectorAll('.chart-bar').length).toBeGreaterThan(0);
     });
@@ -165,7 +161,7 @@ describe("MarketPage", () => {
       data: [{ symbol: "BTCEUR", base: "BTC", quote: "EUR" }]
     });
     
-    // fetchHistorical is mocked to return `{ data: [] }`, so all 24 should be empty
+    // tickers response has no sparkline data, so all 24 bars should be empty
     const { container } = render(
       <SettingsProvider>
         <MarketPage />
@@ -190,7 +186,6 @@ describe("MarketPage", () => {
     vi.mocked(pairsApi.fetchPairs).mockResolvedValue({
       data: [{ symbol: "BTCEUR", base: "BTC", quote: "EUR" }]
     });
-    vi.mocked(historicalApi.fetchHistorical).mockResolvedValue({ data: [] });
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -277,7 +272,6 @@ describe("MarketPage", () => {
     vi.mocked(pairsApi.fetchPairs).mockResolvedValue({
       data: [{ symbol: "BTCEUR", base: "BTC", quote: "EUR" }]
     });
-    vi.mocked(historicalApi.fetchHistorical).mockResolvedValue({ data: [] });
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -351,65 +345,80 @@ describe("MarketPage", () => {
     });
   });
 
-  it("refreshes sparkline candles on a periodic interval", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+  it("extracts sparkline candles from the tickers response", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const currentHour = Math.floor(now / 3600) * 3600;
 
     vi.mocked(pairsApi.fetchPairs).mockResolvedValue({
       data: [{ symbol: "BTCEUR", base: "BTC", quote: "EUR" }],
     });
 
-    let fetchCount = 0;
-    vi.mocked(historicalApi.fetchHistorical).mockImplementation(async () => {
-      fetchCount++;
-      return { data: [] };
-    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/assets")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              data: [{ symbol: "BTC", name: "Bitcoin", type: "crypto" }],
+            }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [{
+              pair: "BTCEUR",
+              price: 50000,
+              market_cap: 992_500_000_000,
+              variation_1h: 0.1,
+              variation_24h: 1.5,
+              variation_7d: 2.0,
+              volume_24h: 500000,
+              high_24h: 51000,
+              low_24h: 49000,
+              source: "mock",
+              last_update_unix: now,
+              sparkline: [
+                { timestamp: currentHour - 3600, open: 49900, high: 50100, low: 49800, close: 50000, volume: 100 },
+                { timestamp: currentHour, open: 50000, high: 50200, low: 49900, close: 50100, volume: 120 },
+              ],
+            }],
+          }),
+        });
+      })
+    );
 
-    render(
+    const { container } = render(
       <SettingsProvider>
         <MarketPage />
       </SettingsProvider>
     );
 
-    // Wait for initial load (first fetchHistorical call)
+    // Sparkline bars should render from the embedded sparkline data
     await waitFor(() => {
-      expect(fetchCount).toBeGreaterThanOrEqual(1);
+      const nonEmptyBars = container.querySelectorAll(".chart-bar:not(.empty)");
+      expect(nonEmptyBars.length).toBeGreaterThanOrEqual(1);
     });
-
-    const initialCount = fetchCount;
-
-    // Advance past the 5-minute refresh interval
-    await act(async () => {
-      vi.advanceTimersByTime(5 * 60 * 1000 + 100);
-    });
-
-    await waitFor(() => {
-      expect(fetchCount).toBeGreaterThan(initialCount);
-    });
-
-    vi.useRealTimers();
   });
 
   it("uses dynamic scaling for sparkline bars in the table view", async () => {
     const now = Math.floor(Date.now() / 1000);
     const currentHour = Math.floor(now / 3600) * 3600;
-    // Build 24 candles with a clear upward trend (60000 → 61150)
-    const sparkCandles = Array.from({ length: 24 }, (_, i) => ({
-      pair: "BTCEUR",
-      interval: "1h",
+    // Build 24 sparkline points with a clear upward trend (60000 → 61150)
+    const sparklinePoints = Array.from({ length: 24 }, (_, i) => ({
       timestamp: currentHour - (23 - i) * 3600,
       open: 60000 + i * 50 - 10,
       high: 60000 + i * 50 + 50,
       low: 60000 + i * 50 - 50,
       close: 60000 + i * 50,
       volume: 100,
-      source: "binance",
-      finalized: true,
     }));
 
     vi.mocked(pairsApi.fetchPairs).mockResolvedValue({
       data: [{ symbol: "BTCEUR", base: "BTC", quote: "EUR" }],
     });
-    vi.mocked(historicalApi.fetchHistorical).mockResolvedValue({ data: sparkCandles });
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -437,6 +446,7 @@ describe("MarketPage", () => {
               low_24h: 60000,
               source: "mock",
               last_update_unix: now,
+              sparkline: sparklinePoints,
             }],
           }),
         });

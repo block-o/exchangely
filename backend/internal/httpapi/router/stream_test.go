@@ -43,6 +43,17 @@ func (r *streamRepo) Tickers(context.Context) ([]ticker.Ticker, error) {
 	return append([]ticker.Ticker(nil), r.tickers...), nil
 }
 
+func (r *streamRepo) TickersWithSparklines(context.Context) ([]ticker.TickerWithSparkline, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tickersCalls++
+	var items []ticker.TickerWithSparkline
+	for _, t := range r.tickers {
+		items = append(items, ticker.TickerWithSparkline{Ticker: t})
+	}
+	return items, nil
+}
+
 func (r *streamRepo) setTicker(pair string, t ticker.Ticker) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

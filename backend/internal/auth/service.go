@@ -449,6 +449,7 @@ func (s *Service) BootstrapAdmin(ctx context.Context) error {
 	user := &User{
 		ID:                 uuid.New(),
 		Email:              s.cfg.AdminEmail,
+		Name:               "Admin",
 		Role:               "admin",
 		PasswordHash:       &hashStr,
 		MustChangePassword: true,
@@ -458,7 +459,10 @@ func (s *Service) BootstrapAdmin(ctx context.Context) error {
 		return fmt.Errorf("creating admin user: %w", err)
 	}
 
-	slog.Info(fmt.Sprintf("Local admin created — email: %s, password: %s. This password will not be shown again.", s.cfg.AdminEmail, password))
+	slog.Info("Local admin created — this password will not be shown again.",
+		"email", s.cfg.AdminEmail,
+		"password", password,
+	)
 
 	return nil
 }

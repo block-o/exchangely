@@ -141,8 +141,8 @@ describe("MarketPage", () => {
        expect(screen.getByText("€992.5B")).toBeInTheDocument();
        expect(screen.getByText("€301.8B")).toBeInTheDocument();
        expect(screen.getByText("€50,000")).toBeInTheDocument();
-       expect(screen.getByText("+0.2%")).toBeInTheDocument();
-       expect(screen.getByText("-0.5%")).toBeInTheDocument();
+       expect(screen.getByText("+0.20%")).toBeInTheDocument();
+       expect(screen.getByText("-0.50%")).toBeInTheDocument();
        expect(screen.getByText("€1.2M")).toBeInTheDocument();
        expect(screen.getByText("€1.5M")).toBeInTheDocument();
      });

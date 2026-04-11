@@ -32,12 +32,12 @@ describe("SystemPanel responsive behavior", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
-        const method = typeof input === "string" ? "GET" : (input as Request).method || "GET";
+        const method = init?.method || (typeof input === "string" ? "GET" : (input as Request).method || "GET");
         if (url.includes("/config")) return mockResponse({ auth_enabled: false, auth_methods: { google: false, local: false }, version: "v1.0.0" });
         if (url.includes("/system/warnings")) {
-          if (method === "POST") return Promise.resolve({ ok: true, json: async () => ({}) });
+          if (method === "POST") return Promise.resolve({ ok: true, json: async () => ({}), text: async () => "{}" });
           return mockResponse([]);
         }
         if (url.includes("/system/sync-status")) return mockResponse([]);

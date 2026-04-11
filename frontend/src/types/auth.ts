@@ -4,6 +4,8 @@ export type User = {
   name: string;
   avatar_url: string;
   role: "admin" | "user";
+  has_google: boolean;
+  has_password: boolean;
   must_change_password: boolean;
 };
 

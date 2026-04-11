@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPage } from "./SettingsPage";
+import { SettingsProvider } from "../app/settings";
 import type { User } from "../types/auth";
 
 // --- Mock useAuth ---
@@ -10,6 +11,8 @@ const defaultUser: User = {
   name: "Alice Smith",
   avatar_url: "https://example.com/avatar.jpg",
   role: "user",
+  has_google: true,
+  has_password: false,
   must_change_password: false,
 };
 
@@ -17,6 +20,8 @@ let mockAuthValue = {
   user: defaultUser as User | null,
   isAuthenticated: true,
   isLoading: false,
+  authEnabled: true,
+  authMethods: null,
   login: vi.fn(),
   logout: vi.fn(),
   refreshToken: vi.fn(),
@@ -26,39 +31,42 @@ vi.mock("../app/auth", () => ({
   useAuth: () => mockAuthValue,
 }));
 
+function renderPage() {
+  return render(
+    <SettingsProvider>
+      <SettingsPage />
+    </SettingsProvider>,
+  );
+}
+
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    document.documentElement.removeAttribute("data-theme");
     mockAuthValue = {
-      user: defaultUser,
+      user: { ...defaultUser },
       isAuthenticated: true,
       isLoading: false,
+      authEnabled: true,
+      authMethods: null,
       login: vi.fn(),
       logout: vi.fn(),
       refreshToken: vi.fn(),
     };
   });
 
-  /**
-   * Validates: Requirements 8.1
-   * Displays user profile information.
-   */
-  it("displays user name and email", () => {
-    render(<SettingsPage />);
+  // ── Profile ──────────────────────────────────────────────────────────────
 
+  it("displays user name and email", () => {
+    renderPage();
     expect(screen.getByText("Alice Smith")).toBeInTheDocument();
-    // Email appears in both profile and connected accounts sections
     const emails = screen.getAllByText("alice@example.com");
     expect(emails.length).toBeGreaterThanOrEqual(1);
   });
 
-  /**
-   * Validates: Requirements 8.1
-   * Displays user avatar image.
-   */
   it("displays user avatar", () => {
-    render(<SettingsPage />);
-
+    renderPage();
     const avatar = screen.getByAltText("Alice Smith avatar");
     expect(avatar).toBeInTheDocument();
     expect(avatar).toHaveAttribute("src", "https://example.com/avatar.jpg");
@@ -66,73 +74,128 @@ describe("SettingsPage", () => {
 
   it("displays fallback initial when no avatar_url", () => {
     mockAuthValue.user = { ...defaultUser, avatar_url: "" };
-    render(<SettingsPage />);
-
+    renderPage();
     expect(screen.getByText("A")).toBeInTheDocument();
   });
 
-  /**
-   * Validates: Requirements 8.2
-   * Displays role badge.
-   */
   it("displays user role badge", () => {
-    render(<SettingsPage />);
+    renderPage();
     expect(screen.getByText("user")).toBeInTheDocument();
   });
 
   it("displays admin role badge for admin users", () => {
     mockAuthValue.user = { ...defaultUser, role: "admin" };
-    render(<SettingsPage />);
+    renderPage();
     expect(screen.getByText("admin")).toBeInTheDocument();
   });
 
-  /**
-   * Validates: Requirements 8.3
-   * Connected accounts section shows linked Google email.
-   */
-  it("displays connected accounts section with Google email", () => {
-    render(<SettingsPage />);
+  // ── Connected Accounts ───────────────────────────────────────────────────
 
-    expect(screen.getByText("Connected Accounts")).toBeInTheDocument();
+  it("shows Google when has_google is true", () => {
+    mockAuthValue.user = { ...defaultUser, has_google: true, has_password: false };
+    renderPage();
     expect(screen.getByText("Google")).toBeInTheDocument();
-    // The email appears in both profile and connected accounts
-    const emailElements = screen.getAllByText("alice@example.com");
-    expect(emailElements.length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Password")).not.toBeInTheDocument();
   });
 
-  /**
-   * Validates: Requirements 8.4
-   * Preferences section is present.
-   */
-  it("displays preferences section", () => {
-    render(<SettingsPage />);
-
-    expect(screen.getByText("Preferences")).toBeInTheDocument();
-    expect(screen.getByText("Default Quote Currency")).toBeInTheDocument();
+  it("shows Password when has_password is true", () => {
+    mockAuthValue.user = { ...defaultUser, has_google: false, has_password: true };
+    renderPage();
+    expect(screen.getByText("Password")).toBeInTheDocument();
+    expect(screen.queryByText("Google")).not.toBeInTheDocument();
   });
 
-  /**
-   * Validates: Requirements 8.5
-   * Redirects unauthenticated visitors to login.
-   */
+  it("shows both Google and Password when both are true", () => {
+    mockAuthValue.user = { ...defaultUser, has_google: true, has_password: true };
+    renderPage();
+    expect(screen.getByText("Google")).toBeInTheDocument();
+    expect(screen.getByText("Password")).toBeInTheDocument();
+  });
+
+  it("shows 'No connected accounts' when neither is set", () => {
+    mockAuthValue.user = { ...defaultUser, has_google: false, has_password: false };
+    renderPage();
+    expect(screen.getByText("No connected accounts")).toBeInTheDocument();
+  });
+
+  // ── Auth guards ──────────────────────────────────────────────────────────
+
   it("redirects to login when not authenticated", () => {
     mockAuthValue.user = null;
     mockAuthValue.isAuthenticated = false;
-
-    render(<SettingsPage />);
-
+    renderPage();
     expect(window.location.hash).toBe("#login");
   });
 
-  /**
-   * Validates: Requirements 8.1
-   * Shows loading state while auth is loading.
-   */
   it("shows loading state while auth is loading", () => {
     mockAuthValue.isLoading = true;
-
-    render(<SettingsPage />);
-
+    renderPage();
     expect(screen.getByText("Loading…")).toBeInTheDocument();
+  });
+
+  // ── Preferences section ──────────────────────────────────────────────────
+
+  it("displays preferences section with theme and currency controls", () => {
+    renderPage();
+    expect(screen.getByText("Preferences")).toBeInTheDocument();
+    expect(screen.getByText("Theme")).toBeInTheDocument();
+    expect(screen.getByText("Default Quote Currency")).toBeInTheDocument();
+  });
+
+  // ── Settings sync: theme ─────────────────────────────────────────────────
+
+  it("reflects the default dark theme as active", () => {
+    renderPage();
+    const darkBtn = screen.getByRole("button", { name: "Dark" });
+    const lightBtn = screen.getByRole("button", { name: "Light" });
+    expect(darkBtn.className).toContain("active");
+    expect(lightBtn.className).not.toContain("active");
+  });
+
+  it("switches to light theme and persists to localStorage", () => {
+    renderPage();
+    const lightBtn = screen.getByRole("button", { name: "Light" });
+
+    act(() => { lightBtn.click(); });
+
+    expect(lightBtn.className).toContain("active");
+    expect(screen.getByRole("button", { name: "Dark" }).className).not.toContain("active");
+    expect(localStorage.getItem("exchangely_theme")).toBe("light");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+  });
+
+  it("loads persisted theme from localStorage", () => {
+    localStorage.setItem("exchangely_theme", "light");
+    renderPage();
+    expect(screen.getByRole("button", { name: "Light" }).className).toContain("active");
+    expect(screen.getByRole("button", { name: "Dark" }).className).not.toContain("active");
+  });
+
+  // ── Settings sync: currency ──────────────────────────────────────────────
+
+  it("reflects the default EUR currency as active", () => {
+    renderPage();
+    const eurBtn = screen.getByRole("button", { name: "EUR" });
+    const usdBtn = screen.getByRole("button", { name: "USD" });
+    expect(eurBtn.className).toContain("active");
+    expect(usdBtn.className).not.toContain("active");
+  });
+
+  it("switches to USD and persists to localStorage", () => {
+    renderPage();
+    const usdBtn = screen.getByRole("button", { name: "USD" });
+
+    act(() => { usdBtn.click(); });
+
+    expect(usdBtn.className).toContain("active");
+    expect(screen.getByRole("button", { name: "EUR" }).className).not.toContain("active");
+    expect(localStorage.getItem("exchangely_quote_currency")).toBe("USD");
+  });
+
+  it("loads persisted currency from localStorage", () => {
+    localStorage.setItem("exchangely_quote_currency", "USD");
+    renderPage();
+    expect(screen.getByRole("button", { name: "USD" }).className).toContain("active");
+    expect(screen.getByRole("button", { name: "EUR" }).className).not.toContain("active");
   });
 });

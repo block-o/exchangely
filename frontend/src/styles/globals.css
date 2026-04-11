@@ -518,6 +518,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 16px;
   background: var(--color-bg-card);
   transition: transform 0.2s ease, background 0.2s ease;
+  overflow: hidden;
 }
 
 .market-card:hover {
@@ -576,7 +577,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ── Mobile (≤639px) ─────────────────── */
 @media (max-width: 639px) {
-  .app-shell { padding: 16px 12px 80px; }
+  .app-shell { padding: 16px 16px 80px; }
   .hero {
     padding: 16px;
     border-radius: 16px;
@@ -1718,9 +1719,9 @@ h1, h2, h3, h4, h5, h6 {
 .gear-dropdown-mobile {
   position: absolute;
   bottom: calc(100% + 12px);
-  left: 50%;
-  transform: translateX(-50%);
+  right: 0;
+  left: auto;
   top: auto;
-  right: auto;
   min-width: 240px;
+  max-width: calc(100vw - 24px);
 }

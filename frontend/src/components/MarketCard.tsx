@@ -3,6 +3,7 @@ import {
   formatCurrencyNumber,
   formatCompactCurrencyNumber,
   formatNumber,
+  formatVariation,
 } from "../lib/format";
 
 export interface MarketCardProps {
@@ -19,11 +20,6 @@ const MIN_TREND_SCALE_PCT = 0.5;
 function variationClass(value: number | undefined): string {
   if (value === undefined) return "";
   return value >= 0 ? "text-up" : "text-down";
-}
-
-function formatVariation(value: number | undefined): string {
-  if (value === undefined) return "-";
-  return `${value >= 0 ? "+" : ""}${formatNumber(value)}%`;
 }
 
 function Sparkline({ candles }: { candles: Candle[] }) {
@@ -58,10 +54,13 @@ function Sparkline({ candles }: { candles: Candle[] }) {
       className="chart-placeholder"
       style={{
         width: "80px",
+        maxWidth: "80px",
+        flexShrink: 0,
         height: "32px",
         display: "flex",
         alignItems: "flex-end",
-        gap: "2px",
+        gap: "1px",
+        overflow: "hidden",
       }}
     >
       {plotted.map((c, i) => {
@@ -72,7 +71,6 @@ function Sparkline({ candles }: { candles: Candle[] }) {
               className="chart-bar empty"
               style={{
                 height: "30%",
-                minWidth: "2px",
                 backgroundColor: "#374151",
                 opacity: 1,
               }}
@@ -99,7 +97,6 @@ function Sparkline({ candles }: { candles: Candle[] }) {
             className={`chart-bar ${isUp ? "up" : "down"}`}
             style={{
               height: `${Math.max(8, heightPct)}%`,
-              minWidth: "2px",
             }}
             title={`C: ${formatNumber(c.close)} (${pctChange >= 0 ? "+" : ""}${formatNumber(pctChange)}%)`}
           />

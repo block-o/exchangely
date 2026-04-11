@@ -105,6 +105,8 @@ func TestPropertyPublicRoutesNoTokenRequired(t *testing.T) {
 		"/api/v1/tickers",
 		"/api/v1/news",
 		"/api/v1/config",
+		"/api/v1/auth/refresh",
+		"/api/v1/auth/logout",
 	}
 	publicPrefixPaths := []string{
 		"/api/v1/ticker/BTC-USD",
@@ -112,7 +114,10 @@ func TestPropertyPublicRoutesNoTokenRequired(t *testing.T) {
 		"/api/v1/tickers/stream",
 		"/api/v1/news/stream",
 		"/api/v1/auth/google/login",
-		"/api/v1/auth/refresh",
+		"/api/v1/auth/google/callback",
+		"/api/v1/auth/local/login",
+		"/swagger",
+		"/swagger/openapi.yaml",
 	}
 
 	for _, p := range append(publicPaths, publicPrefixPaths...) {
@@ -140,6 +145,8 @@ func TestPropertyProtectedRoutesRequireToken(t *testing.T) {
 		"/api/v1/system/sync-status",
 		"/api/v1/system/tasks",
 		"/api/v1/some/other/protected",
+		"/api/v1/auth/me",
+		"/api/v1/auth/local/change-password",
 	}
 
 	for _, p := range protectedPaths {

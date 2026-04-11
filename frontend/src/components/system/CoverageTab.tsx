@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { API_BASE_URL } from "../../api/client";
+import { API_BASE_URL, authFetch, authEventSource } from "../../api/client";
 import type { SyncPairStatus, Ticker, Pair } from "../../types/api";
 import { formatUnixDate } from "./shared";
 
@@ -98,7 +98,7 @@ export function CoverageTab() {
         const [pairsRes, tickersRes, syncRes] = await Promise.all([
           fetch(`${API_BASE_URL}/pairs`).then((r) => r.json()),
           fetch(`${API_BASE_URL}/tickers`).then((r) => r.json()),
-          fetch(`${API_BASE_URL}/system/sync-status`).then((r) => r.json()),
+          authFetch(`${API_BASE_URL}/system/sync-status`).then((r) => r.json()),
         ]);
 
         if (cancelled) return;
@@ -159,7 +159,7 @@ export function CoverageTab() {
     };
 
     // Task/sync SSE
-    const taskEs = new EventSource(
+    const taskEs = authEventSource(
       `${API_BASE_URL}/system/tasks/stream?upcoming_limit=1&recent_limit=1`,
     );
     taskEs.onmessage = (event) => {

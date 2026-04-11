@@ -159,6 +159,7 @@ All settings are controlled via environment variables. Override them in `.env` o
 |----------|-------------|---------|
 | `BACKEND_WORKER_POLL_INTERVAL` | Worker task polling interval | `5s` |
 | `BACKEND_WORKER_BATCH_SIZE` | Max tasks claimed per worker poll | `100` |
+| `BACKEND_WORKER_CONCURRENCY` | Parallel task workers within a batch | `4` |
 | `BACKEND_WORKER_BACKFILL_BATCH_PERCENT` | % of worker batch size allocated to backfill per poll | `50` |
 
 #### Data Providers

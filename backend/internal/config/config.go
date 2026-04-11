@@ -31,11 +31,16 @@ type Config struct {
 	// RealtimePollInterval controls how frequently the planner emits fresh realtime
 	// tasks for caught-up pairs. Shorter intervals mean fresher ticker prices but
 	// also increase external API load and internal task volume.
-	RealtimePollInterval      time.Duration
-	WorkerPollInterval        time.Duration
-	WorkerBatchSize           int
-	PlannerBackfillBatchPct   int
-	WorkerBackfillBatchPct    int
+	RealtimePollInterval    time.Duration
+	WorkerPollInterval      time.Duration
+	WorkerBatchSize         int
+	PlannerBackfillBatchPct int
+	WorkerBackfillBatchPct  int
+	// WorkerConcurrency controls how many tasks within a single batch are
+	// processed in parallel. Pair-level advisory locks still prevent concurrent
+	// mutations on the same trading pair. A value of 1 preserves the original
+	// sequential behavior.
+	WorkerConcurrency         int
 	CoinGeckoAPIKey           string
 	IntegrityMinSources       int
 	IntegrityMaxDivergencePct float64
@@ -112,6 +117,7 @@ func Load() Config {
 		WorkerBatchSize:           parseInt(getenv("BACKEND_WORKER_BATCH_SIZE", "100"), 100),
 		PlannerBackfillBatchPct:   parsePercent(getenv("BACKEND_PLANNER_BACKFILL_BATCH_PERCENT", "50"), 50),
 		WorkerBackfillBatchPct:    parsePercent(getenv("BACKEND_WORKER_BACKFILL_BATCH_PERCENT", "50"), 50),
+		WorkerConcurrency:         parseInt(getenv("BACKEND_WORKER_CONCURRENCY", "4"), 4),
 		CoinGeckoAPIKey:           getenv("BACKEND_COINGECKO_API_KEY", ""),
 		CDDAvailabilityBaseURL:    getenv("BACKEND_CDD_AVAILABILITY_BASE_URL", ""),
 		IntegrityMinSources:       parseInt(getenv("BACKEND_INTEGRITY_MIN_SOURCES", "2"), 2),

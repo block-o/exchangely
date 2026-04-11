@@ -79,18 +79,33 @@ Workers run a polling loop every `BACKEND_WORKER_POLL_INTERVAL` (default 5s). Ea
    ├─ Phase 2: Other non-backfill tasks (integrity, consolidation, gap, news, cleanup)
    └─ Phase 3: Backfill tasks (up to the backfill budget cap)
 
-2. For each task:
-   ├─ Claim the task (atomic UPDATE status='running' WHERE status IN ('pending','failed'))
-   ├─ Acquire a per-pair advisory lock (pg_advisory_lock)
-   ├─ Route to the type-specific executor
-   ├─ On success: mark 'completed'
-   └─ On failure: increment retry_count, set retry_at with jitter
-       ├─ 1h tasks: up to 24 retries
-       └─ 1d tasks: up to 7 retries
-       └─ After max retries: mark 'failed' permanently
+2. Process the batch concurrently (up to BACKEND_WORKER_CONCURRENCY goroutines)
+   └─ For each task (in parallel):
+       ├─ Claim the task (atomic UPDATE status='running' WHERE status IN ('pending','failed'))
+       ├─ Acquire a per-pair advisory lock (pg_advisory_lock)
+       ├─ Route to the type-specific executor
+       ├─ On success: mark 'completed'
+       └─ On failure: increment retry_count, set retry_at with jitter
+           ├─ 1h tasks: up to 24 retries
+           └─ 1d tasks: up to 7 retries
+           └─ After max retries: mark 'failed' permanently
+
+3. Wait for all goroutines to finish before starting the next poll
 ```
 
 The 3-phase fetch ensures live_ticker tasks always get worker slots regardless of how many other tasks are queued. This prevents backfill or maintenance tasks from starving realtime price updates.
+
+### Parallel batch execution
+
+`BACKEND_WORKER_CONCURRENCY` (default 4) controls how many tasks within a single batch are processed simultaneously. A semaphore limits the number of active goroutines, and a `sync.WaitGroup` ensures the batch completes before the next poll starts.
+
+Safety is preserved by two mechanisms:
+- **Atomic claiming**: Each task is claimed via an atomic `UPDATE ... WHERE status='pending'`. If two workers race for the same task, only one succeeds.
+- **Per-pair advisory locks**: Even with parallel execution, `pg_advisory_lock` prevents two goroutines from mutating the same trading pair's data concurrently. A goroutine processing BTCEUR blocks until any other goroutine holding the BTCEUR lock finishes.
+
+Setting `BACKEND_WORKER_CONCURRENCY=1` restores the original sequential behavior. The sequential path avoids goroutine overhead entirely — it uses a plain `for` loop instead of the semaphore/WaitGroup machinery.
+
+Task failures within a parallel batch do not block or cancel other goroutines. Each task logs its own failure independently and the remaining tasks continue to completion.
 
 Workers also receive task notifications via Kafka for faster pickup, but the polling loop is the primary mechanism.
 
@@ -240,10 +255,14 @@ Planner                    PostgreSQL                  Kafka              Worker
    │                          │◀── Pending(batch) ───────┼──────────────────│
    │                          │── tasks ────────────────▶│                  │
    │                          │                          │                  │
-   │                          │◀── Claim(task_id) ───────┼──────────────────│
-   │                          │◀── pg_advisory_lock ─────┼──────────────────│
-   │                          │                          │    [execute]     │
-   │                          │◀── Complete(task_id) ────┼──────────────────│
+   │                          │                          │  [parallel exec] │
+   │                          │◀── Claim(task_A) ────────┼──────────────────│
+   │                          │◀── Claim(task_B) ────────┼──────────────────│
+   │                          │◀── pg_advisory_lock(A) ──┼──────────────────│
+   │                          │◀── pg_advisory_lock(B) ──┼──────────────────│
+   │                          │                          │  [execute A & B] │
+   │                          │◀── Complete(task_A) ─────┼──────────────────│
+   │                          │◀── Complete(task_B) ─────┼──────────────────│
    │                          │◀── pg_advisory_unlock ───┼──────────────────│
 ```
 

@@ -39,7 +39,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26.2"
-          cache-dependency-path: ./backend/go.sum
+          cache_dependency_path: ./backend/go.sum
       - name: Checking source formatting
         run: make backend-fmt
       - name: Running vet
@@ -52,11 +52,9 @@ jobs:
           version: v2.11
           working-directory: backend
       - name: Vulnerability check
-        uses: golang/govulncheck-action@v1
-        with:
-           go-version-input: 1.26.2
-           go-package: ./...        
-           work-dir: backend
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          make backend-vulncheck
       - name: Run tests
         run: make backend-test
 

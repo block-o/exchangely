@@ -44,13 +44,17 @@ func NewAuthMiddleware(authService *auth.Service) *AuthMiddleware {
 			"/api/v1/tickers",
 			"/api/v1/news",
 			"/api/v1/config",
+			"/api/v1/auth/refresh",
+			"/api/v1/auth/logout",
 		},
 		publicPrefixes: []string{
 			"/api/v1/ticker/",
 			"/api/v1/historical/",
 			"/api/v1/tickers/stream",
 			"/api/v1/news/stream",
-			"/api/v1/auth/",
+			"/api/v1/auth/google/",
+			"/api/v1/auth/local/login",
+			"/swagger",
 		},
 		adminPrefixes: []string{
 			"/api/v1/system/",
@@ -78,7 +82,12 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		}
 
 		// Extract Bearer token from Authorization header.
+		// Fall back to ?token= query parameter for SSE/EventSource connections
+		// which cannot set custom headers.
 		token := extractBearerToken(r)
+		if token == "" {
+			token = r.URL.Query().Get("token")
+		}
 		if token == "" {
 			writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 			return

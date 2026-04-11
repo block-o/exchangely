@@ -17,14 +17,8 @@ import type { Ticker, Pair } from "../types/api";
 import {
   formatCurrencyNumber,
   formatCompactCurrencyNumber,
-  formatNumber,
+  formatVariation,
 } from "../lib/format";
-
-/* ── Helpers ──────────────────────────────────────────────── */
-
-function formatVariation(value: number): string {
-  return `${value >= 0 ? "+" : ""}${formatNumber(value)}%`;
-}
 
 /* ── Arbitraries ──────────────────────────────────────────── */
 

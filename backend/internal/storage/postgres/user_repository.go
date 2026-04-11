@@ -131,5 +131,7 @@ func scanUser(row *sql.Row) (*auth.User, error) {
 	if err != nil {
 		return nil, err
 	}
+	u.HasGoogle = u.GoogleID != nil && *u.GoogleID != ""
+	u.HasPassword = u.PasswordHash != nil && *u.PasswordHash != ""
 	return &u, nil
 }

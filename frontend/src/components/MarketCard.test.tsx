@@ -66,17 +66,17 @@ describe("MarketCard", () => {
 
     it("renders 24h variation", () => {
       renderCard();
-      expect(screen.getByText("+2.4%")).toBeInTheDocument();
+      expect(screen.getByText("+2.40%")).toBeInTheDocument();
     });
 
     it("renders 1h variation", () => {
       renderCard();
-      expect(screen.getByText("+0.3%")).toBeInTheDocument();
+      expect(screen.getByText("+0.30%")).toBeInTheDocument();
     });
 
     it("renders 7d variation", () => {
       renderCard();
-      expect(screen.getByText("+5.1%")).toBeInTheDocument();
+      expect(screen.getByText("+5.10%")).toBeInTheDocument();
     });
 
     it("renders 24h volume", () => {

@@ -66,3 +66,12 @@ export function formatCompactCurrencyNumber(value: number | undefined, currency:
 
   return `${getCurrencySymbol(currency)}${formatCompactNumber(value)}`;
 }
+
+export function formatVariation(value: number | undefined): string {
+  if (value === undefined) return "-";
+  const formatted = new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+  return `${value >= 0 ? "+" : ""}${formatted}%`;
+}

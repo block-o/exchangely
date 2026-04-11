@@ -11,6 +11,7 @@ import {
   formatCurrencyNumber,
   formatNumber,
   formatUnix,
+  formatVariation,
   getBrowserTimezone,
 } from "../lib/format";
 import type { Ticker, Candle, Pair } from "../types/api";
@@ -269,13 +270,13 @@ export function MarketPage() {
                           {tk ? formatCurrencyNumber(tk.price, quoteCurrency) : "-"}
                         </td>
                         <td className={`col-1h ${tk && tk.variation_1h >= 0 ? "text-up" : "text-down"}`}>
-                          {tk ? `${tk.variation_1h >= 0 ? "+" : ""}${formatNumber(tk.variation_1h)}%` : "-"}
+                          {tk ? formatVariation(tk.variation_1h) : "-"}
                         </td>
                         <td className={var24h >= 0 ? "text-up" : "text-down"}>
-                          {tk ? `${var24h >= 0 ? "+" : ""}${formatNumber(var24h)}%` : "-"}
+                          {tk ? formatVariation(var24h) : "-"}
                         </td>
                         <td className={`col-7d ${tk && tk.variation_7d >= 0 ? "text-up" : "text-down"}`}>
-                          {tk ? `${tk.variation_7d >= 0 ? "+" : ""}${formatNumber(tk.variation_7d)}%` : "-"}
+                          {tk ? formatVariation(tk.variation_7d) : "-"}
                         </td>
                         <td className="text-muted">
                           {tk ? formatCompactCurrencyNumber(tk.volume_24h, quoteCurrency) : "-"}

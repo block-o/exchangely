@@ -133,3 +133,21 @@ export async function authPost<T = void>(
   }
   return JSON.parse(text) as T;
 }
+
+// --- Authenticated EventSource helper ---
+
+/**
+ * Creates an EventSource that appends the current access token as a query
+ * parameter. The native EventSource API does not support custom headers,
+ * so SSE endpoints behind auth accept `?token=<jwt>` as a fallback.
+ *
+ * If the token is null the URL is used as-is (unauthenticated mode).
+ */
+export function authEventSource(url: string): EventSource {
+  const token = getAccessToken();
+  if (token) {
+    const separator = url.includes("?") ? "&" : "?";
+    return new EventSource(`${url}${separator}token=${encodeURIComponent(token)}`);
+  }
+  return new EventSource(url);
+}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_BASE_URL } from "../../api/client";
+import { API_BASE_URL, authFetch, authEventSource } from "../../api/client";
 import type { SyncPairStatus } from "../../types/api";
 import { formatUnixDate } from "./shared";
 
@@ -13,7 +13,7 @@ export function HistoricalTab() {
 
     async function bootstrap() {
       try {
-        const res = await fetch(`${API_BASE_URL}/system/sync-status`);
+        const res = await authFetch(`${API_BASE_URL}/system/sync-status`);
         const json = await res.json();
         if (!cancelled) {
           setSyncStatus(Array.isArray(json) ? json : []);
@@ -27,7 +27,7 @@ export function HistoricalTab() {
     bootstrap();
 
     // The task stream now includes syncStatus in every event.
-    const es = new EventSource(`${API_BASE_URL}/system/tasks/stream?upcoming_limit=1&recent_limit=1`);
+    const es = authEventSource(`${API_BASE_URL}/system/tasks/stream?upcoming_limit=1&recent_limit=1`);
     es.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data);

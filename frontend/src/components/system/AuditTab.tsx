@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { API_BASE_URL } from "../../api/client";
+import { API_BASE_URL, authFetch, authEventSource } from "../../api/client";
 import {
   type Task,
   type TasksResponse,
@@ -151,7 +151,7 @@ export function AuditTab() {
     const url = `${API_BASE_URL}/system/tasks?upcoming_limit=${UPCOMING_LIMIT}&upcoming_page=${upcomingPage}&recent_limit=${LOG_PAGE_SIZE}&recent_page=1&${filterParams}`;
 
     try {
-      const res = await fetch(url);
+      const res = await authFetch(url);
       const json: TasksResponse = await res.json();
       setUpcomingTotal(json.upcomingTotal);
       setUpcoming(json.upcoming || []);
@@ -172,7 +172,7 @@ export function AuditTab() {
     const url = `${API_BASE_URL}/system/tasks?upcoming_limit=0&upcoming_page=1&recent_limit=${LOG_PAGE_SIZE}&recent_page=${nextPage}&${filterParams}`;
 
     try {
-      const res = await fetch(url);
+      const res = await authFetch(url);
       const json: TasksResponse = await res.json();
       const newEntries = json.recent || [];
       if (newEntries.length > 0) {
@@ -198,7 +198,7 @@ export function AuditTab() {
   useEffect(() => {
     if (upcomingPage !== 1) return;
     const filterParams = buildFilterParams();
-    const es = new EventSource(
+    const es = authEventSource(
       `${API_BASE_URL}/system/tasks/stream?upcoming_limit=${UPCOMING_LIMIT}&recent_limit=${LOG_PAGE_SIZE}&${filterParams}`
     );
     es.onmessage = (event) => {

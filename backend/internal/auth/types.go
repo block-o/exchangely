@@ -17,6 +17,8 @@ type User struct {
 	Role               string    `json:"role"`
 	GoogleID           *string   `json:"-"`
 	PasswordHash       *string   `json:"-"`
+	HasGoogle          bool      `json:"has_google"`
+	HasPassword        bool      `json:"has_password"`
 	MustChangePassword bool      `json:"must_change_password"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`

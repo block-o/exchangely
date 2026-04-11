@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { UsersTab } from "./UsersTab";
 import * as client from "../../api/client";
@@ -567,8 +567,6 @@ describe("UsersTab", () => {
   });
 
   it("supports pagination", async () => {
-    const user = userEvent.setup();
-    
     // First render with pagination
     mockAuthFetch.mockResolvedValueOnce({
       ok: true,

@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_raw_candles_1h_pair_source_bucket_updated;
+DROP INDEX IF EXISTS idx_raw_candles_1h_pair_bucket_updated;

@@ -125,8 +125,9 @@ func TestRunningComposeStack(t *testing.T) {
 	})
 
 	t.Run("market api", func(t *testing.T) {
-		start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-		end := start.Add(24 * time.Hour)
+		// Use recent timestamps matching seedMarketFixture.
+		end := time.Now().UTC().Truncate(time.Hour)
+		start := end.Add(-24 * time.Hour)
 
 		var historical struct {
 			Data []struct {
@@ -333,8 +334,10 @@ func seedMarketFixture(t *testing.T, db *sql.DB) string {
 	t.Helper()
 
 	pairSymbol := "E2ETESTUSD"
-	first := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	second := first.Add(24 * time.Hour)
+	// Use recent timestamps so the ticker snapshot query (which bounds
+	// latest_hourly to the last 30 days) can find the seeded data.
+	second := time.Now().UTC().Truncate(time.Hour)
+	first := second.Add(-24 * time.Hour)
 
 	for _, item := range []struct {
 		timestamp time.Time

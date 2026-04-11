@@ -466,6 +466,15 @@ func (r *MarketRepository) Tickers(ctx context.Context) ([]ticker.Ticker, error)
 //   - past_1h:    The closest hourly candle to 1h ago.
 //   - past_7d:    The closest hourly candle to 7d ago.
 //   - window_24h: Aggregated high, low, and sum of volume over the last 24h.
+//
+// Performance notes:
+//   - latest_raw and native_v24h use partial indexes on raw_candles WHERE interval='1h'.
+//   - All CTEs use time-bounded scans (lower bound) so the planner can skip chunks
+//     older than the lookback window instead of scanning the full hypertable.
+//     latest_hourly and latest_raw use a 30-day window since ticker data is always
+//     recent; pairs with no data in the last 30 days are intentionally excluded.
+//   - past_1h avoids a UNION ALL between candles_1h and raw_candles; it queries only
+//     candles_1h (the consolidated source) which is sufficient for a 1h lookback.
 func tickerSnapshotQuery(filter string) string {
 	return fmt.Sprintf(`
 		WITH latest_hourly AS (
@@ -476,6 +485,7 @@ func tickerSnapshotQuery(filter string) string {
 			       EXTRACT(EPOCH FROM bucket_start)::BIGINT as hourly_unix,
 			       source as hourly_source
 			FROM candles_1h
+			WHERE bucket_start >= NOW() - INTERVAL '30 days'
 			ORDER BY pair_symbol, bucket_start DESC
 		),
 		latest_raw AS (
@@ -487,6 +497,7 @@ func tickerSnapshotQuery(filter string) string {
 			       source as raw_source
 			FROM raw_candles
 			WHERE interval = '1h'
+			  AND bucket_start >= NOW() - INTERVAL '30 days'
 			ORDER BY pair_symbol, bucket_start DESC, updated_at DESC
 		),
 		latest AS (
@@ -512,6 +523,7 @@ func tickerSnapshotQuery(filter string) string {
 			       v24h::DOUBLE PRECISION as source_v24h
 			FROM raw_candles
 			WHERE interval = '1h'
+			  AND bucket_start >= NOW() - INTERVAL '7 days'
 			ORDER BY pair_symbol, source, bucket_start DESC, updated_at DESC
 		),
 		consolidated_native_v24h AS (
@@ -526,30 +538,19 @@ func tickerSnapshotQuery(filter string) string {
 			       c.close::DOUBLE PRECISION as old_price
 			FROM candles_1h c
 			JOIN latest l ON c.pair_symbol = l.pair_symbol
-			WHERE c.bucket_start <= to_timestamp(l.last_unix) - INTERVAL '24 hours'
+			WHERE c.bucket_start >= NOW() - INTERVAL '25 hours'
+			  AND c.bucket_start <= to_timestamp(l.last_unix) - INTERVAL '24 hours'
 			ORDER BY c.pair_symbol, c.bucket_start DESC
 		),
 		past_1h AS (
-			SELECT DISTINCT ON (pair_symbol)
-			       pair_symbol,
-			       old_price
-			FROM (
-				SELECT c.pair_symbol,
-				       c.close::DOUBLE PRECISION as old_price,
-				       c.bucket_start
-				FROM candles_1h c
-				JOIN latest l ON c.pair_symbol = l.pair_symbol
-				WHERE c.bucket_start <= to_timestamp(l.last_unix) - INTERVAL '1 hour'
-				UNION ALL
-				SELECT r.pair_symbol,
-				       r.close::DOUBLE PRECISION as old_price,
-				       r.bucket_start
-				FROM raw_candles r
-				JOIN latest l ON r.pair_symbol = l.pair_symbol
-				WHERE r.interval = '1h'
-				  AND r.bucket_start <= to_timestamp(l.last_unix) - INTERVAL '1 hour'
-			) combined
-			ORDER BY pair_symbol, bucket_start DESC
+			SELECT DISTINCT ON (c.pair_symbol)
+			       c.pair_symbol,
+			       c.close::DOUBLE PRECISION as old_price
+			FROM candles_1h c
+			JOIN latest l ON c.pair_symbol = l.pair_symbol
+			WHERE c.bucket_start >= NOW() - INTERVAL '2 hours'
+			  AND c.bucket_start <= to_timestamp(l.last_unix) - INTERVAL '1 hour'
+			ORDER BY c.pair_symbol, c.bucket_start DESC
 		),
 		past_7d AS (
 			SELECT DISTINCT ON (c.pair_symbol)
@@ -557,7 +558,8 @@ func tickerSnapshotQuery(filter string) string {
 			       c.close::DOUBLE PRECISION as old_price
 			FROM candles_1h c
 			JOIN latest l ON c.pair_symbol = l.pair_symbol
-			WHERE c.bucket_start <= to_timestamp(l.last_unix) - INTERVAL '7 days'
+			WHERE c.bucket_start >= NOW() - INTERVAL '8 days'
+			  AND c.bucket_start <= to_timestamp(l.last_unix) - INTERVAL '7 days'
 			ORDER BY c.pair_symbol, c.bucket_start DESC
 		),
 		window_24h AS (
@@ -567,7 +569,8 @@ func tickerSnapshotQuery(filter string) string {
 			       SUM(c.volume * c.close) as bucket_sum_v24h
 			FROM candles_1h c
 			JOIN latest l ON c.pair_symbol = l.pair_symbol
-			WHERE c.bucket_start > to_timestamp(l.last_unix) - INTERVAL '24 hours'
+			WHERE c.bucket_start >= NOW() - INTERVAL '25 hours'
+			  AND c.bucket_start > to_timestamp(l.last_unix) - INTERVAL '24 hours'
 			GROUP BY c.pair_symbol
 		)
 		SELECT l.pair_symbol,

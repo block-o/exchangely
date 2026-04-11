@@ -539,3 +539,99 @@ func assertTaskStatus(t *testing.T, db *sql.DB, taskID, expected string) {
 		t.Fatalf("expected task %q status %q, got %q", taskID, expected, status)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Ticker query — stale data exclusion
+// ---------------------------------------------------------------------------
+
+// TestTickerExcludesStaleData verifies that the ticker snapshot query only
+// considers candles within the last 30 days. A pair with only old data (>30d)
+// should return sql.ErrNoRows for the single-ticker path and be absent from
+// the all-tickers result, while a pair with recent data is returned normally.
+func TestTickerExcludesStaleData(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	repo := NewMarketRepository(db)
+	ctx := context.Background()
+
+	stalePair := "STALETESTUSD"
+	freshPair := "FRESHTESTUSD"
+
+	// Cleanup
+	for _, p := range []string{stalePair, freshPair} {
+		_, _ = db.Exec("DELETE FROM raw_candles WHERE pair_symbol = $1", p)
+		_, _ = db.Exec("DELETE FROM candles_1h WHERE pair_symbol = $1", p)
+	}
+	t.Cleanup(func() {
+		for _, p := range []string{stalePair, freshPair} {
+			_, _ = db.Exec("DELETE FROM raw_candles WHERE pair_symbol = $1", p)
+			_, _ = db.Exec("DELETE FROM candles_1h WHERE pair_symbol = $1", p)
+		}
+	})
+
+	// Seed a stale candle (60 days ago — outside the 30-day window).
+	staleTime := time.Now().UTC().Add(-60 * 24 * time.Hour).Truncate(time.Hour)
+	if err := repo.UpsertCandles(ctx, "1h", []candle.Candle{{
+		Pair:      stalePair,
+		Interval:  "1h",
+		Timestamp: staleTime.Unix(),
+		Open:      100, High: 105, Low: 95, Close: 102,
+		Volume: 10, Source: "test", Finalized: true,
+	}}); err != nil {
+		t.Fatalf("seed stale candle failed: %v", err)
+	}
+
+	// Seed a fresh candle (1 hour ago — inside the 30-day window).
+	freshTime := time.Now().UTC().Add(-1 * time.Hour).Truncate(time.Hour)
+	if err := repo.UpsertCandles(ctx, "1h", []candle.Candle{{
+		Pair:      freshPair,
+		Interval:  "1h",
+		Timestamp: freshTime.Unix(),
+		Open:      200, High: 210, Low: 190, Close: 205,
+		Volume: 20, Source: "test", Finalized: true,
+	}}); err != nil {
+		t.Fatalf("seed fresh candle failed: %v", err)
+	}
+
+	// Single-ticker: stale pair should return no rows.
+	_, err := repo.Ticker(ctx, stalePair)
+	if err == nil {
+		t.Fatal("expected error for stale pair ticker, got nil")
+	}
+
+	// Single-ticker: fresh pair should succeed.
+	freshTicker, err := repo.Ticker(ctx, freshPair)
+	if err != nil {
+		t.Fatalf("Ticker for fresh pair failed: %v", err)
+	}
+	if freshTicker.Pair != freshPair {
+		t.Fatalf("expected pair %q, got %q", freshPair, freshTicker.Pair)
+	}
+	if freshTicker.Price != 205 {
+		t.Fatalf("expected price 205, got %v", freshTicker.Price)
+	}
+
+	// All-tickers: stale pair should be absent, fresh pair should be present.
+	tickers, err := repo.Tickers(ctx)
+	if err != nil {
+		t.Fatalf("Tickers failed: %v", err)
+	}
+
+	foundStale := false
+	foundFresh := false
+	for _, tk := range tickers {
+		if tk.Pair == stalePair {
+			foundStale = true
+		}
+		if tk.Pair == freshPair {
+			foundFresh = true
+		}
+	}
+	if foundStale {
+		t.Fatal("expected stale pair to be excluded from tickers result")
+	}
+	if !foundFresh {
+		t.Fatal("expected fresh pair to be present in tickers result")
+	}
+}

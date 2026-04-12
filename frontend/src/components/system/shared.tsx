@@ -5,6 +5,7 @@ export interface Task {
   type: string;
   pair: string;
   interval: string;
+  cadence?: string;
   window_start: string;
   window_end: string;
   status?: string;

@@ -57,6 +57,10 @@ type Config struct {
 	TickersCacheTTL time.Duration
 	// NewsFetchInterval defines how often the worker should fetch news from RSS feeds.
 	NewsFetchInterval time.Duration
+	// IntegrityCheckInterval defines how often integrity check sweep tasks are scheduled per pair.
+	IntegrityCheckInterval time.Duration
+	// GapValidationInterval defines how often gap validation sweep tasks are scheduled per pair.
+	GapValidationInterval time.Duration
 
 	// Auth configuration.
 	// AuthMode controls which authentication methods are active.
@@ -88,6 +92,13 @@ type Config struct {
 	// Shared with the frontend via the same API_BASE_URL env var. Used in the
 	// OpenAPI spec server URL and Swagger UI configuration.
 	APIBaseURL string
+
+	// Portfolio configuration.
+	PortfolioEnabled       bool   // BACKEND_PORTFOLIO_ENABLED, default: false
+	PortfolioEncryptionKey string // BACKEND_PORTFOLIO_ENCRYPTION_KEY, hex-encoded 32-byte AES-256 master key
+	EtherscanAPIKey        string // BACKEND_ETHERSCAN_API_KEY
+	SolanaRPCURL           string // BACKEND_SOLANA_RPC_URL, default: https://api.mainnet-beta.solana.com
+	BitcoinAPIURL          string // BACKEND_BITCOIN_API_URL, default: https://blockstream.info/api
 }
 
 func Load() Config {
@@ -127,7 +138,9 @@ func Load() Config {
 		TaskRetentionCount:        parseInt(getenv("BACKEND_TASK_MAX_LOG_COUNT", "1000"), 1000),
 		TickerCacheSize:           parseInt(getenv("BACKEND_TICKER_CACHE_SIZE", "100"), 100),
 		TickersCacheTTL:           parseDuration(getenv("BACKEND_TICKERS_CACHE_TTL", "30s")),
-		NewsFetchInterval:         parseDuration(getenv("BACKEND_NEWS_FETCH_INTERVAL", "5m")),
+		NewsFetchInterval:         parseDuration(getenv("BACKEND_NEWS_FETCH_INTERVAL", "15m")),
+		IntegrityCheckInterval:    parseDuration(getenv("BACKEND_INTEGRITY_CHECK_INTERVAL", "24h")),
+		GapValidationInterval:     parseDuration(getenv("BACKEND_GAP_VALIDATION_INTERVAL", "24h")),
 		AuthMode:                  normalizeAuthMode(getenv("BACKEND_AUTH_MODE", "")),
 		GoogleClientID:            getenv("BACKEND_GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret:        getenv("BACKEND_GOOGLE_CLIENT_SECRET", ""),
@@ -144,6 +157,11 @@ func Load() Config {
 		RateLimitWindow:           parseDuration(getenv("BACKEND_RATELIMIT_WINDOW", "1m")),
 		TrustedProxies:            splitCSV(getenv("BACKEND_TRUSTED_PROXIES", "")),
 		APIBaseURL:                getenv("API_BASE_URL", "http://localhost:8080/api/v1"),
+		PortfolioEnabled:          parseBool(getenv("BACKEND_PORTFOLIO_ENABLED", "false"), false),
+		PortfolioEncryptionKey:    getenv("BACKEND_PORTFOLIO_ENCRYPTION_KEY", ""),
+		EtherscanAPIKey:           getenv("BACKEND_ETHERSCAN_API_KEY", ""),
+		SolanaRPCURL:              getenv("BACKEND_SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"),
+		BitcoinAPIURL:             getenv("BACKEND_BITCOIN_API_URL", "https://blockstream.info/api"),
 	}
 }
 
@@ -281,6 +299,23 @@ func (c Config) ValidateAuthConfig() []string {
 		if c.GoogleClientSecret == "" {
 			errs = append(errs, "BACKEND_GOOGLE_CLIENT_SECRET is required when BACKEND_AUTH_MODE includes \"sso\"")
 		}
+	}
+
+	return errs
+}
+
+// ValidatePortfolioConfig checks that required portfolio environment variables
+// are present when portfolio features are enabled. Returns a list of validation
+// errors (empty = valid).
+func (c Config) ValidatePortfolioConfig() []string {
+	if !c.PortfolioEnabled {
+		return nil
+	}
+
+	var errs []string
+
+	if c.PortfolioEncryptionKey == "" {
+		errs = append(errs, "BACKEND_PORTFOLIO_ENCRYPTION_KEY is required when BACKEND_PORTFOLIO_ENABLED is true")
 	}
 
 	return errs

@@ -20,27 +20,37 @@ type SyncState struct {
 // The realtimePollInterval controls how frequently fresh realtime polling tasks are
 // emitted per pair. A shorter interval yields fresher ticker prices.
 type Scheduler struct {
-	backfillWindow1H     time.Duration
-	backfillWindow1D     time.Duration
-	realtimePollInterval time.Duration
-	newsFetchInterval    time.Duration
+	backfillWindow1H       time.Duration
+	backfillWindow1D       time.Duration
+	realtimePollInterval   time.Duration
+	newsFetchInterval      time.Duration
+	integrityCheckInterval time.Duration
+	gapValidationInterval  time.Duration
 }
 
 // NewScheduler returns the planner scheduler tuned for coarse-grained backfill windows
 // and the given realtime poll cadence. The pollInterval determines how often the planner
 // generates a fresh realtime task per pair — e.g. 5s means prices update every ~5 seconds.
-func NewScheduler(pollInterval, newsInterval time.Duration) *Scheduler {
+func NewScheduler(pollInterval, newsInterval, integrityInterval, gapInterval time.Duration) *Scheduler {
 	if pollInterval <= 0 {
 		pollInterval = 5 * time.Second
 	}
 	if newsInterval <= 0 {
-		newsInterval = 5 * time.Minute
+		newsInterval = 15 * time.Minute
+	}
+	if integrityInterval <= 0 {
+		integrityInterval = 24 * time.Hour
+	}
+	if gapInterval <= 0 {
+		gapInterval = 24 * time.Hour
 	}
 	return &Scheduler{
-		backfillWindow1H:     1 * time.Hour,
-		backfillWindow1D:     24 * time.Hour,
-		realtimePollInterval: pollInterval,
-		newsFetchInterval:    newsInterval,
+		backfillWindow1H:       1 * time.Hour,
+		backfillWindow1D:       24 * time.Hour,
+		realtimePollInterval:   pollInterval,
+		newsFetchInterval:      newsInterval,
+		integrityCheckInterval: integrityInterval,
+		gapValidationInterval:  gapInterval,
 	}
 }
 
@@ -172,6 +182,7 @@ func (s *Scheduler) BuildInitialBackfillTasksLimited(pairs []pair.Pair, state ma
 // gap validation task per pair exists at a time.
 func (s *Scheduler) BuildGapValidationTasks(pairs []pair.Pair, state map[string]SyncState, coverage map[string]map[string]bool, now time.Time) []task.Task {
 	yesterday := now.UTC().Truncate(24 * time.Hour).Add(-24 * time.Hour)
+	windowKey := now.UTC().Truncate(s.gapValidationInterval).Unix()
 	tasks := make([]task.Task, 0)
 
 	for _, trackedPair := range pairs {
@@ -199,7 +210,7 @@ func (s *Scheduler) BuildGapValidationTasks(pairs []pair.Pair, state map[string]
 		}
 
 		t := task.Task{
-			ID:          fmt.Sprintf("%s:%s:sweep", task.TypeGapValidation, trackedPair.Symbol),
+			ID:          fmt.Sprintf("%s:%s:sweep:%d", task.TypeGapValidation, trackedPair.Symbol, windowKey),
 			Type:        task.TypeGapValidation,
 			Pair:        trackedPair.Symbol,
 			Interval:    "1d",
@@ -325,6 +336,7 @@ func (s *Scheduler) BuildRealtimeTasks(pairs []pair.Pair, state map[string]SyncS
 // integrity task per pair.
 func (s *Scheduler) BuildIntegrityCheckTasks(pairs []pair.Pair, state map[string]SyncState, integrityCoverage map[string]map[string]bool, now time.Time) []task.Task {
 	yesterday := now.UTC().Truncate(24 * time.Hour).Add(-24 * time.Hour)
+	windowKey := now.UTC().Truncate(s.integrityCheckInterval).Unix()
 	tasks := make([]task.Task, 0)
 
 	for _, trackedPair := range pairs {
@@ -357,7 +369,7 @@ func (s *Scheduler) BuildIntegrityCheckTasks(pairs []pair.Pair, state map[string
 		}
 
 		t := task.Task{
-			ID:          fmt.Sprintf("%s:%s:sweep", task.TypeDataSanity, trackedPair.Symbol),
+			ID:          fmt.Sprintf("%s:%s:sweep:%d", task.TypeDataSanity, trackedPair.Symbol, windowKey),
 			Type:        task.TypeDataSanity,
 			Pair:        trackedPair.Symbol,
 			Interval:    "1h",

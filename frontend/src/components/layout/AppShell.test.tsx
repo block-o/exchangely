@@ -33,6 +33,9 @@ function DummyAlpha() {
 function DummyBeta() {
   return <div>Beta Page</div>;
 }
+function DummyGamma() {
+  return <div>Gamma Page</div>;
+}
 
 function renderShell() {
   return render(
@@ -40,6 +43,7 @@ function renderShell() {
       <AppShell>
         <DummyAlpha />
         <DummyBeta />
+        <DummyGamma />
       </AppShell>
     </SettingsProvider>
   );
@@ -66,7 +70,7 @@ describe("AppShell", () => {
     window.location.hash = "#system";
     renderShell();
     await waitFor(() => {
-      expect(screen.getByText("Beta Page")).toBeInTheDocument();
+      expect(screen.getByText("Gamma Page")).toBeInTheDocument();
     });
   });
 

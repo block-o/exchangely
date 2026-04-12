@@ -16,6 +16,7 @@ import (
 	"github.com/block-o/exchangely/backend/internal/httpapi/dto"
 	"github.com/block-o/exchangely/backend/internal/httpapi/handlers"
 	"github.com/block-o/exchangely/backend/internal/httpapi/middleware"
+	"github.com/block-o/exchangely/backend/internal/portfolio"
 	"github.com/block-o/exchangely/backend/internal/service"
 )
 
@@ -24,10 +25,12 @@ type Services struct {
 	Market           *service.MarketService
 	System           *service.SystemService
 	News             *service.NewsService
-	Auth             *auth.Service          // nil when auth is disabled
-	APITokenService  *auth.APITokenService  // nil when API tokens are not configured
-	APIRateLimiter   *auth.APIRateLimiter   // nil when rate limiting is not configured
-	AdminUserService *auth.AdminUserService // nil when admin user management is not configured
+	Auth             *auth.Service               // nil when auth is disabled
+	APITokenService  *auth.APITokenService       // nil when API tokens are not configured
+	APIRateLimiter   *auth.APIRateLimiter        // nil when rate limiting is not configured
+	AdminUserService *auth.AdminUserService      // nil when admin user management is not configured
+	PortfolioService *portfolio.PortfolioService // nil when portfolio is disabled
+	ValuationEngine  *portfolio.ValuationEngine  // nil when portfolio is disabled
 }
 
 type Options struct {
@@ -485,6 +488,131 @@ func New(svcs Services, opts Options) http.Handler {
 		}
 	}
 
+	// Portfolio endpoints — only registered when portfolio service is available.
+	if svcs.PortfolioService != nil && svcs.ValuationEngine != nil {
+		ph := handlers.NewPortfolioHandler(svcs.PortfolioService, svcs.ValuationEngine)
+		if svcs.Market != nil {
+			ph = ph.WithMarketService(svcs.Market)
+		}
+
+		// Holdings CRUD.
+		mux.HandleFunc("/api/v1/portfolio/holdings", func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				ph.ListHoldings(w, r)
+			case http.MethodPost:
+				ph.CreateHolding(w, r)
+			default:
+				w.Header().Set("Allow", strings.Join([]string{http.MethodGet, http.MethodPost}, ", "))
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+		mux.HandleFunc("/api/v1/portfolio/holdings/", func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodPut:
+				ph.UpdateHolding(w, r)
+			case http.MethodDelete:
+				ph.DeleteHolding(w, r)
+			default:
+				w.Header().Set("Allow", strings.Join([]string{http.MethodPut, http.MethodDelete}, ", "))
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+
+		// Valuation and history.
+		mux.HandleFunc("/api/v1/portfolio/valuation", ph.GetValuation)
+		mux.HandleFunc("/api/v1/portfolio/history", ph.GetHistory)
+
+		// Sync all sources.
+		mux.HandleFunc("/api/v1/portfolio/sync-all", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			ph.SyncAll(w, r)
+		})
+
+		// Exchange credentials.
+		mux.HandleFunc("/api/v1/portfolio/credentials", func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				ph.ListCredentials(w, r)
+			case http.MethodPost:
+				ph.CreateCredential(w, r)
+			default:
+				w.Header().Set("Allow", strings.Join([]string{http.MethodGet, http.MethodPost}, ", "))
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+		mux.HandleFunc("/api/v1/portfolio/credentials/", func(w http.ResponseWriter, r *http.Request) {
+			path := r.URL.Path
+			if strings.HasSuffix(path, "/sync") && r.Method == http.MethodPost {
+				ph.SyncCredential(w, r)
+				return
+			}
+			if r.Method == http.MethodDelete {
+				ph.DeleteCredential(w, r)
+				return
+			}
+			http.Error(w, "not found", http.StatusNotFound)
+		})
+
+		// Wallets.
+		mux.HandleFunc("/api/v1/portfolio/wallets", func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				ph.ListWallets(w, r)
+			case http.MethodPost:
+				ph.CreateWallet(w, r)
+			default:
+				w.Header().Set("Allow", strings.Join([]string{http.MethodGet, http.MethodPost}, ", "))
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+		mux.HandleFunc("/api/v1/portfolio/wallets/", func(w http.ResponseWriter, r *http.Request) {
+			path := r.URL.Path
+			if strings.HasSuffix(path, "/sync") && r.Method == http.MethodPost {
+				ph.SyncWallet(w, r)
+				return
+			}
+			if r.Method == http.MethodDelete {
+				ph.DeleteWallet(w, r)
+				return
+			}
+			http.Error(w, "not found", http.StatusNotFound)
+		})
+
+		// Ledger.
+		mux.HandleFunc("/api/v1/portfolio/ledger/connect", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			ph.ConnectLedger(w, r)
+		})
+		mux.HandleFunc("/api/v1/portfolio/ledger/sync", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			ph.SyncLedger(w, r)
+		})
+		mux.HandleFunc("/api/v1/portfolio/ledger", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodDelete {
+				w.Header().Set("Allow", http.MethodDelete)
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			ph.DisconnectLedger(w, r)
+		})
+
+		// Portfolio SSE stream.
+		mux.HandleFunc("/api/v1/portfolio/stream", ph.StreamPortfolio)
+	}
+
 	mux.HandleFunc("/swagger/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
 		_, _ = w.Write([]byte(defaultOpenAPIYAML(opts.APIBaseURL)))
@@ -665,6 +793,256 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Ticker"
+  /api/v1/portfolio/holdings:
+    get:
+      tags: [Portfolio]
+      summary: List user's holdings
+      description: Returns all holdings for the authenticated user. Requires a valid JWT session.
+      responses:
+        "200":
+          description: User holdings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Holding" }
+    post:
+      tags: [Portfolio]
+      summary: Create manual holding
+      description: Creates a new manual holding for the authenticated user. Requires a valid JWT session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                asset_symbol: { type: string }
+                quantity: { type: number, format: double }
+                avg_buy_price: { type: number, format: double }
+                quote_currency: { type: string }
+                notes: { type: string }
+      responses:
+        "201":
+          description: Created holding
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Holding" }
+  /api/v1/portfolio/holdings/{id}:
+    put:
+      tags: [Portfolio]
+      summary: Update holding
+      description: Updates an existing holding owned by the authenticated user. Requires a valid JWT session.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Updated holding
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Holding" }
+    delete:
+      tags: [Portfolio]
+      summary: Delete holding
+      description: Deletes a holding owned by the authenticated user. Requires a valid JWT session.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Holding deleted
+  /api/v1/portfolio/valuation:
+    get:
+      tags: [Portfolio]
+      summary: Current portfolio valuation
+      description: Returns a computed valuation snapshot with per-asset breakdown. Requires a valid JWT session.
+      parameters:
+        - { in: query, name: quote, schema: { type: string, default: USD } }
+      responses:
+        "200":
+          description: Portfolio valuation snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Valuation" }
+  /api/v1/portfolio/history:
+    get:
+      tags: [Portfolio]
+      summary: Historical portfolio value
+      description: Returns historical portfolio value data points for charting. Requires a valid JWT session.
+      parameters:
+        - { in: query, name: range, schema: { type: string, enum: [1d, 7d, 30d, 1y], default: 7d } }
+        - { in: query, name: quote, schema: { type: string, default: USD } }
+      responses:
+        "200":
+          description: Historical value data points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/HistoricalPoint" }
+  /api/v1/portfolio/stream:
+    get:
+      tags: [Portfolio]
+      summary: SSE live portfolio updates
+      description: Streams live portfolio valuation updates via Server-Sent Events. Requires a valid JWT session.
+      responses:
+        "200":
+          description: Server-Sent Events stream
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/Valuation" }
+  /api/v1/portfolio/credentials:
+    post:
+      tags: [Portfolio]
+      summary: Store exchange credential
+      description: Stores an exchange API credential for automatic balance syncing. Secrets are encrypted at rest. Requires a valid JWT session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                exchange: { type: string, enum: [binance, kraken, coinbase] }
+                api_key: { type: string }
+                api_secret: { type: string }
+      responses:
+        "201":
+          description: Credential stored (metadata only)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExchangeCredentialMeta" }
+    get:
+      tags: [Portfolio]
+      summary: List exchange credentials (metadata only)
+      description: Returns metadata for all exchange credentials owned by the authenticated user. Secrets are never exposed. Requires a valid JWT session.
+      responses:
+        "200":
+          description: Credential metadata list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ExchangeCredentialMeta" }
+  /api/v1/portfolio/credentials/{id}:
+    delete:
+      tags: [Portfolio]
+      summary: Delete exchange credential
+      description: Deletes an exchange credential and its associated synced holdings. Requires a valid JWT session.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Credential deleted
+  /api/v1/portfolio/credentials/{id}/sync:
+    post:
+      tags: [Portfolio]
+      summary: Trigger exchange sync
+      description: Triggers an immediate balance sync for the specified exchange credential. Requires a valid JWT session.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Sync completed
+  /api/v1/portfolio/wallets:
+    post:
+      tags: [Portfolio]
+      summary: Link wallet address
+      description: Links an on-chain wallet address for automatic balance tracking. Requires a valid JWT session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                chain: { type: string, enum: [ethereum, solana, bitcoin] }
+                address: { type: string }
+                label: { type: string }
+      responses:
+        "201":
+          description: Wallet linked (metadata only)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WalletMeta" }
+    get:
+      tags: [Portfolio]
+      summary: List linked wallets (metadata only)
+      description: Returns metadata for all linked wallets owned by the authenticated user. Full addresses are never exposed. Requires a valid JWT session.
+      responses:
+        "200":
+          description: Wallet metadata list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/WalletMeta" }
+  /api/v1/portfolio/wallets/{id}:
+    delete:
+      tags: [Portfolio]
+      summary: Delete linked wallet
+      description: Deletes a linked wallet and its associated synced holdings. Requires a valid JWT session.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Wallet deleted
+  /api/v1/portfolio/wallets/{id}/sync:
+    post:
+      tags: [Portfolio]
+      summary: Trigger wallet sync
+      description: Triggers an immediate balance sync for the specified wallet. Requires a valid JWT session.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Sync completed
+  /api/v1/portfolio/ledger/connect:
+    post:
+      tags: [Portfolio]
+      summary: Connect Ledger Live
+      description: Connects a Ledger Live account using an API token. One Ledger connection per user. Requires a valid JWT session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token: { type: string }
+      responses:
+        "201":
+          description: Ledger connected
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LedgerCredentialMeta" }
+  /api/v1/portfolio/ledger/sync:
+    post:
+      tags: [Portfolio]
+      summary: Re-sync Ledger balances
+      description: Triggers an immediate balance sync from Ledger Live. Requires a valid JWT session and an existing Ledger connection.
+      responses:
+        "200":
+          description: Sync completed
+  /api/v1/portfolio/ledger:
+    delete:
+      tags: [Portfolio]
+      summary: Disconnect Ledger Live
+      description: Disconnects the Ledger Live connection and removes associated synced holdings. Requires a valid JWT session.
+      responses:
+        "204":
+          description: Ledger disconnected
   /api/v1/news:
     get:
       tags: [News]
@@ -854,6 +1232,7 @@ paths:
           description: Updated user with must_change_password set
         "400":
           description: User has no password authentication
+
 components:
   securitySchemes:
     BearerAuth:
@@ -978,6 +1357,85 @@ components:
         link: { type: string, description: "URL to the full article." }
         source: { type: string, description: "RSS feed source (e.g. CoinDesk, Cointelegraph)." }
         published_at: { type: string, format: date-time, description: "Publication timestamp." }
+    Holding:
+      type: object
+      description: "A single position in a user's portfolio."
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        asset_symbol: { type: string }
+        quantity: { type: number, format: double }
+        avg_buy_price: { type: number, format: double, nullable: true }
+        quote_currency: { type: string }
+        source: { type: string, enum: [manual, binance, kraken, coinbase, ethereum, solana, bitcoin, ledger] }
+        source_ref: { type: string, format: uuid, nullable: true }
+        notes: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Valuation:
+      type: object
+      description: "Computed portfolio valuation snapshot."
+      properties:
+        total_value: { type: number, format: double }
+        quote_currency: { type: string }
+        assets:
+          type: array
+          items: { $ref: "#/components/schemas/AssetValuation" }
+        updated_at: { type: string, format: date-time }
+    AssetValuation:
+      type: object
+      description: "Per-asset breakdown within a portfolio valuation."
+      properties:
+        asset_symbol: { type: string }
+        quantity: { type: number, format: double }
+        current_price: { type: number, format: double }
+        current_value: { type: number, format: double }
+        allocation_pct: { type: number, format: double }
+        avg_buy_price: { type: number, format: double, nullable: true }
+        unrealized_pnl: { type: number, format: double, nullable: true }
+        unrealized_pnl_pct: { type: number, format: double, nullable: true }
+        priced: { type: boolean }
+        source: { type: string }
+    HistoricalPoint:
+      type: object
+      description: "A single data point in the historical portfolio value series."
+      properties:
+        timestamp: { type: integer, format: int64 }
+        value: { type: number, format: double }
+    ExchangeCredentialMeta:
+      type: object
+      description: "Exchange credential metadata (secrets are never exposed)."
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        exchange: { type: string, enum: [binance, kraken, coinbase] }
+        api_key_prefix: { type: string }
+        status: { type: string, enum: [active, failed] }
+        error_reason: { type: string, nullable: true }
+        last_sync_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    WalletMeta:
+      type: object
+      description: "Wallet address metadata (full address is never exposed)."
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        chain: { type: string, enum: [ethereum, solana, bitcoin] }
+        address_prefix: { type: string }
+        label: { type: string }
+        last_sync_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    LedgerCredentialMeta:
+      type: object
+      description: "Ledger Live credential metadata."
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        last_sync_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
 `
 }
 

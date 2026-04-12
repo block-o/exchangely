@@ -24,6 +24,10 @@ import (
 	"github.com/block-o/exchangely/backend/internal/ingest/realtime"
 	kafka "github.com/block-o/exchangely/backend/internal/messaging/kafka"
 	"github.com/block-o/exchangely/backend/internal/planner"
+	"github.com/block-o/exchangely/backend/internal/portfolio"
+	"github.com/block-o/exchangely/backend/internal/portfolio/exchange"
+	"github.com/block-o/exchangely/backend/internal/portfolio/ledger"
+	"github.com/block-o/exchangely/backend/internal/portfolio/wallet"
 	"github.com/block-o/exchangely/backend/internal/service"
 	postgresrepo "github.com/block-o/exchangely/backend/internal/storage/postgres"
 	"github.com/block-o/exchangely/backend/internal/worker"
@@ -59,6 +63,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			slog.Error("auth config error", "error", e)
 		}
 		return nil, fmt.Errorf("invalid auth configuration: %s", strings.Join(errs, "; "))
+	}
+
+	// Validate portfolio configuration before proceeding.
+	if errs := cfg.ValidatePortfolioConfig(); len(errs) > 0 {
+		for _, e := range errs {
+			slog.Error("portfolio config error", "error", e)
+		}
+		return nil, fmt.Errorf("invalid portfolio configuration: %s", strings.Join(errs, "; "))
 	}
 
 	instanceID, _ := os.Hostname()
@@ -146,6 +158,69 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		slog.Info("auth disabled — BACKEND_AUTH_MODE not set")
 	}
 
+	// Portfolio services — conditionally enabled when BACKEND_PORTFOLIO_ENABLED is set.
+	var portfolioService *portfolio.PortfolioService
+	var valuationEngine *portfolio.ValuationEngine
+	if cfg.PortfolioEnabled {
+		encryptionSvc, err := portfolio.NewKeyEncryptionService(cfg.PortfolioEncryptionKey)
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("portfolio encryption service: %w", err)
+		}
+
+		holdingRepo := postgresrepo.NewHoldingRepository(db)
+		credentialRepo := postgresrepo.NewCredentialRepository(db)
+		walletRepo := postgresrepo.NewWalletRepository(db)
+
+		// Build exchange connectors.
+		exchangeMap := map[string]exchange.Connector{
+			"binance":  exchange.NewBinanceConnector("", nil),
+			"kraken":   exchange.NewKrakenConnector("", nil),
+			"coinbase": exchange.NewCoinbaseConnector("", nil),
+		}
+
+		// Build wallet connectors.
+		walletMap := map[string]wallet.WalletConnector{
+			"ethereum": wallet.NewEthereumConnector("", cfg.EtherscanAPIKey, nil),
+			"solana":   wallet.NewSolanaConnector(cfg.SolanaRPCURL, nil),
+			"bitcoin":  wallet.NewBitcoinConnector(cfg.BitcoinAPIURL, nil),
+		}
+
+		// Build Ledger connector.
+		ledgerConn := ledger.NewJSONParser()
+
+		// Build asset catalog lookup from the catalog service.
+		allAssets, err := catalogService.Assets(ctx)
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("loading asset catalog for portfolio: %w", err)
+		}
+		assetCatalog := make(map[string]bool, len(allAssets))
+		for _, a := range allAssets {
+			assetCatalog[a.Symbol] = true
+		}
+
+		portfolioService = portfolio.NewPortfolioService(
+			holdingRepo,
+			credentialRepo,
+			walletRepo,
+			encryptionSvc,
+			exchangeMap,
+			walletMap,
+			ledgerConn,
+			assetCatalog,
+		)
+
+		valuationEngine = portfolio.NewValuationEngine(
+			service.NewMarketDataAdapter(marketRepo),
+			holdingRepo,
+		)
+
+		slog.Info("portfolio enabled")
+	} else {
+		slog.Info("portfolio disabled — BACKEND_PORTFOLIO_ENABLED not set")
+	}
+
 	systemService := service.NewSystemService(
 		postgresrepo.NewHealthChecker(cfg.DatabaseURL),
 		kafka.NewHealthChecker(cfg.KafkaBrokers),
@@ -169,6 +244,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		APITokenService:  apiTokenService,
 		APIRateLimiter:   apiRateLimiter,
 		AdminUserService: adminUserService,
+		PortfolioService: portfolioService,
+		ValuationEngine:  valuationEngine,
 	}, router.Options{
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 		Env:            cfg.Env,
@@ -187,7 +264,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		cfg.PlannerLeaseName,
 		cfg.PlannerLeaseTTL,
 		cfg.PlannerTick,
-		planner.NewScheduler(cfg.RealtimePollInterval, cfg.NewsFetchInterval),
+		planner.NewScheduler(cfg.RealtimePollInterval, cfg.NewsFetchInterval, cfg.IntegrityCheckInterval, cfg.GapValidationInterval),
 		planner.ComputeBackfillTaskCap(cfg.WorkerBatchSize, cfg.PlannerBackfillBatchPct),
 		catalogRepo,
 		syncRepo,

@@ -6,16 +6,27 @@
 
 Started as a "poor man's CoinGecko" for historical data availability Exchangely is an event-driven crypto market data platform focused on historical OHLCV coverage for curated crypto/fiat and crypto/stablecoin pairs.
 
-![Market Dashboard](./market_dashboard.png)
+<table>
+  <tr>
+    <td>Market Overview</td>
+     <td>Portfolio Tracker</td>
+  </tr>
+  <tr>
+    <td><img src="./market.png" width=640 height=480></td>
+    <td><img src="./portfolio.png" width=640 height=480></td>
+  </tr>
+ </table>
+
 
 ## Features
 
 - **Real-time Market Dashboard** — Live prices, 1h/24h/7d variation, 24h volume, high/low, market cap, and embedded 24h sparkline candles for all tracked pairs. Updates via SSE with no polling.
 - **Historical OHLCV Data** — Automated backwards backfill from multiple providers with hourly and daily resolution. REST API with interval, start/end time filtering.
 - **Multi-Source Aggregation** — Five data providers (Binance, Binance Vision, Kraken, CoinGecko, CryptoDataDownload) with automatic cross-source consolidation and integrity checks.
-- **Market News Feed** — Horizontal scrolling ticker with curated crypto news from CoinDesk, Cointelegraph, and TheBlock RSS feeds, refreshed every 5 minutes.
+- **Market News Feed** — Horizontal scrolling ticker with curated crypto news from CoinDesk, Cointelegraph, and TheBlock RSS feeds, refreshed every 15 minutes.
 - **Authentication & Access Control** — Opt-in auth via `BACKEND_AUTH_MODE` supporting Google OAuth 2.0, local email/password, or both. JWT sessions with refresh tokens, role-based access (admin/user), rate limiting with progressive IP lockout, and password change flow. See [Authentication documentation](./docs/authentication.md).
 - **API Tokens & Rate Limiting** — Per-user `exly_`-prefixed API tokens for programmatic access. Tiered rate limits (user/premium/admin) backed by PostgreSQL sliding window counters, per-IP abuse prevention, and a frontend API key management page. See [API documentation](./docs/api.md).
+- **Portfolio Tracker** — Track crypto holdings from manual entries, exchange API syncs (Binance, Kraken, Coinbase), on-chain wallet addresses (Ethereum/ERC-20, Solana/SPL, Bitcoin), and Ledger Live imports. Live portfolio valuation, allocation breakdown, P&L, and historical value charts powered by Exchangely's own price data. All sensitive data encrypted at rest with per-user keys. See [Portfolio documentation](./docs/portfolio.md).
 - **Admin User Management** — List, search, and filter users. Change roles (user/premium/admin), disable/enable accounts with automatic session invalidation, and force password resets. All operations are admin-only and audit-logged.
 - **Operations Center** — Three-tab admin panel (gated to admin role when auth is enabled): system health warnings, coin-grouped coverage view (live feed health + backfill status per base asset in collapsible cards), and task audit log. All SSE-driven.
 - **Event-Driven Task Engine** — Planner/worker architecture with Kafka-distributed tasks, DB-backed leader election, per-pair advisory locks, and configurable throughput controls. See [Task Lifecycle](./docs/lifecycle.md).
@@ -34,14 +45,15 @@ flowchart LR
     Bot -->|REST + API Token| API
 
     API[API Role]
-    API -->|read candles + tickers| TS
-    API -->|users + sessions + tokens| TS
-    API -->|rate limit counters| TS
     API -->|OAuth redirect/callback| Google[[Google]]
 
     API -.->|SSE: tickers| UI
     API -.->|SSE: news| UI
     API -.->|SSE: tasks| UI
+    API -.->|SSE: portfolio| UI
+
+    API -->|exchange balance sync| HotWallets
+    API -->|wallet balance sync| ColdWallets
 
     Planner[Planner Role]
     Planner -->|lease + sync state| TS
@@ -62,15 +74,15 @@ flowchart LR
 
     subgraph Historical[Historical Providers]
         BinanceVision[[Binance Vision]]
-        BinanceHist[[Binance API]]
-        KrakenHist[[Kraken API]]
+        BinanceHist[[Binance Historical API]]
+        KrakenHist[[Kraken Historical API]]
         CDD[[CryptoDataDownload]]
     end
 
     subgraph RealtimeSrc[Realtime Providers]
-        BinanceRT[[Binance API]]
-        KrakenRT[[Kraken API]]
-        CoinGecko[[CoinGecko API]]
+        BinanceRT[[Binance Tickers API]]
+        KrakenRT[[Kraken Tickers API]]
+        CoinGecko[[CoinGecko Tickers API]]
     end
 
     subgraph News[News Sources]
@@ -79,6 +91,23 @@ flowchart LR
         TheBlock[[TheBlock RSS]]
     end
 
+    subgraph HotWallets[Hot Wallets]
+        Binance[[Binance]]
+        Kraken[[Kraken]]
+        Coinbase[[Coinbase]]
+    end
+
+    subgraph ColdWallets[Cold Wallets]
+        LedgerLive[[Ledger Live]]
+        Blockstream[[Blockstream]]        
+        Etherscan[[Etherscan]]
+        SolanaRPC[[Solana RPC]]
+    end
+
+    API -->|read candles + tickers| TS
+    API -->|users + sessions + tokens| TS
+    API -->|rate limit counters| TS
+    API -->|portfolio holdings + valuation| TS
     TS[(TimescaleDB)]
 ```
 
@@ -195,7 +224,9 @@ All settings are controlled via environment variables. Override them in `.env` o
 |----------|-------------|---------|
 | `BACKEND_TASK_RETENTION_PERIOD` | How long completed/failed tasks are kept before pruning | `24h` |
 | `BACKEND_TASK_MAX_LOG_COUNT` | Max completed/failed tasks kept per cleanup cycle | `1000` |
-| `BACKEND_NEWS_FETCH_INTERVAL` | How often the worker fetches news from RSS feeds | `5m` |
+| `BACKEND_NEWS_FETCH_INTERVAL` | How often the worker fetches news from RSS feeds | `15m` |
+| `BACKEND_INTEGRITY_CHECK_INTERVAL` | How often integrity check sweeps are scheduled per pair | `24h` |
+| `BACKEND_GAP_VALIDATION_INTERVAL` | How often gap validation sweeps are scheduled per pair | `24h` |
 
 #### Frontend
 
@@ -233,3 +264,16 @@ All settings are controlled via environment variables. Override them in `.env` o
 | `BACKEND_RATELIMIT_ADMIN` | Max requests per window for `admin` role | `1000` |
 | `BACKEND_RATELIMIT_IP` | Max requests per window per IP address (across all tokens) | `200` |
 | `BACKEND_RATELIMIT_WINDOW` | Sliding window duration for rate limit counters | `1m` |
+
+#### Portfolio Tracker
+
+> [!NOTE]
+> Portfolio features require authentication to be enabled. See the [Portfolio documentation](./docs/portfolio.md) for setup details.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `BACKEND_PORTFOLIO_ENABLED` | Feature flag to enable portfolio endpoints and encryption key validation at startup | `false` |
+| `BACKEND_PORTFOLIO_ENCRYPTION_KEY` | Hex-encoded 32-byte AES-256 master key for encrypting credentials and sensitive metadata. Required when portfolio is enabled. | _(empty)_ |
+| `BACKEND_ETHERSCAN_API_KEY` | Etherscan API key for Ethereum balance lookups | _(empty)_ |
+| `BACKEND_SOLANA_RPC_URL` | Solana RPC endpoint for balance queries | `https://api.mainnet-beta.solana.com` |
+| `BACKEND_BITCOIN_API_URL` | Bitcoin API endpoint for balance queries | `https://blockstream.info/api` |

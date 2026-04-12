@@ -378,6 +378,7 @@ func (r *TaskRepository) UpcomingTasks(ctx context.Context, limit, offset int) (
 		if err := rows.Scan(&item.ID, &item.Type, &item.Pair, &item.Interval, &item.WindowStart, &item.WindowEnd, &item.Status, &item.Description, &createdAt); err != nil {
 			return nil, 0, err
 		}
+		task.Enrich(&item)
 		items = append(items, item)
 	}
 
@@ -449,6 +450,7 @@ func (r *TaskRepository) RecentTasks(ctx context.Context, limit, offset int, typ
 			t := updatedAt.UTC()
 			item.CompletedAt = &t
 		}
+		task.Enrich(&item)
 		items = append(items, item)
 	}
 

@@ -313,3 +313,80 @@ func TestLoadRateLimitFallbackOnInvalidValues(t *testing.T) {
 		t.Fatalf("expected RateLimitWindow fallback 15s (parseDuration default), got %v", cfg.RateLimitWindow)
 	}
 }
+
+func TestLoadPortfolioDefaults(t *testing.T) {
+	_ = os.Unsetenv("BACKEND_PORTFOLIO_ENABLED")
+	_ = os.Unsetenv("BACKEND_PORTFOLIO_ENCRYPTION_KEY")
+	_ = os.Unsetenv("BACKEND_ETHERSCAN_API_KEY")
+	_ = os.Unsetenv("BACKEND_SOLANA_RPC_URL")
+	_ = os.Unsetenv("BACKEND_BITCOIN_API_URL")
+
+	cfg := Load()
+
+	if cfg.PortfolioEnabled {
+		t.Fatal("expected PortfolioEnabled to default to false")
+	}
+	if cfg.PortfolioEncryptionKey != "" {
+		t.Fatalf("expected empty PortfolioEncryptionKey, got %q", cfg.PortfolioEncryptionKey)
+	}
+	if cfg.EtherscanAPIKey != "" {
+		t.Fatalf("expected empty EtherscanAPIKey, got %q", cfg.EtherscanAPIKey)
+	}
+	if cfg.SolanaRPCURL != "https://api.mainnet-beta.solana.com" {
+		t.Fatalf("expected default SolanaRPCURL, got %q", cfg.SolanaRPCURL)
+	}
+	if cfg.BitcoinAPIURL != "https://blockstream.info/api" {
+		t.Fatalf("expected default BitcoinAPIURL, got %q", cfg.BitcoinAPIURL)
+	}
+}
+
+func TestLoadPortfolioCustomValues(t *testing.T) {
+	t.Setenv("BACKEND_PORTFOLIO_ENABLED", "true")
+	t.Setenv("BACKEND_PORTFOLIO_ENCRYPTION_KEY", "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	t.Setenv("BACKEND_ETHERSCAN_API_KEY", "my-etherscan-key")
+	t.Setenv("BACKEND_SOLANA_RPC_URL", "https://custom-solana.example.com")
+	t.Setenv("BACKEND_BITCOIN_API_URL", "https://custom-btc.example.com/api")
+
+	cfg := Load()
+
+	if !cfg.PortfolioEnabled {
+		t.Fatal("expected PortfolioEnabled to be true")
+	}
+	if cfg.PortfolioEncryptionKey != "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890" {
+		t.Fatalf("expected custom PortfolioEncryptionKey, got %q", cfg.PortfolioEncryptionKey)
+	}
+	if cfg.EtherscanAPIKey != "my-etherscan-key" {
+		t.Fatalf("expected custom EtherscanAPIKey, got %q", cfg.EtherscanAPIKey)
+	}
+	if cfg.SolanaRPCURL != "https://custom-solana.example.com" {
+		t.Fatalf("expected custom SolanaRPCURL, got %q", cfg.SolanaRPCURL)
+	}
+	if cfg.BitcoinAPIURL != "https://custom-btc.example.com/api" {
+		t.Fatalf("expected custom BitcoinAPIURL, got %q", cfg.BitcoinAPIURL)
+	}
+}
+
+func TestValidatePortfolioConfigDisabled(t *testing.T) {
+	cfg := Config{PortfolioEnabled: false}
+	if errs := cfg.ValidatePortfolioConfig(); len(errs) != 0 {
+		t.Fatalf("expected no errors when portfolio is disabled, got %v", errs)
+	}
+}
+
+func TestValidatePortfolioConfigEnabledMissingKey(t *testing.T) {
+	cfg := Config{PortfolioEnabled: true, PortfolioEncryptionKey: ""}
+	errs := cfg.ValidatePortfolioConfig()
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for missing encryption key, got %v", errs)
+	}
+}
+
+func TestValidatePortfolioConfigEnabledWithKey(t *testing.T) {
+	cfg := Config{
+		PortfolioEnabled:       true,
+		PortfolioEncryptionKey: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+	}
+	if errs := cfg.ValidatePortfolioConfig(); len(errs) != 0 {
+		t.Fatalf("expected no errors for valid portfolio config, got %v", errs)
+	}
+}

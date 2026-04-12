@@ -66,6 +66,7 @@ func (r *TaskRepository) Enqueue(ctx context.Context, tasks []task.Task) ([]task
 			    updated_at = NOW()
 			WHERE tasks.status IN ('completed', 'failed')
 			   OR (tasks.status = 'running' AND tasks.task_type = 'live_ticker' AND tasks.claimed_at < NOW() - INTERVAL '30 seconds')
+			   OR (tasks.status = 'pending' AND tasks.retry_at IS NOT NULL AND tasks.retry_at > NOW())
 		`, item.ID, item.Type, item.Pair, item.Interval, item.WindowStart.UTC(), item.WindowEnd.UTC(), item.Description)
 		if err != nil {
 			return nil, err
@@ -150,14 +151,19 @@ func (r *TaskRepository) Fail(ctx context.Context, taskID string, errStr string)
 }
 
 // ActiveBackfillPairs returns the set of pair symbols that currently have at
-// least one pending or running backfill task. The planner uses this to avoid
-// generating new backfill work for pairs that already have queued tasks.
+// least one pending or running backfill task that is actually actionable.
+// Pending tasks waiting for a retry cooldown (retry_at in the future) are
+// excluded so the planner can generate fresh work for those pairs instead
+// of leaving them idle until the retry window opens.
 func (r *TaskRepository) ActiveBackfillPairs(ctx context.Context) (map[string]bool, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT DISTINCT pair_symbol
 		FROM tasks
 		WHERE task_type = $1
-		  AND status IN ('pending', 'running')
+		  AND (
+		      status = 'running'
+		      OR (status = 'pending' AND (retry_at IS NULL OR retry_at <= NOW()))
+		  )
 	`, task.TypeBackfill)
 	if err != nil {
 		return nil, err

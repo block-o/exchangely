@@ -260,7 +260,7 @@ export function AuditTab() {
                   <tr key={t.id}>
                     <td style={{ textAlign: "left" }}><TaskTypeIcon type={t.type} /></td>
                     <td>{t.pair}</td>
-                    <td style={{ opacity: 0.7 }}>{t.interval}</td>
+                    <td style={{ opacity: 0.7 }}>{t.cadence || t.interval}</td>
                     <DescriptionCell task={t} />
                   </tr>
                 ))}

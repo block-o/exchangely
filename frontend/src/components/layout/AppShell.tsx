@@ -24,6 +24,10 @@ function getApiDocsUrl(theme: string) {
 /** Build the visible nav items based on auth state. */
 function getNavItems(isAuthenticated: boolean, role: string | undefined, authEnabled: boolean) {
   const items: { id: string; label: string }[] = [{ id: "market", label: "Market" }];
+  // Show Portfolio for authenticated users with user, premium, or admin role
+  if (isAuthenticated && (role === "user" || role === "premium" || role === "admin")) {
+    items.push({ id: "portfolio", label: "Portfolio" });
+  }
   // Show Operations when auth is disabled (everyone has full access)
   // or when the authenticated user is an admin.
   if (!authEnabled || (isAuthenticated && role === "admin")) {

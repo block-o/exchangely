@@ -46,29 +46,6 @@ The planner runs a loop every `BACKEND_PLANNER_TICK` (default 10s). Each tick:
 
 Realtime tasks are enqueued in a separate batch before everything else so they reach workers immediately, even when the follow-up batch is large.
 
-## Task Deduplication
-
-Every task has a deterministic ID. The `Enqueue` method uses `INSERT ... ON CONFLICT (id) DO UPDATE ... WHERE status IN ('completed', 'failed')`. This means:
-
-- A task that is `pending` or `running` is never overwritten — the insert is silently skipped.
-- A task that is `completed` or `failed` gets reset to `pending` so it can run again.
-- Stale `live_ticker` tasks (claimed >30s ago but still `running`) are also re-queued.
-
-This is the core mechanism that prevents task duplication. The ID format determines the dedup granularity:
-
-| Task type | ID format | Dedup behavior |
-|-----------|-----------|----------------|
-| `live_ticker` | `live_ticker:{PAIR}:realtime` | One per pair, ever. Re-queued after completion. |
-| `news_fetch` | `news_fetch:{SOURCE}:periodic` | One per RSS source, ever. Re-queued after completion. |
-| `integrity_check` | `integrity_check:{PAIR}:sweep` | One per pair, ever. Re-queued after completion. |
-| `gap_validation` | `gap_validation:{PAIR}:sweep` | One per pair, ever. Re-queued after completion. |
-| `historical_backfill` | `historical_backfill:{PAIR}:{INTERVAL}:{START}:{END}` | One per specific time window. |
-| `consolidation` | `consolidation:{PAIR}:1d:{START}:{END}` | One per pair per day. |
-| `task_cleanup` | `task_cleanup:daily` | One ever. Re-queued after completion. |
-| Backfill probe | `historical_backfill:{PAIR}:probe:{DAY_UNIX}` | One per pair per calendar day. |
-
-Tasks with stable IDs (no timestamp component) naturally cycle: the planner emits them every tick, but the insert is a no-op while the task is pending or running. Once a worker completes it, the next planner tick re-queues it.
-
 ## Worker Processing
 
 Workers run a polling loop every `BACKEND_WORKER_POLL_INTERVAL` (default 5s). Each poll:
@@ -134,7 +111,7 @@ Workers also receive task notifications via Kafka for faster pickup, but the pol
 - `running` → `failed`/`pending`: Executor fails. If retries remain, status goes back to `pending` with a `retry_at` delay (1h ± 5min jitter). If retries are exhausted, status stays `failed`.
 - `completed`/`failed` → `pending`: Planner re-enqueues via ON CONFLICT (for recurring tasks with stable IDs).
 
-## Task Types in Detail
+## Task Types
 
 ### live_ticker
 
@@ -160,21 +137,21 @@ Fetches historical OHLCV candles walking backwards from yesterday into the past.
 
 Cross-source validation that compares candle data from multiple providers.
 
-- **Scheduled by**: `BuildIntegrityCheckTasks` — one stable sweep per pair with coverage.
-- **ID**: `integrity_check:{PAIR}:sweep` (stable, no timestamp).
+- **Scheduled by**: `BuildIntegrityCheckTasks` — one sweep per pair with coverage, gated by `BACKEND_INTEGRITY_CHECK_INTERVAL` (default 24h).
+- **ID**: `integrity_check:{PAIR}:sweep:{WINDOW_UNIX}` (stable within each interval window).
 - **Executor**: `ValidatorExecutor` — walks unverified days (up to 7 per run), fetches from all validator sources, compares close prices. Days that pass are marked in `integrity_coverage`. Days with divergence above `BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT` fail.
 - **Progressive**: Each run picks up where the last left off. Already-verified days are skipped.
-- **Cycle**: Completes → planner checks for remaining unverified days → re-enqueues if any exist.
+- **Cycle**: Completes → planner checks for remaining unverified days → re-enqueues when the next interval window starts.
 
 ### gap_validation
 
 Verifies that stored data has no missing hours or days.
 
-- **Scheduled by**: `BuildGapValidationTasks` — one stable sweep per pair with uncovered days.
-- **ID**: `gap_validation:{PAIR}:sweep` (stable, no timestamp).
+- **Scheduled by**: `BuildGapValidationTasks` — one sweep per pair with uncovered days, gated by `BACKEND_GAP_VALIDATION_INTERVAL` (default 24h).
+- **ID**: `gap_validation:{PAIR}:sweep:{WINDOW_UNIX}` (stable within each interval window).
 - **Executor**: `GapValidatorExecutor` — walks uncovered days (up to 30 per run), checks for 24 hourly candles + 1 daily candle per day. Complete days are marked in `data_coverage`.
 - **Progressive**: Each run picks up where the last left off. Already-covered days are skipped.
-- **Cycle**: Completes → planner checks for remaining uncovered days → re-enqueues if any exist.
+- **Cycle**: Completes → planner checks for remaining uncovered days → re-enqueues when the next interval window starts.
 
 ### consolidation
 
@@ -202,6 +179,32 @@ Prunes old completed/failed tasks from the task table.
 - **ID**: `task_cleanup:daily` (stable, no timestamp).
 - **Executor**: `CleanupExecutor` — deletes tasks older than `BACKEND_TASK_RETENTION_PERIOD` (default 24h) and caps the log at `BACKEND_TASK_MAX_LOG_COUNT` (default 1000).
 - **Cycle**: Completes → next planner tick re-enqueues → runs again.
+
+## Task Deduplication
+
+Every task has a deterministic ID. The `Enqueue` method uses `INSERT ... ON CONFLICT (id) DO UPDATE ... WHERE status IN ('completed', 'failed')`. This means:
+
+- A task that is `pending` or `running` is never overwritten — the insert is silently skipped.
+- A task that is `completed` or `failed` gets reset to `pending` so it can run again.
+- Stale `live_ticker` tasks (claimed >30s ago but still `running`) are also re-queued.
+
+This is the core mechanism that prevents task duplication. The ID format determines the dedup granularity:
+
+| Task type | ID format | Dedup behavior |
+|-----------|-----------|----------------|
+| `live_ticker` | `live_ticker:{PAIR}:realtime` | One per pair, ever. Re-queued after completion. |
+| `news_fetch` | `news_fetch:{SOURCE}:periodic` | One per RSS source, ever. Re-queued after completion. |
+| `integrity_check` | `integrity_check:{PAIR}:sweep:{WINDOW}` | One per pair per interval window (default 24h). |
+| `gap_validation` | `gap_validation:{PAIR}:sweep:{WINDOW}` | One per pair per interval window (default 24h). |
+| `historical_backfill` | `historical_backfill:{PAIR}:{INTERVAL}:{START}:{END}` | One per specific time window. |
+| `consolidation` | `consolidation:{PAIR}:1d:{START}:{END}` | One per pair per day. |
+| `task_cleanup` | `task_cleanup:daily` | One ever. Re-queued after completion. |
+| Backfill probe | `historical_backfill:{PAIR}:probe:{DAY_UNIX}` | One per pair per calendar day. |
+
+Tasks with stable IDs (no timestamp component) naturally cycle: the planner emits them every tick, but the insert is a no-op while the task is pending or running. Once a worker completes it, the next planner tick re-queues it.
+
+Integrity check and gap validation tasks use a time-windowed ID: the `{WINDOW}` suffix is `now` truncated to the configured interval (default 24h). Within a window, the same ID is emitted so the insert is a no-op. When the window rolls over, a new ID is generated and the sweep runs again. This prevents these expensive sweeps from running more often than necessary while still allowing configurable cadence via `BACKEND_INTEGRITY_CHECK_INTERVAL` and `BACKEND_GAP_VALIDATION_INTERVAL`.
+
 
 ## Leadership and Coordination
 

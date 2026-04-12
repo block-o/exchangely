@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from "react";
 
 type Theme = "light" | "dark";
-export type QuoteCurrency = "EUR" | "USD";
+export type QuoteCurrency = string;
 
 type SettingsContextValue = {
   theme: Theme;
@@ -31,7 +31,7 @@ export function SettingsProvider({ children }: PropsWithChildren) {
     }
     
     const savedCurrency = localStorage.getItem(QUOTE_CURRENCY_KEY);
-    if (savedCurrency === "EUR" || savedCurrency === "USD") {
+    if (savedCurrency) {
       setQuoteCurrencyState(savedCurrency);
     }
   }, []);

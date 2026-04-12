@@ -8,7 +8,7 @@ import (
 )
 
 func BenchmarkScheduler_BuildInitialBackfillTasks_Massive(b *testing.B) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
 	// Force 1h granularity
 	scheduler.backfillWindow1H = time.Hour
 
@@ -34,7 +34,7 @@ func BenchmarkScheduler_BuildInitialBackfillTasks_Massive(b *testing.B) {
 }
 
 func TestScheduler_StressTaskGeneration(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
 
 	now := time.Now().UTC()
 

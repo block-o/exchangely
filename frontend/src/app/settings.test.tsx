@@ -50,7 +50,7 @@ describe("SettingsContext", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 
-  it("ignores unsupported stored quote currencies", () => {
+  it("accepts any stored quote currency", () => {
     localStorage.setItem("exchangely_quote_currency", "USDT");
 
     render(
@@ -59,7 +59,7 @@ describe("SettingsContext", () => {
       </SettingsProvider>
     );
 
-    expect(screen.getByTestId("currency")).toHaveTextContent("EUR");
+    expect(screen.getByTestId("currency")).toHaveTextContent("USDT");
   });
 
   it("ignores unsupported stored themes", () => {

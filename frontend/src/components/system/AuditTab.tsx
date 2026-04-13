@@ -14,6 +14,8 @@ import {
   TaskTypeIcon,
   DescriptionCell,
 } from "./shared";
+import { LogViewer } from "../../components/ui";
+import type { LogLine } from "../../components/ui";
 
 const UPCOMING_LIMIT = 10;
 const LOG_PAGE_SIZE = 50;
@@ -25,13 +27,20 @@ function buildLogLine(t: Task): string {
   const pair = t.pair || "";
   const desc = compactDescription(t);
 
-  // Build a natural sentence: "Historical Backfill BTCUSD — Hourly candles from ..."
   let message = type;
   if (pair) message += ` ${pair}`;
   if (desc && desc !== "—") message += ` — ${desc}`;
   if (t.status === "failed" && t.last_error) message += ` [${t.last_error}]`;
 
   return `${time}  ${level}  ${message}`;
+}
+
+function taskToLogLine(t: Task): LogLine {
+  return {
+    key: t.id,
+    text: buildLogLine(t),
+    level: t.status === "failed" ? "error" : "ok",
+  };
 }
 
 function TaskLogViewer({
@@ -47,7 +56,7 @@ function TaskLogViewer({
   loadingMore: boolean;
   onLoadMore: () => void;
 }) {
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const query = search.toLowerCase();
 
   const filtered = query
@@ -60,55 +69,43 @@ function TaskLogViewer({
     onLoadMore();
   }, [query, hasMore, loadingMore, onLoadMore, tasks.length]);
 
-  // Infinite scroll: observe the sentinel element at the bottom
+  // Infinite scroll: detect when user scrolls near the bottom of the log viewer
   useEffect(() => {
     if (!hasMore || loadingMore || query) return;
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
+    const container = containerRef.current;
+    if (!container) return;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) onLoadMore();
-      },
-      { threshold: 0.1 }
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
+    // Find the .task-log-viewer element rendered by LogViewer
+    const viewer = container.querySelector<HTMLElement>(".task-log-viewer");
+    if (!viewer) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = viewer;
+      if (scrollHeight - scrollTop - clientHeight < 100) onLoadMore();
+    };
+    viewer.addEventListener("scroll", handleScroll, { passive: true });
+    return () => viewer.removeEventListener("scroll", handleScroll);
   }, [hasMore, loadingMore, query, onLoadMore]);
 
   const searching = query && hasMore;
+  const lines = filtered.map(taskToLogLine);
 
   return (
-    <div
-      className="task-log-viewer"
-      role="log"
-      aria-label="Task outcome log"
-    >
-      {filtered.length === 0 && !searching ? (
-        <div style={{ opacity: 0.4, padding: "1.5rem 0", textAlign: "center" }}>
-          {query ? "No matching log entries." : "No completed tasks found."}
+    <div ref={containerRef}>
+      <LogViewer
+        lines={lines}
+        emptyMessage={!searching ? (query ? "No matching log entries." : "No completed tasks found.") : undefined}
+        aria-label="Task outcome log"
+      />
+      {searching && (
+        <div style={{ padding: "0.5rem 1rem", opacity: 0.4, fontSize: "0.75rem", textAlign: "center" }}>
+          Searching… ({tasks.length} entries loaded)
         </div>
-      ) : (
-        <>
-          {filtered.map((t) => (
-            <div
-              key={t.id}
-              className={`task-log-line ${t.status === "failed" ? "task-log-error" : "task-log-ok"}`}
-            >
-              {buildLogLine(t)}
-            </div>
-          ))}
-          {searching && (
-            <div style={{ padding: "0.5rem 1rem", opacity: 0.4, fontSize: "0.75rem", textAlign: "center" }}>
-              Searching… ({tasks.length} entries loaded)
-            </div>
-          )}
-          {!query && hasMore && (
-            <div ref={sentinelRef} style={{ padding: "0.5rem 1rem", opacity: 0.4, fontSize: "0.75rem", textAlign: "center" }}>
-              {loadingMore ? "Loading…" : ""}
-            </div>
-          )}
-        </>
+      )}
+      {!query && hasMore && (
+        <div style={{ padding: "0.5rem 1rem", opacity: 0.4, fontSize: "0.75rem", textAlign: "center" }}>
+          {loadingMore ? "Loading…" : ""}
+        </div>
       )}
     </div>
   );

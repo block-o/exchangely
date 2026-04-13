@@ -2,9 +2,9 @@ import type { Pair, Ticker, Candle } from "../types/api";
 import {
   formatCurrencyNumber,
   formatCompactCurrencyNumber,
-  formatNumber,
   formatVariation,
 } from "../lib/format";
+import { Sparkline } from "./ui";
 
 export interface MarketCardProps {
   pair: Pair;
@@ -15,95 +15,9 @@ export interface MarketCardProps {
   quoteCurrency: string;
 }
 
-const MIN_TREND_SCALE_PCT = 0.5;
-
 function variationClass(value: number | undefined): string {
   if (value === undefined) return "";
   return value >= 0 ? "text-up" : "text-down";
-}
-
-function Sparkline({ candles }: { candles: Candle[] }) {
-  const latestCandleUnix =
-    candles.length > 0
-      ? candles[candles.length - 1].timestamp
-      : Math.floor(Date.now() / 1000);
-  const currentHourUnix = Math.floor(latestCandleUnix / 3600) * 3600;
-
-  const plotted = Array.from({ length: 24 }).map((_, i) => {
-    const bucketUnix = currentHourUnix - (23 - i) * 3600;
-    return candles.find(
-      (x) => x.timestamp >= bucketUnix && x.timestamp < bucketUnix + 3600
-    );
-  });
-
-  const validCandles = plotted.filter((c): c is Candle => !!c);
-  const referenceClose = validCandles.length > 0 ? validCandles[0].close : 0;
-
-  // Derive scale from actual data range so bars fill the chart.
-  let trendScale = MIN_TREND_SCALE_PCT;
-  if (referenceClose > 0 && validCandles.length > 1) {
-    const maxPct = validCandles.reduce(
-      (mx, cc) => Math.max(mx, Math.abs(((cc.close - referenceClose) / referenceClose) * 100)),
-      0,
-    );
-    if (maxPct > trendScale) trendScale = maxPct * 1.1; // 10 % headroom
-  }
-
-  return (
-    <div
-      className="chart-placeholder"
-      style={{
-        width: "80px",
-        maxWidth: "80px",
-        flexShrink: 0,
-        height: "32px",
-        display: "flex",
-        alignItems: "flex-end",
-        gap: "1px",
-        overflow: "hidden",
-      }}
-    >
-      {plotted.map((c, i) => {
-        if (!c) {
-          return (
-            <div
-              key={`missing-${i}`}
-              className="chart-bar empty"
-              style={{
-                height: "30%",
-                backgroundColor: "#374151",
-                opacity: 1,
-              }}
-              title="Data unavailable"
-            />
-          );
-        }
-
-        const isUp = c.close >= c.open;
-        const pctChange =
-          referenceClose > 0
-            ? ((c.close - referenceClose) / referenceClose) * 100
-            : 0;
-        const boundedPctChange = Math.max(
-          -trendScale,
-          Math.min(trendScale, pctChange)
-        );
-        const heightPct =
-          ((boundedPctChange + trendScale) / (trendScale * 2)) * 100;
-
-        return (
-          <div
-            key={`val-${i}`}
-            className={`chart-bar ${isUp ? "up" : "down"}`}
-            style={{
-              height: `${Math.max(8, heightPct)}%`,
-            }}
-            title={`C: ${formatNumber(c.close)} (${pctChange >= 0 ? "+" : ""}${formatNumber(pctChange)}%)`}
-          />
-        );
-      })}
-    </div>
-  );
 }
 
 export function MarketCard({
@@ -134,7 +48,7 @@ export function MarketCard({
         <span className={variationClass(ticker?.variation_24h)}>
           {formatVariation(ticker?.variation_24h)}
         </span>
-        <Sparkline candles={candles} />
+        <Sparkline candles={candles} width={80} height={32} />
       </div>
 
       {/* Secondary info grid */}

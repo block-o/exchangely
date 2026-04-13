@@ -1,0 +1,28 @@
+/* Shared Card Component */
+.ui-card {
+  border: 1px solid var(--color-border);
+  border-radius: 24px;
+}
+
+/* Panel: full glassmorphism */
+.ui-card--panel {
+  padding: 32px;
+  background: var(--color-bg-panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-panel);
+}
+
+/* Card: lighter card treatment */
+.ui-card--card {
+  padding: 20px;
+  background: var(--color-bg-card);
+  border-color: var(--color-subtle-border);
+  border-radius: 16px;
+  transition: transform var(--transition-normal), background var(--transition-normal);
+}
+
+.ui-card--card:hover {
+  transform: translateY(-2px);
+  background: var(--color-interactive-bg);
+}

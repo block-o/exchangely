@@ -1,3 +1,4 @@
+import './NewsTicker.css';
 import React, { useEffect, useState } from 'react';
 import { NewsItem, getNews } from '../../api/news';
 import { formatUnix } from '../../lib/format';

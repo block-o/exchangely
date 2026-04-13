@@ -1,0 +1,20 @@
+/* StatusDot styles */
+
+.market-stream-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.market-stream-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-down);
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.14);
+}
+
+.market-stream-status.is-live .market-stream-dot {
+  background: var(--color-up);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
+}

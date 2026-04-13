@@ -3,6 +3,7 @@ import { dismissWarning as dismissSystemWarning, fetchWarnings as fetchSystemWar
 import { API_BASE_URL } from "../../api/client";
 import type { ActiveWarning } from "../../types/api";
 import { formatUnixTimestamp } from "./shared";
+import { Alert } from "../../components/ui";
 
 export function OverviewTab() {
   const [warnings, setWarnings] = useState<ActiveWarning[]>([]);
@@ -115,71 +116,27 @@ export function OverviewTab() {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
             {warnings.map((warning) => (
-              <article
+              <Alert
                 key={warning.id}
-                style={{
-                  padding: "0.9rem 1rem",
-                  borderRadius: "10px",
-                  border: `1px solid ${
-                    warning.level === "error" ? "rgba(255,107,107,0.45)" : "rgba(255,196,61,0.35)"
-                  }`,
-                  background:
-                    warning.level === "error" ? "rgba(120,28,28,0.18)" : "rgba(140,96,0,0.14)",
-                }}
+                level={warning.level === "error" ? "error" : "warning"}
+                title={warning.title}
+                onDismiss={
+                  dismissingWarningIds.has(warning.id)
+                    ? undefined
+                    : () => dismissWarning(warning)
+                }
+                className="overview-alert"
               >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "0.75rem",
-                    marginBottom: "0.45rem",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                    <strong style={{ fontSize: "0.92rem" }}>{warning.title}</strong>
-                    {warning.timestamp ? (
-                      <span style={{ fontSize: "0.75rem", opacity: 0.55 }}>
-                        {formatUnixTimestamp(warning.timestamp)}
-                      </span>
-                    ) : null}
-                  </div>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
-                    <span
-                      style={{
-                        fontSize: "0.72rem",
-                        letterSpacing: "0.04em",
-                        textTransform: "uppercase",
-                        opacity: 0.75,
-                      }}
-                    >
-                      {warning.level}
+                <div className="overview-alert__meta">
+                  {warning.timestamp ? (
+                    <span className="overview-alert__timestamp">
+                      {formatUnixTimestamp(warning.timestamp)}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => dismissWarning(warning)}
-                      aria-label={`Dismiss warning ${warning.title}`}
-                      disabled={dismissingWarningIds.has(warning.id)}
-                      style={{
-                        background: "transparent",
-                        border: "1px solid var(--color-interactive-border)",
-                        borderRadius: "999px",
-                        color: "inherit",
-                        cursor: dismissingWarningIds.has(warning.id) ? "default" : "pointer",
-                        fontSize: "0.9rem",
-                        lineHeight: 1,
-                        opacity: dismissingWarningIds.has(warning.id) ? 0.45 : 1,
-                        padding: "0.12rem 0.42rem",
-                      }}
-                    >
-                      ×
-                    </button>
-                  </span>
+                  ) : null}
+                  <span className="overview-alert__level">{warning.level}</span>
                 </div>
-                <p style={{ margin: 0, fontSize: "0.84rem", lineHeight: 1.45, opacity: 0.86 }}>
-                  {warning.detail}
-                </p>
-              </article>
+                <p style={{ margin: 0 }}>{warning.detail}</p>
+              </Alert>
             ))}
           </div>
         )}

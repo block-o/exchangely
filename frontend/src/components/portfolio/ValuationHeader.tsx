@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { subscribePortfolioStream } from "../../api/portfolio";
 import type { Valuation } from "../../api/portfolio";
+import { Button } from "../ui";
 
 type ValuationHeaderProps = {
   valuation: Valuation | null;
@@ -92,7 +93,8 @@ export function ValuationHeader({ valuation, loading, onSyncAll }: ValuationHead
           <span className={`portfolio-stream-dot ${isLive ? "live" : ""}`} />
           <span className="portfolio-stream-label">{isLive ? "Live" : "Offline"}</span>
           {onSyncAll && (
-            <button
+            <Button
+              variant="icon"
               className="portfolio-sync-all-btn"
               onClick={handleSyncAll}
               disabled={syncing}
@@ -100,7 +102,7 @@ export function ValuationHeader({ valuation, loading, onSyncAll }: ValuationHead
               title="Sync all sources"
             >
               {syncing ? "Syncing\u2026" : "\u21BB"}
-            </button>
+            </Button>
           )}
         </div>
       </div>

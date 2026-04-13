@@ -1,3 +1,4 @@
+import './PortfolioPage.css';
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../app/auth";
 import { useSettings } from "../app/settings";
@@ -12,8 +13,16 @@ import { AddHoldingModal } from "../components/portfolio/AddHoldingModal";
 import { ExchangeCredentialManager } from "../components/portfolio/ExchangeCredentialManager";
 import { WalletManager } from "../components/portfolio/WalletManager";
 import { LedgerManager } from "../components/portfolio/LedgerManager";
+import { Alert, Button, ToggleGroup } from "../components/ui";
 
 type ActivePanel = "overview" | "exchanges" | "wallets" | "ledger";
+
+const PANEL_OPTIONS = [
+  { value: "overview", label: "Overview" },
+  { value: "exchanges", label: "Exchanges" },
+  { value: "wallets", label: "Wallets" },
+  { value: "ledger", label: "Ledger" },
+];
 
 export function PortfolioPage() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -81,7 +90,7 @@ export function PortfolioPage() {
   return (
     <section className="portfolio-page">
       <div className="portfolio-container">
-        {error && <div className="login-error" role="alert">{error}</div>}
+        {error && <Alert level="error">{error}</Alert>}
 
         {isEmpty && !error ? (
           <EmptyState
@@ -93,23 +102,14 @@ export function PortfolioPage() {
         ) : (
           <>
             <div className="portfolio-top-bar">
-              <div className="toggle-group">
-                <button className={activePanel === "overview" ? "active" : ""} onClick={() => setActivePanel("overview")}>
-                  Overview
-                </button>
-                <button className={activePanel === "exchanges" ? "active" : ""} onClick={() => setActivePanel("exchanges")}>
-                  Exchanges
-                </button>
-                <button className={activePanel === "wallets" ? "active" : ""} onClick={() => setActivePanel("wallets")}>
-                  Wallets
-                </button>
-                <button className={activePanel === "ledger" ? "active" : ""} onClick={() => setActivePanel("ledger")}>
-                  Ledger
-                </button>
-              </div>
-              <button className="apikeys-create-btn" onClick={() => setShowAddHolding(true)} style={{ padding: "8px 16px", fontSize: "0.82rem" }}>
+              <ToggleGroup
+                options={PANEL_OPTIONS}
+                value={activePanel}
+                onChange={(v) => setActivePanel(v as ActivePanel)}
+              />
+              <Button variant="primary" onClick={() => setShowAddHolding(true)} style={{ padding: "8px 16px", fontSize: "0.82rem" }}>
                 Add Holding
-              </button>
+              </Button>
             </div>
           </>
         )}

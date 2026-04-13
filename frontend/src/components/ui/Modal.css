@@ -1,0 +1,51 @@
+/* Modal styles */
+
+.modal-backdrop {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modal {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  max-width: 400px;
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  padding: 24px;
+  z-index: 101;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(24px);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: color 0.2s;
+  padding: 4px;
+}
+
+.icon-btn:hover {
+  color: var(--color-text-primary);
+}
+
+/* Light theme overrides */
+[data-theme="light"] .modal {
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.15);
+}

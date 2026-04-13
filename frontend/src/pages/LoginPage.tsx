@@ -1,7 +1,9 @@
+import './LoginPage.css';
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../app/auth";
 import { API_BASE_URL, setAccessToken } from "../api/client";
 import type { TokenResponse } from "../types/auth";
+import { Alert, Button, Input } from "../components/ui";
 
 /** Map backend error codes from the URL hash to user-friendly messages. */
 function friendlyError(code: string): string {
@@ -91,16 +93,15 @@ export function LoginPage() {
         </div>
 
         {displayError && (
-          <div className="login-error" role="alert">
-            {displayError}
-          </div>
+          <Alert level="error">{displayError}</Alert>
         )}
 
         {/* Google OAuth button — only when SSO is enabled */}
         {authMethods?.google && (
-          <button
+          <Button
             type="button"
-            className="login-btn login-btn-google"
+            variant="secondary"
+            className="login-btn-google"
             onClick={login}
           >
             <svg
@@ -127,7 +128,7 @@ export function LoginPage() {
               />
             </svg>
             Sign in with Google
-          </button>
+          </Button>
         )}
 
         {/* Local email/password form — only when local auth is enabled */}
@@ -139,12 +140,9 @@ export function LoginPage() {
               </div>
             )}
             <form onSubmit={handleLocalLogin} className="login-form">
-              <label className="login-label" htmlFor="login-email">
-                Email
-              </label>
-              <input
+              <Input
                 id="login-email"
-                className="login-input"
+                label="Email"
                 type="email"
                 autoComplete="email"
                 required
@@ -152,12 +150,9 @@ export function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin@example.com"
               />
-              <label className="login-label" htmlFor="login-password">
-                Password
-              </label>
-              <input
+              <Input
                 id="login-password"
-                className="login-input"
+                label="Password"
                 type="password"
                 autoComplete="current-password"
                 required
@@ -165,13 +160,14 @@ export function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
               />
-              <button
+              <Button
                 type="submit"
-                className="login-btn login-btn-local"
+                variant="primary"
+                className="login-btn-local"
                 disabled={submitting}
               >
                 {submitting ? "Signing in…" : "Sign in with email"}
-              </button>
+              </Button>
             </form>
           </>
         )}

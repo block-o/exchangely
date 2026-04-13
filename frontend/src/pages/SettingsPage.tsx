@@ -1,11 +1,9 @@
+import './SettingsPage.css';
 import { useEffect } from "react";
 import { useAuth } from "../app/auth";
 import { useSettings } from "../app/settings";
+import { Badge, ToggleGroup } from "../components/ui";
 
-/**
- * Settings page — displays user profile, role badge, connected accounts,
- * and a preferences placeholder. Redirects unauthenticated visitors to #login.
- */
 export function SettingsPage() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const { theme, setTheme, quoteCurrency, setQuoteCurrency } = useSettings();
@@ -51,11 +49,12 @@ export function SettingsPage() {
             <div className="settings-profile-info">
               <div className="settings-name-row">
                 <span className="settings-name">{user.name || "Unnamed User"}</span>
-                <span
+                <Badge
+                  variant={user.role === "admin" ? "accent" : "default"}
                   className={`settings-role-badge ${user.role === "admin" ? "settings-role-admin" : "settings-role-user"}`}
                 >
                   {user.role}
-                </span>
+                </Badge>
               </div>
               <span className="settings-email">{user.email}</span>
             </div>
@@ -103,17 +102,19 @@ export function SettingsPage() {
           <h2 className="settings-panel-title">Preferences</h2>
           <div className="settings-pref-row">
             <div className="settings-pref-label">Theme</div>
-            <div className="toggle-group">
-              <button className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}>Dark</button>
-              <button className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}>Light</button>
-            </div>
+            <ToggleGroup
+              options={[{ value: "dark", label: "Dark" }, { value: "light", label: "Light" }]}
+              value={theme}
+              onChange={(v) => setTheme(v as "dark" | "light")}
+            />
           </div>
           <div className="settings-pref-row">
             <div className="settings-pref-label">Default Quote Currency</div>
-            <div className="toggle-group">
-              <button className={quoteCurrency === "EUR" ? "active" : ""} onClick={() => setQuoteCurrency("EUR")}>EUR</button>
-              <button className={quoteCurrency === "USD" ? "active" : ""} onClick={() => setQuoteCurrency("USD")}>USD</button>
-            </div>
+            <ToggleGroup
+              options={[{ value: "EUR", label: "EUR" }, { value: "USD", label: "USD" }]}
+              value={quoteCurrency}
+              onChange={(v) => setQuoteCurrency(v as "EUR" | "USD")}
+            />
           </div>
           <div className="settings-pref-row">
             <div className="settings-pref-label">Notifications</div>

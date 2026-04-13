@@ -32,6 +32,16 @@ Started as a "poor man's CoinGecko" for historical data availability Exchangely 
 - **Event-Driven Task Engine** — Planner/worker architecture with Kafka-distributed tasks, DB-backed leader election, per-pair advisory locks, and configurable throughput controls. See [Task Lifecycle](./docs/lifecycle.md).
 - **Data Integrity** — Gap validation, cross-source integrity checks, daily backfill probes, and automatic task cleanup with configurable retention.
 
+## Shared Component Library
+
+Reusable UI components live in `frontend/src/components/ui/` with a barrel export:
+
+```tsx
+import { Button, Badge, Card, Input, Modal, Alert } from '../components/ui';
+```
+
+Available components: Button, Badge, Card, Input, Table (TableHead, TableBody, TableRow, TableCell), Modal, ToggleGroup, StatusDot, Spinner, LogViewer, Alert, Sparkline, EmptyState.
+
 ## Architecture
 
 

@@ -1,6 +1,8 @@
+import './APIKeysPage.css';
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../app/auth";
 import { API_BASE_URL, authFetch } from "../api/client";
+import { Alert, Badge, Button, Input, Modal } from "../components/ui";
 
 // Types
 
@@ -32,16 +34,15 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function statusClass(status: string): string {
+function badgeVariant(status: string): "success" | "danger" | "default" {
   switch (status) {
     case "active":
-      return "apikeys-badge-active";
-    case "revoked":
-      return "apikeys-badge-revoked";
+      return "success";
     case "expired":
-      return "apikeys-badge-expired";
+      return "danger";
+    case "revoked":
     default:
-      return "";
+      return "default";
   }
 }
 
@@ -208,12 +209,13 @@ export function APIKeysPage() {
             <h2 className="settings-panel-title" style={{ marginBottom: 0 }}>
               API Keys
             </h2>
-            <button
+            <Button
+              variant="primary"
               className="apikeys-create-btn"
               onClick={() => setShowCreate(true)}
             >
               Create API Key
-            </button>
+            </Button>
           </div>
           <p className="apikeys-subtitle">
             Manage your API tokens for programmatic access to Exchangely data.
@@ -248,9 +250,7 @@ export function APIKeysPage() {
 
         {/* Error */}
         {error && (
-          <div className="login-error" role="alert">
-            {error}
-          </div>
+          <Alert level="error">{error}</Alert>
         )}
 
         {/* Token List */}
@@ -269,9 +269,9 @@ export function APIKeysPage() {
                   <div className="apikeys-token-info">
                     <div className="apikeys-token-label-row">
                       <span className="apikeys-token-label">{token.label}</span>
-                      <span className={`apikeys-badge ${statusClass(token.status)}`}>
+                      <Badge variant={badgeVariant(token.status)} className="apikeys-badge">
                         {token.status}
-                      </span>
+                      </Badge>
                     </div>
                     <div className="apikeys-token-meta">
                       <code className="apikeys-token-prefix">{token.prefix}…</code>
@@ -282,12 +282,13 @@ export function APIKeysPage() {
                     </div>
                   </div>
                   {token.status === "active" && (
-                    <button
+                    <Button
+                      variant="danger"
                       className="apikeys-revoke-btn"
                       onClick={() => setRevokeTarget(token)}
                     >
                       Revoke
-                    </button>
+                    </Button>
                   )}
                 </div>
               ))}
@@ -298,136 +299,103 @@ export function APIKeysPage() {
 
       {/* Create Modal */}
       {showCreate && (
-        <>
-          <div className="modal-backdrop" onClick={closeCreateModal} />
-          <div className="modal" role="dialog" aria-label="Create API Key">
-            <div className="modal-header">
-              <h3 className="settings-panel-title" style={{ marginBottom: 0 }}>
-                {createdToken ? "API Key Created" : "Create API Key"}
-              </h3>
-              <button
-                className="icon-btn"
-                onClick={closeCreateModal}
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-
-            {createdToken ? (
-              <div className="apikeys-created-result">
-                <div className="apikeys-warning">
-                  ⚠ Copy this token now. It will not be shown again.
-                </div>
-                <div className="apikeys-token-display">
-                  <code className="apikeys-raw-token">{createdToken}</code>
-                  <button
-                    className="apikeys-copy-btn"
-                    onClick={handleCopy}
-                  >
-                    {copied ? "Copied!" : "Copy"}
-                  </button>
-                </div>
-                <button
-                  className="apikeys-create-btn"
-                  onClick={closeCreateModal}
-                  style={{ width: "100%", marginTop: 12 }}
+        <Modal
+          title={createdToken ? "API Key Created" : "Create API Key"}
+          onClose={closeCreateModal}
+        >
+          {createdToken ? (
+            <div className="apikeys-created-result">
+              <Alert level="warning">
+                Copy this token now. It will not be shown again.
+              </Alert>
+              <div className="apikeys-token-display">
+                <code className="apikeys-raw-token">{createdToken}</code>
+                <Button
+                  variant="secondary"
+                  className="apikeys-copy-btn"
+                  onClick={handleCopy}
                 >
-                  Done
-                </button>
+                  {copied ? "Copied!" : "Copy"}
+                </Button>
               </div>
-            ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleCreate();
-                }}
+              <Button
+                variant="primary"
+                className="apikeys-create-btn"
+                onClick={closeCreateModal}
+                style={{ width: "100%", marginTop: 12 }}
               >
-                <label className="login-label" htmlFor="apikey-label">
-                  Label
-                </label>
-                <input
-                  id="apikey-label"
-                  className="login-input"
-                  type="text"
-                  required
-                  value={createLabel}
-                  onChange={(e) => setCreateLabel(e.target.value)}
-                  placeholder="e.g. My Trading Bot"
-                  autoFocus
-                />
-                {createError && (
-                  <div
-                    className="login-error"
-                    role="alert"
-                    style={{ marginTop: 12 }}
-                  >
-                    {createError}
-                  </div>
-                )}
-                <button
-                  type="submit"
-                  className="apikeys-create-btn"
-                  disabled={creating || !createLabel.trim()}
-                  style={{ width: "100%", marginTop: 16 }}
-                >
-                  {creating ? "Creating…" : "Create Token"}
-                </button>
-              </form>
-            )}
-          </div>
-        </>
+                Done
+              </Button>
+            </div>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleCreate();
+              }}
+            >
+              <Input
+                label="Label"
+                id="apikey-label"
+                type="text"
+                required
+                value={createLabel}
+                onChange={(e) => setCreateLabel(e.target.value)}
+                placeholder="e.g. My Trading Bot"
+                autoFocus
+              />
+              {createError && (
+                <Alert level="error" className="apikeys-create-error">
+                  {createError}
+                </Alert>
+              )}
+              <Button
+                type="submit"
+                variant="primary"
+                className="apikeys-create-btn"
+                disabled={creating || !createLabel.trim()}
+                style={{ width: "100%", marginTop: 16 }}
+              >
+                {creating ? "Creating…" : "Create Token"}
+              </Button>
+            </form>
+          )}
+        </Modal>
       )}
 
       {/* Revoke Confirmation */}
       {revokeTarget && (
-        <>
-          <div
-            className="modal-backdrop"
-            onClick={() => setRevokeTarget(null)}
-          />
-          <div className="modal" role="dialog" aria-label="Revoke API Key">
-            <div className="modal-header">
-              <h3 className="settings-panel-title" style={{ marginBottom: 0 }}>
-                Revoke API Key
-              </h3>
-              <button
-                className="icon-btn"
-                onClick={() => setRevokeTarget(null)}
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-            <p style={{ color: "var(--color-text-secondary)", margin: "0 0 8px" }}>
-              Are you sure you want to revoke{" "}
-              <strong style={{ color: "var(--color-text-primary)" }}>
-                {revokeTarget.label}
-              </strong>
-              ? This action cannot be undone.
-            </p>
-            <p style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem", margin: "0 0 20px" }}>
-              Any applications using this key will lose access immediately.
-            </p>
-            <div style={{ display: "flex", gap: 12 }}>
-              <button
-                className="apikeys-cancel-btn"
-                onClick={() => setRevokeTarget(null)}
-                style={{ flex: 1 }}
-              >
-                Cancel
-              </button>
-              <button
-                className="apikeys-revoke-confirm-btn"
-                onClick={handleRevoke}
-                disabled={revoking}
-                style={{ flex: 1 }}
-              >
-                {revoking ? "Revoking…" : "Revoke"}
-              </button>
-            </div>
+        <Modal title="Revoke API Key" onClose={() => setRevokeTarget(null)}>
+          <p style={{ color: "var(--color-text-secondary)", margin: "0 0 8px" }}>
+            Are you sure you want to revoke{" "}
+            <strong style={{ color: "var(--color-text-primary)" }}>
+              {revokeTarget.label}
+            </strong>
+            ? This action cannot be undone.
+          </p>
+          <p style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem", margin: "0 0 20px" }}>
+            Any applications using this key will lose access immediately.
+          </p>
+          <div style={{ display: "flex", gap: 12 }}>
+            <Button
+              variant="ghost"
+              className="apikeys-cancel-btn"
+              onClick={() => setRevokeTarget(null)}
+              style={{ flex: 1 }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              className="apikeys-revoke-confirm-btn"
+              onClick={handleRevoke}
+              disabled={revoking}
+              style={{ flex: 1 }}
+            >
+              {revoking ? "Revoking…" : "Revoke"}
+            </Button>
           </div>
-        </>
+        </Modal>
       )}
     </section>
   );

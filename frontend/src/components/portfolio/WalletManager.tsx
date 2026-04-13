@@ -6,8 +6,10 @@ import {
   syncWallet,
 } from "../../api/portfolio";
 import type { WalletAddress } from "../../api/portfolio";
+import { Modal, Input, Alert, Button, ToggleGroup } from "../ui";
 
 const CHAINS = ["ethereum", "solana", "bitcoin"] as const;
+const CHAIN_OPTIONS = CHAINS.map((c) => ({ value: c, label: c.charAt(0).toUpperCase() + c.slice(1) }));
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "Never";
@@ -96,39 +98,43 @@ export function WalletManager({ onSynced, initialShowAdd = false, onModalClose }
   const modalOnly = initialShowAdd && onModalClose;
 
   const modalContent = showAdd ? (
-    <>
-      <div className="modal-backdrop" onClick={closeModal} />
-      <div className="modal" role="dialog" aria-label="Link Wallet" style={{ maxWidth: 440 }}>
-        <div className="modal-header">
-          <h3 className="settings-panel-title" style={{ marginBottom: 0 }}>Link Wallet</h3>
-          <button className="icon-btn" onClick={closeModal} aria-label="Close">✕</button>
-        </div>
-        <form onSubmit={handleAdd}>
-          <label className="login-label">Chain</label>
-          <div className="toggle-group" style={{ marginBottom: 12 }}>
-            {CHAINS.map((c) => (
-              <button key={c} type="button" className={chain === c ? "active" : ""} onClick={() => setChain(c)} style={{ textTransform: "capitalize" }}>
-                {c}
-              </button>
-            ))}
-          </div>
+    <Modal title="Link Wallet" onClose={closeModal} style={{ maxWidth: 440 }}>
+      <form onSubmit={handleAdd}>
+        <label className="ui-input-label">Chain</label>
+        <ToggleGroup
+          options={CHAIN_OPTIONS}
+          value={chain}
+          onChange={(v) => setChain(v)}
+          style={{ marginBottom: 12 }}
+        />
 
-          <label className="login-label" htmlFor="wallet-addr">Wallet Address</label>
-          <input id="wallet-addr" className="login-input" type="text" required value={address} onChange={(e) => setAddress(e.target.value)} placeholder={chain === "ethereum" ? "0x…" : chain === "bitcoin" ? "bc1…" : "Base58 address"} />
+        <Input
+          label="Wallet Address"
+          id="wallet-addr"
+          type="text"
+          required
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          placeholder={chain === "ethereum" ? "0x…" : chain === "bitcoin" ? "bc1…" : "Base58 address"}
+        />
 
-          <label className="login-label" htmlFor="wallet-label" style={{ marginTop: 8 }}>
-            Label <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>optional</span>
-          </label>
-          <input id="wallet-label" className="login-input" type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Main wallet" />
+        <Input
+          label="Label optional"
+          id="wallet-label"
+          type="text"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Main wallet"
+          style={{ marginTop: 8 }}
+        />
 
-          {addError && <div className="login-error" role="alert" style={{ marginTop: 12 }}>{addError}</div>}
+        {addError && <div style={{ marginTop: 12 }}><Alert level="error">{addError}</Alert></div>}
 
-          <button type="submit" className="apikeys-create-btn" disabled={submitting || !address.trim()} style={{ width: "100%", marginTop: 16 }}>
-            {submitting ? "Linking…" : "Link Wallet"}
-          </button>
-        </form>
-      </div>
-    </>
+        <Button type="submit" variant="primary" disabled={submitting || !address.trim()} style={{ width: "100%", marginTop: 16 }}>
+          {submitting ? "Linking…" : "Link Wallet"}
+        </Button>
+      </form>
+    </Modal>
   ) : null;
 
   if (modalOnly) return modalContent;
@@ -137,12 +143,12 @@ export function WalletManager({ onSynced, initialShowAdd = false, onModalClose }
     <div className="portfolio-manager-section">
       <div className="portfolio-manager-header">
         <h3 className="settings-panel-title" style={{ marginBottom: 0 }}>Linked Wallets</h3>
-        <button className="apikeys-create-btn" onClick={() => setShowAdd(true)} style={{ padding: "8px 16px", fontSize: "0.82rem" }}>
+        <Button variant="primary" onClick={() => setShowAdd(true)} style={{ padding: "8px 16px", fontSize: "0.82rem" }}>
           Link Wallet
-        </button>
+        </Button>
       </div>
 
-      {error && <div className="login-error" role="alert">{error}</div>}
+      {error && <Alert level="error">{error}</Alert>}
 
       {loading ? (
         <div className="settings-loading">Loading…</div>
@@ -170,13 +176,14 @@ export function WalletManager({ onSynced, initialShowAdd = false, onModalClose }
                 >
                   {syncingId === w.id ? "Syncing…" : "Sync"}
                 </button>
-                <button
+                <Button
+                  variant="danger"
                   className="apikeys-revoke-btn"
                   onClick={() => handleDelete(w.id)}
                   disabled={deletingId === w.id}
                 >
                   {deletingId === w.id ? "Removing…" : "Remove"}
-                </button>
+                </Button>
               </div>
             </div>
           ))}

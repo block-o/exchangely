@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { deleteHolding } from "../../api/portfolio";
 import type { AssetValuation, Holding } from "../../api/portfolio";
+import { Badge, Button } from "../ui";
 
 type HoldingsTableProps = {
   assets: AssetValuation[];
@@ -94,7 +95,7 @@ export function HoldingsTable({ assets, holdings, quoteCurrency, onDeleted }: Ho
                 <tr key={`${a.asset_symbol}-${a.source}`} className="hoverable-row">
                   <td style={{ textAlign: "left" }}>
                     <span className="asset-name">{a.asset_symbol}</span>
-                    {!a.priced && <span className="portfolio-unpriced-badge">unpriced</span>}
+                    {!a.priced && <Badge variant="warning" className="portfolio-unpriced-badge">unpriced</Badge>}
                   </td>
                   <td>{fmtQty(a.quantity)}</td>
                   <td className="portfolio-col-tablet">{a.priced ? fmt(a.current_price, quoteCurrency) : "—"}</td>
@@ -117,21 +118,22 @@ export function HoldingsTable({ assets, holdings, quoteCurrency, onDeleted }: Ho
                     )}
                   </td>
                   <td className="portfolio-col-desktop">
-                    <span className="portfolio-source-badge">{sourceLabel(a.source)}</span>
+                    <Badge variant="default" className="portfolio-source-badge">{sourceLabel(a.source)}</Badge>
                   </td>
                   <td>
                     {(() => {
                       const hId = holdingIdMap.get(`${a.asset_symbol}:${a.source}`);
                       if (!hId) return null;
                       return (
-                        <button
+                        <Button
+                          variant="danger"
                           className="portfolio-delete-btn"
                           onClick={() => handleDelete(hId)}
                           disabled={deletingId === hId}
                           aria-label={`Remove ${a.asset_symbol} holding`}
                         >
                           {deletingId === hId ? "…" : "✕"}
-                        </button>
+                        </Button>
                       );
                     })()}
                   </td>

@@ -1,0 +1,119 @@
+/* NewsTicker styles */
+
+.news-ticker-container {
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  height: 44px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+  margin-bottom: 32px;
+  box-shadow: var(--color-news-ticker-box-shadow);
+}
+
+.news-ticker-label {
+  background: var(--color-text-accent);
+  color: #06090e;
+  padding: 0 1.25rem;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  z-index: 20;
+  box-shadow: 10px 0 20px var(--color-news-ticker-shadow);
+  border-radius: 15px 0 0 15px;
+}
+
+.news-ticker-scroll {
+  display: flex;
+  white-space: nowrap;
+  animation: ticker-scroll linear infinite;
+  padding-left: 2rem;
+}
+
+.news-ticker-scroll:hover {
+  animation-play-state: paused;
+}
+
+.news-item {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4rem;
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.news-item:hover {
+  color: var(--color-text-primary);
+  transform: translateY(-1px);
+}
+
+.news-item-source {
+  font-weight: 700;
+  color: var(--color-text-dim);
+  margin-right: 0.6rem;
+  font-size: 0.7rem;
+  border: 1px solid var(--color-border);
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--color-news-source-bg);
+}
+
+.news-item-time {
+  margin-left: 0.6rem;
+  font-size: 0.7rem;
+  opacity: 0.5;
+}
+
+.news-highlight {
+  color: var(--color-text-accent);
+  font-weight: 700;
+  padding: 0 2px;
+}
+
+@keyframes ticker-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+/* Mobile responsive */
+@media (max-width: 639px) {
+  .news-item {
+    font-size: 0.75rem;
+  }
+  .news-ticker-label {
+    padding: 0 0.75rem;
+  }
+  .news-item-source {
+    font-size: 0.65rem;
+    padding: 1px 4px;
+  }
+}
+
+/* Light theme overrides */
+[data-theme="light"] .news-ticker-container {
+  box-shadow: var(--color-news-ticker-box-shadow);
+}
+
+[data-theme="light"] .news-ticker-label {
+  color: #fff;
+  box-shadow: 10px 0 20px var(--color-news-ticker-shadow);
+}
+
+[data-theme="light"] .news-item-source {
+  background: var(--color-news-source-bg);
+}

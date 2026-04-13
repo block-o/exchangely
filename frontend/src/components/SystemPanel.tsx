@@ -3,9 +3,12 @@ import { OverviewTab } from "./system/OverviewTab";
 import { CoverageTab } from "./system/CoverageTab";
 import { AuditTab } from "./system/AuditTab";
 import { UsersTab } from "./system/UsersTab";
+import { ToggleGroup } from "./ui";
 
 const TABS = ["Overview", "Coverage", "Users", "Audit"] as const;
 type Tab = (typeof TABS)[number];
+
+const TAB_OPTIONS = TABS.map((t) => ({ value: t, label: t }));
 
 function getInitialTab(): Tab {
   const params = new URLSearchParams(window.location.search);
@@ -32,24 +35,13 @@ export function SystemPanel() {
       </div>
 
       {/* Tab bar */}
-      <div
-        role="tablist"
+      <ToggleGroup
+        options={TAB_OPTIONS}
+        value={activeTab}
+        onChange={(v) => switchTab(v as Tab)}
         aria-label="Operations tabs"
-        className="toggle-group"
         style={{ marginTop: "1rem", marginBottom: "1.25rem" }}
-      >
-        {TABS.map((tab) => (
-          <button
-            key={tab}
-            role="tab"
-            aria-selected={activeTab === tab}
-            className={activeTab === tab ? "active" : ""}
-            onClick={() => switchTab(tab)}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+      />
 
       {/* Tab content */}
       <div role="tabpanel" style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>

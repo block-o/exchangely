@@ -99,6 +99,7 @@ Default quote assets: `EUR` and `USD`.
 
 ### Frontend
 - Premium dark-themed dashboard with SSE-driven realtime market updates
+- Shared component library (`components/ui/`) with Button, Badge, Card, Input, Table, Modal, ToggleGroup, StatusDot, Spinner, LogViewer, Alert, Sparkline, EmptyState
 - Market Overview with 1h%, 24h%, 7d%, 24h volume, high/low, trend sparklines
 - Operations panel with three tabs: Overview (warnings + version), Coverage (coin-grouped), Audit (task history)
 - Coverage tab: pairs grouped by base asset in collapsible cards with live feed health, backfill badges, earliest data
@@ -186,6 +187,7 @@ Key implementation files:
 - `backend/tests/e2e/*`: compose-backed end-to-end tests.
 - `frontend/src/api/*`: frontend API clients.
 - `frontend/src/pages/*`: top-level screens.
+- `frontend/src/components/ui/*`: shared design system components (Button, Badge, Card, Input, Table, Modal, ToggleGroup, StatusDot, Spinner, LogViewer, Alert, Sparkline, EmptyState). Barrel export at `components/ui/index.ts`.
 - `frontend/src/components/*`: UI building blocks.
 - `frontend/src/components/system/*`: system operations tab components (OverviewTab, CoverageTab, AuditTab, shared utilities).
 - `backend/internal/auth/*`: auth service, JWT, validation, rate limiting.
@@ -244,6 +246,7 @@ When changing frontend behavior:
 - Prefer consuming existing SSE streams over introducing new polling loops.
 - Keep test coverage in Vitest for non-trivial view logic.
 - Maintain the current intentional UI quality; do not downgrade the interface into generic placeholder styling.
+- Use shared components from `frontend/src/components/ui/` before creating page-specific markup. Import via the barrel export: `import { Button, Badge } from '../components/ui'`.
 
 When changing configuration:
 

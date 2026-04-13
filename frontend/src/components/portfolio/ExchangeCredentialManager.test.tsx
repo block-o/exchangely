@@ -25,7 +25,7 @@ describe("ExchangeCredentialManager", () => {
       );
 
       // Modal should be visible
-      expect(screen.getByRole("dialog", { name: "Add Exchange Credential" })).toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: "Add Exchange" })).toBeInTheDocument();
 
       // List panel header should not be present
       expect(screen.queryByText("Exchange Connections")).not.toBeInTheDocument();

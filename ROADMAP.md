@@ -41,7 +41,17 @@ The jump from "data service" to "platform with users." These are the enablers fo
 - [x] Password change flow with live complexity feedback
 - [x] Unified `/api/v1/config` endpoint for frontend auth/version discovery
 
-### 1.3 API Authentication & Rate Limiting
+### 1.3 Frontend Design System
+- [x] Extract shared UI components from repeated page-specific markup into `frontend/src/components/ui/`
+- [x] Add design tokens (spacing, radius, transitions) to `globals.css`
+- [x] Implement shared components: Button, Badge, Card, Input, Table, Modal, ToggleGroup, StatusDot, Spinner, LogViewer, Alert, Sparkline, EmptyState
+- [x] Migrate consumer pages (Login, APIKeys, Market, Settings, Portfolio, Operations) to use shared components
+- [x] Migrate remaining components (PasswordChange, AddHoldingModal, WalletManager, ExchangeCredentialManager, LedgerManager, SystemPanel)
+- [x] Add barrel export for single-import access
+- [x] Co-locate CSS into per-component and per-page files, reduce `globals.css` from 3000+ to ~250 lines (tokens, resets, utilities only)
+- [ ] Migrate from custom CSS to Tailwind CSS for better theming support and utility-first styling
+
+### 1.4 API Authentication & Rate Limiting
 - [x] Generate per-user API tokens (`exly_`-prefixed, SHA-256 hashed) for programmatic access to historical data
 - [x] Implement token-based auth middleware for `/api/v1/historical/*` and ticker endpoints
 - [x] Add tiered rate limiting (100 req/min user, 500 premium, 1000 admin)

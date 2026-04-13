@@ -1,0 +1,57 @@
+/* LogViewer styles */
+
+.task-log-viewer {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+  font-size: 0.78rem;
+  line-height: 1.7;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-subtle-border);
+  border-radius: 10px;
+  padding: 0.6rem 0;
+  max-height: 520px;
+  overflow-y: auto;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.task-log-line {
+  padding: 0.3rem 1rem;
+  transition: background 0.15s;
+  border-bottom: 1px solid var(--color-subtle-border);
+}
+
+.task-log-line:last-child {
+  border-bottom: none;
+}
+
+.task-log-line:hover {
+  background: var(--color-row-hover);
+}
+
+.task-log-ok {
+  color: var(--color-muted);
+}
+
+.task-log-error {
+  color: var(--down-color);
+}
+
+/* Light theme overrides */
+[data-theme="light"] .task-log-viewer {
+  border-color: rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="light"] .task-log-line {
+  border-bottom-color: rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="light"] .task-log-line:hover {
+  background: rgba(15, 23, 42, 0.03);
+}
+
+[data-theme="light"] .task-log-ok {
+  color: rgba(15, 23, 42, 0.75);
+}

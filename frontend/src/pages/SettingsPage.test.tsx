@@ -136,20 +136,20 @@ describe("SettingsPage", () => {
 
   it("reflects the default dark theme as active", () => {
     renderPage();
-    const darkBtn = screen.getByRole("button", { name: "Dark" });
-    const lightBtn = screen.getByRole("button", { name: "Light" });
+    const darkBtn = screen.getByRole("tab", { name: "Dark" });
+    const lightBtn = screen.getByRole("tab", { name: "Light" });
     expect(darkBtn.className).toContain("active");
     expect(lightBtn.className).not.toContain("active");
   });
 
   it("switches to light theme and persists to localStorage", () => {
     renderPage();
-    const lightBtn = screen.getByRole("button", { name: "Light" });
+    const lightBtn = screen.getByRole("tab", { name: "Light" });
 
     act(() => { lightBtn.click(); });
 
     expect(lightBtn.className).toContain("active");
-    expect(screen.getByRole("button", { name: "Dark" }).className).not.toContain("active");
+    expect(screen.getByRole("tab", { name: "Dark" }).className).not.toContain("active");
     expect(localStorage.getItem("exchangely_theme")).toBe("light");
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
@@ -157,33 +157,33 @@ describe("SettingsPage", () => {
   it("loads persisted theme from localStorage", () => {
     localStorage.setItem("exchangely_theme", "light");
     renderPage();
-    expect(screen.getByRole("button", { name: "Light" }).className).toContain("active");
-    expect(screen.getByRole("button", { name: "Dark" }).className).not.toContain("active");
+    expect(screen.getByRole("tab", { name: "Light" }).className).toContain("active");
+    expect(screen.getByRole("tab", { name: "Dark" }).className).not.toContain("active");
   });
 
   it("reflects the default EUR currency as active", () => {
     renderPage();
-    const eurBtn = screen.getByRole("button", { name: "EUR" });
-    const usdBtn = screen.getByRole("button", { name: "USD" });
+    const eurBtn = screen.getByRole("tab", { name: "EUR" });
+    const usdBtn = screen.getByRole("tab", { name: "USD" });
     expect(eurBtn.className).toContain("active");
     expect(usdBtn.className).not.toContain("active");
   });
 
   it("switches to USD and persists to localStorage", () => {
     renderPage();
-    const usdBtn = screen.getByRole("button", { name: "USD" });
+    const usdBtn = screen.getByRole("tab", { name: "USD" });
 
     act(() => { usdBtn.click(); });
 
     expect(usdBtn.className).toContain("active");
-    expect(screen.getByRole("button", { name: "EUR" }).className).not.toContain("active");
+    expect(screen.getByRole("tab", { name: "EUR" }).className).not.toContain("active");
     expect(localStorage.getItem("exchangely_quote_currency")).toBe("USD");
   });
 
   it("loads persisted currency from localStorage", () => {
     localStorage.setItem("exchangely_quote_currency", "USD");
     renderPage();
-    expect(screen.getByRole("button", { name: "USD" }).className).toContain("active");
-    expect(screen.getByRole("button", { name: "EUR" }).className).not.toContain("active");
+    expect(screen.getByRole("tab", { name: "USD" }).className).toContain("active");
+    expect(screen.getByRole("tab", { name: "EUR" }).className).not.toContain("active");
   });
 });

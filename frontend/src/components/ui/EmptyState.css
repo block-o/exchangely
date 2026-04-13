@@ -1,0 +1,36 @@
+/* Shared EmptyState Component */
+.ui-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px;
+  flex: 1;
+}
+
+.ui-empty-state__icon {
+  color: var(--color-text-accent);
+  margin-bottom: 16px;
+  opacity: 0.6;
+}
+
+.ui-empty-state__title {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 8px;
+}
+
+.ui-empty-state__desc {
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  max-width: 480px;
+  margin: 0 0 24px;
+  line-height: 1.5;
+}
+
+.ui-empty-state__actions {
+  margin-top: 8px;
+}

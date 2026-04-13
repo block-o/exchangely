@@ -1,3 +1,4 @@
+import './NavigationDrawer.css';
 import { useEffect, useRef, useCallback, type RefObject } from "react";
 
 export interface NavigationDrawerProps {

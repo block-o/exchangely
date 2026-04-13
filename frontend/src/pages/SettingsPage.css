@@ -1,0 +1,226 @@
+/* SettingsPage styles (also used by APIKeysPage and PortfolioPage) */
+
+.settings-page {
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+}
+
+.settings-loading {
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 48px 0;
+}
+
+.settings-container {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.settings-panel {
+  padding: 28px 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 24px;
+  background: var(--color-bg-panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-panel);
+}
+
+.settings-panel-title {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 20px;
+}
+
+/* Profile */
+.settings-profile {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.settings-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--color-border);
+}
+
+.settings-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-card);
+  color: var(--color-text-accent);
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.settings-profile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settings-name {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.settings-email {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-role-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.settings-role-admin {
+  background: rgba(0, 240, 255, 0.12);
+  color: var(--color-text-accent);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+}
+
+.settings-role-user {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--color-text-secondary);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+/* Connected Accounts */
+.settings-account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-subtle-border);
+}
+
+.settings-account-provider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.settings-account-email {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Preferences */
+.settings-pref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-subtle-border);
+}
+
+.settings-pref-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.settings-pref-label {
+  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+}
+
+.settings-pref-value {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: var(--color-text-primary);
+}
+
+.settings-pref-muted {
+  color: var(--color-text-secondary);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* Mobile responsive */
+@media (max-width: 639px) {
+  .settings-page {
+    padding: 16px 8px;
+  }
+  .settings-panel {
+    padding: 20px 16px;
+    border-radius: 16px;
+  }
+  .settings-profile {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .settings-avatar {
+    width: 48px;
+    height: 48px;
+  }
+  .settings-account-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+/* Light theme overrides */
+[data-theme="light"] .settings-account-row {
+  border-color: rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="light"] .settings-pref-row {
+  border-bottom-color: rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="light"] .settings-role-admin {
+  background: rgba(2, 132, 199, 0.08);
+  color: #0284c7;
+  border-color: rgba(2, 132, 199, 0.2);
+}
+
+[data-theme="light"] .settings-role-user {
+  background: rgba(71, 85, 105, 0.08);
+  color: #475569;
+  border-color: rgba(71, 85, 105, 0.15);
+}

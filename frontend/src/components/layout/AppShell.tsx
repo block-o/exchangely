@@ -1,3 +1,4 @@
+import './AppShell.css';
 import { Children, useState, useRef, useCallback, type PropsWithChildren, useEffect } from "react";
 import { sections } from "../../app/router";
 import { API_BASE_URL } from "../../api/client";
@@ -9,6 +10,7 @@ import { PasswordChangePage } from "../../pages/PasswordChangePage";
 import { APIKeysPage } from "../../pages/APIKeysPage";
 import { NavigationDrawer } from "./NavigationDrawer";
 import { useBreakpoint } from "../../hooks/useBreakpoint";
+import { Button, ToggleGroup } from "../ui";
 
 function getApiDocsUrl(theme: string) {
   try {
@@ -75,17 +77,19 @@ function SettingsControls({ theme, setTheme, quoteCurrency, setQuoteCurrency }: 
     <>
       <div className="setting-group">
         <label>Theme</label>
-        <div className="toggle-group">
-          <button className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}>Dark</button>
-          <button className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}>Light</button>
-        </div>
+        <ToggleGroup
+          options={[{ value: "dark", label: "Dark" }, { value: "light", label: "Light" }]}
+          value={theme}
+          onChange={(v) => setTheme(v as "dark" | "light")}
+        />
       </div>
       <div className="setting-group" style={{ marginBottom: 0 }}>
         <label>Currency</label>
-        <div className="toggle-group">
-          <button className={quoteCurrency === "EUR" ? "active" : ""} onClick={() => setQuoteCurrency("EUR")}>EUR</button>
-          <button className={quoteCurrency === "USD" ? "active" : ""} onClick={() => setQuoteCurrency("USD")}>USD</button>
-        </div>
+        <ToggleGroup
+          options={[{ value: "EUR", label: "EUR" }, { value: "USD", label: "USD" }]}
+          value={quoteCurrency}
+          onChange={(v) => setQuoteCurrency(v as "EUR" | "USD")}
+        />
       </div>
     </>
   );
@@ -311,9 +315,9 @@ export function AppShell({ children }: PropsWithChildren) {
                 ) : authEnabled ? (
                   <div className="gear-dropdown-guest">
                     <span className="guest-nudge-hint">Sign in for alerts and more.</span>
-                    <a href="#login" className="guest-signin-btn" role="menuitem" onClick={() => setIsGearDropdownOpen(false)}>
+                    <Button variant="primary" as="a" href="#login" className="guest-signin-btn" role="menuitem" onClick={() => setIsGearDropdownOpen(false)}>
                       Sign in
-                    </a>
+                    </Button>
                   </div>
                 ) : null}
               </div>

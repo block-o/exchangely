@@ -1,6 +1,8 @@
+import './PasswordChangePage.css';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useAuth } from "../app/auth";
 import { API_BASE_URL, authFetch } from "../api/client";
+import { Button, Input, Alert } from "../components/ui";
 
 /** Password complexity rules matching backend validation (12–128 chars, upper, lower, digit, special). */
 const PASSWORD_RULES = [
@@ -27,7 +29,6 @@ export function PasswordChangePage() {
     if (!isMustChange) return;
 
     const handleHashChange = () => {
-      // Force back to the password change page.
       if (window.location.hash !== "#change-password") {
         window.location.hash = "#change-password";
       }
@@ -108,18 +109,13 @@ export function PasswordChangePage() {
         </div>
 
         {error && (
-          <div className="login-error" role="alert">
-            {error}
-          </div>
+          <Alert level="error">{error}</Alert>
         )}
 
         <form onSubmit={handleSubmit} className="login-form">
-          <label className="login-label" htmlFor="pw-current">
-            Current password
-          </label>
-          <input
+          <Input
+            label="Current password"
             id="pw-current"
-            className="login-input"
             type="password"
             autoComplete="current-password"
             required
@@ -128,12 +124,9 @@ export function PasswordChangePage() {
             placeholder="••••••••••••"
           />
 
-          <label className="login-label" htmlFor="pw-new">
-            New password
-          </label>
-          <input
+          <Input
+            label="New password"
             id="pw-new"
-            className="login-input"
             type="password"
             autoComplete="new-password"
             required
@@ -154,12 +147,9 @@ export function PasswordChangePage() {
             ))}
           </ul>
 
-          <label className="login-label" htmlFor="pw-confirm">
-            Confirm new password
-          </label>
-          <input
+          <Input
+            label="Confirm new password"
             id="pw-confirm"
-            className="login-input"
             type="password"
             autoComplete="new-password"
             required
@@ -171,9 +161,9 @@ export function PasswordChangePage() {
             <p className="pw-mismatch">Passwords do not match.</p>
           )}
 
-          <button type="submit" className="login-btn login-btn-local" disabled={!canSubmit}>
+          <Button type="submit" variant="primary" className="login-btn-local" disabled={!canSubmit}>
             {submitting ? "Changing…" : "Change password"}
-          </button>
+          </Button>
         </form>
       </div>
     </section>

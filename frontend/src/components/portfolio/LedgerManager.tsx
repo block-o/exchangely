@@ -3,6 +3,7 @@ import {
   uploadLedgerExport,
   disconnectLedger,
 } from "../../api/portfolio";
+import { Modal, Alert, Button, Badge } from "../ui";
 
 export function LedgerManager({ onSynced, initialShowUpload = false, onModalClose }: { onSynced: () => void; initialShowUpload?: boolean; onModalClose?: () => void }) {
   const [showUpload, setShowUpload] = useState(initialShowUpload);
@@ -63,53 +64,45 @@ export function LedgerManager({ onSynced, initialShowUpload = false, onModalClos
   const modalOnly = initialShowUpload && onModalClose;
 
   const modalContent = showUpload ? (
-    <>
-      <div className="modal-backdrop" onClick={closeModal} />
-      <div className="modal" role="dialog" aria-label="Import Ledger Live Export" style={{ maxWidth: 440 }}>
-        <div className="modal-header">
-          <h3 className="settings-panel-title" style={{ marginBottom: 0 }}>Import Ledger Live Export</h3>
-          <button className="icon-btn" onClick={closeModal} aria-label="Close">✕</button>
+    <Modal title="Import Ledger Live Export" onClose={closeModal} style={{ maxWidth: 440 }}>
+      <div
+        className="ledger-dropzone"
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        data-dragover={dragOver || undefined}
+        onClick={() => fileInputRef.current?.click()}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click(); }}
+        aria-label="Drop a JSON file or click to browse"
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,application/json"
+          onChange={handleFileChange}
+          style={{ display: "none" }}
+        />
+        <div className="ledger-dropzone-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
         </div>
-
-        <div
-          className="ledger-dropzone"
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
-          data-dragover={dragOver || undefined}
-          onClick={() => fileInputRef.current?.click()}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click(); }}
-          aria-label="Drop a JSON file or click to browse"
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,application/json"
-            onChange={handleFileChange}
-            style={{ display: "none" }}
-          />
-          <div className="ledger-dropzone-icon" aria-hidden="true">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-          </div>
-          <p style={{ margin: "8px 0 4px", fontWeight: 500 }}>
-            {uploading ? "Uploading…" : "Drop your Ledger Live export here"}
-          </p>
-          <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--color-text-secondary)" }}>
-            or click to browse (.json)
-          </p>
-        </div>
-
-        <p style={{ margin: "16px 0 0", fontSize: "0.8rem", color: "var(--color-text-secondary)" }}>
-          In Ledger Live: Settings → Accounts → Export accounts
+        <p style={{ margin: "8px 0 4px", fontWeight: 500 }}>
+          {uploading ? "Uploading…" : "Drop your Ledger Live export here"}
+        </p>
+        <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--color-text-secondary)" }}>
+          or click to browse (.json)
         </p>
       </div>
-    </>
+
+      <p style={{ margin: "16px 0 0", fontSize: "0.8rem", color: "var(--color-text-secondary)" }}>
+        In Ledger Live: Settings → Accounts → Export accounts
+      </p>
+    </Modal>
   ) : null;
 
   if (modalOnly) return modalContent;
@@ -118,16 +111,16 @@ export function LedgerManager({ onSynced, initialShowUpload = false, onModalClos
     <div className="portfolio-manager-section">
       <div className="portfolio-manager-header">
         <h3 className="settings-panel-title" style={{ marginBottom: 0 }}>Ledger Live</h3>
-        <button
-          className="apikeys-create-btn"
+        <Button
+          variant="primary"
           onClick={() => setShowUpload(true)}
           style={{ padding: "8px 16px", fontSize: "0.82rem" }}
         >
           Import Ledger
-        </button>
+        </Button>
       </div>
 
-      {error && <div className="login-error" role="alert">{error}</div>}
+      {error && <Alert level="error">{error}</Alert>}
 
       {importedCount !== null && (
         <div className="apikeys-list">
@@ -135,7 +128,7 @@ export function LedgerManager({ onSynced, initialShowUpload = false, onModalClos
             <div className="apikeys-token-info">
               <div className="apikeys-token-label-row">
                 <span className="apikeys-token-label">Ledger Live Import</span>
-                <span className="apikeys-badge apikeys-badge-active">imported</span>
+                <Badge variant="success">imported</Badge>
               </div>
               <div className="apikeys-token-meta">
                 <span>{importedCount} holding{importedCount !== 1 ? "s" : ""} imported</span>
@@ -149,13 +142,14 @@ export function LedgerManager({ onSynced, initialShowUpload = false, onModalClos
               >
                 Re-upload
               </button>
-              <button
+              <Button
+                variant="danger"
                 className="apikeys-revoke-btn"
                 onClick={handleDisconnect}
                 disabled={disconnecting}
               >
                 {disconnecting ? "Removing…" : "Remove Holdings"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

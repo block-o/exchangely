@@ -6,8 +6,10 @@ import {
   syncCredential,
 } from "../../api/portfolio";
 import type { ExchangeCredential } from "../../api/portfolio";
+import { Modal, Input, Alert, Button, ToggleGroup } from "../ui";
 
 const EXCHANGES = ["binance", "kraken", "coinbase"] as const;
+const EXCHANGE_OPTIONS = EXCHANGES.map((ex) => ({ value: ex, label: ex.charAt(0).toUpperCase() + ex.slice(1) }));
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "Never";
@@ -93,41 +95,30 @@ export function ExchangeCredentialManager({ onSynced, initialShowAdd = false, on
     }
   };
 
-  // When rendered in modal-only mode (from empty state), skip the list panel.
   const modalOnly = initialShowAdd && onModalClose;
 
   const modalContent = showAdd ? (
-    <>
-      <div className="modal-backdrop" onClick={closeModal} />
-      <div className="modal" role="dialog" aria-label="Add Exchange Credential" style={{ maxWidth: 440 }}>
-        <div className="modal-header">
-          <h3 className="settings-panel-title" style={{ marginBottom: 0 }}>Add Exchange</h3>
-          <button className="icon-btn" onClick={closeModal} aria-label="Close">✕</button>
-        </div>
-        <form onSubmit={handleAdd}>
-          <label className="login-label" htmlFor="cred-exchange">Exchange</label>
-          <div className="toggle-group" style={{ marginBottom: 12 }}>
-            {EXCHANGES.map((ex) => (
-              <button key={ex} type="button" className={exchange === ex ? "active" : ""} onClick={() => setExchange(ex)} style={{ textTransform: "capitalize" }}>
-                {ex}
-              </button>
-            ))}
-          </div>
+    <Modal title="Add Exchange" onClose={closeModal} style={{ maxWidth: 440 }}>
+      <form onSubmit={handleAdd}>
+        <label className="ui-input-label" htmlFor="cred-exchange">Exchange</label>
+        <ToggleGroup
+          options={EXCHANGE_OPTIONS}
+          value={exchange}
+          onChange={(v) => setExchange(v)}
+          style={{ marginBottom: 12 }}
+        />
 
-          <label className="login-label" htmlFor="cred-key">API Key</label>
-          <input id="cred-key" className="login-input" type="text" required value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Your read-only API key" />
+        <Input label="API Key" id="cred-key" type="text" required value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Your read-only API key" />
 
-          <label className="login-label" htmlFor="cred-secret" style={{ marginTop: 8 }}>API Secret</label>
-          <input id="cred-secret" className="login-input" type="password" required value={apiSecret} onChange={(e) => setApiSecret(e.target.value)} placeholder="Your API secret" />
+        <Input label="API Secret" id="cred-secret" type="password" required value={apiSecret} onChange={(e) => setApiSecret(e.target.value)} placeholder="Your API secret" style={{ marginTop: 8 }} />
 
-          {addError && <div className="login-error" role="alert" style={{ marginTop: 12 }}>{addError}</div>}
+        {addError && <div style={{ marginTop: 12 }}><Alert level="error">{addError}</Alert></div>}
 
-          <button type="submit" className="apikeys-create-btn" disabled={submitting || !apiKey.trim() || !apiSecret.trim()} style={{ width: "100%", marginTop: 16 }}>
-            {submitting ? "Adding…" : "Add Credential"}
-          </button>
-        </form>
-      </div>
-    </>
+        <Button type="submit" variant="primary" disabled={submitting || !apiKey.trim() || !apiSecret.trim()} style={{ width: "100%", marginTop: 16 }}>
+          {submitting ? "Adding…" : "Add Credential"}
+        </Button>
+      </form>
+    </Modal>
   ) : null;
 
   if (modalOnly) return modalContent;
@@ -136,12 +127,12 @@ export function ExchangeCredentialManager({ onSynced, initialShowAdd = false, on
     <div className="portfolio-manager-section">
       <div className="portfolio-manager-header">
         <h3 className="settings-panel-title" style={{ marginBottom: 0 }}>Exchange Connections</h3>
-        <button className="apikeys-create-btn" onClick={() => setShowAdd(true)} style={{ padding: "8px 16px", fontSize: "0.82rem" }}>
+        <Button variant="primary" onClick={() => setShowAdd(true)} style={{ padding: "8px 16px", fontSize: "0.82rem" }}>
           Add Exchange
-        </button>
+        </Button>
       </div>
 
-      {error && <div className="login-error" role="alert">{error}</div>}
+      {error && <Alert level="error">{error}</Alert>}
 
       {loading ? (
         <div className="settings-loading">Loading…</div>
@@ -172,13 +163,14 @@ export function ExchangeCredentialManager({ onSynced, initialShowAdd = false, on
                 >
                   {syncingId === c.id ? "Syncing…" : "Sync"}
                 </button>
-                <button
+                <Button
+                  variant="danger"
                   className="apikeys-revoke-btn"
                   onClick={() => handleDelete(c.id)}
                   disabled={deletingId === c.id}
                 >
                   {deletingId === c.id ? "Removing…" : "Remove"}
-                </button>
+                </Button>
               </div>
             </div>
           ))}

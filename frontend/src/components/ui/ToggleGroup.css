@@ -1,0 +1,39 @@
+/* ToggleGroup styles */
+
+.toggle-group {
+  display: flex;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.toggle-group button {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.toggle-group button:hover {
+  color: var(--color-text-primary);
+}
+
+.toggle-group button.active {
+  background: var(--color-text-accent);
+  color: var(--color-bg-base);
+  box-shadow: 0 2px 8px var(--color-accent-glow);
+}
+
+/* Light theme overrides */
+[data-theme="light"] .toggle-group {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .toggle-group button.active {
+  color: #fff;
+}

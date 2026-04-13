@@ -1,3 +1,4 @@
+import './MarketPage.css';
 import { useEffect, useState, useRef, useMemo } from "react";
 import { fetchAssets } from "../api/assets";
 import { fetchPairs } from "../api/pairs";
@@ -8,7 +9,6 @@ import {
   formatCompactCurrencyNumber,
   formatCompactNumber,
   formatCurrencyNumber,
-  formatNumber,
   formatUnix,
   formatVariation,
   getBrowserTimezone,
@@ -16,6 +16,7 @@ import {
 import type { Ticker, Candle, Pair, SparklinePoint } from "../types/api";
 import { NewsTicker } from "../components/layout/NewsTicker";
 import { MarketCard } from "../components/MarketCard";
+import { Sparkline } from "../components/ui";
 
 function parseTickerStreamPayload(payload: string): Ticker[] {
   const parsed = JSON.parse(payload);
@@ -27,9 +28,6 @@ function parseTickerStreamPayload(payload: string): Ticker[] {
   }
   return [];
 }
-
-/** Minimum scale so flat data still renders visible bars. */
-const MIN_TREND_SCALE_PCT = 0.5;
 
 export function MarketPage() {
   const { quoteCurrency } = useSettings();
@@ -256,52 +254,7 @@ export function MarketPage() {
                           </div>
                         </td>
                         <td>
-                          <div className="chart-placeholder" style={{ width: `${sparklineWidth}px`, height: `${sparklineHeight}px`, margin: '0 auto', display: 'flex', alignItems: 'flex-end', gap: '2px' }}>
-                            {(() => {
-                              const latestCandleUnix = hist.length > 0 ? hist[hist.length - 1].timestamp : Math.floor(Date.now() / 1000);
-                              const currentHourUnix = Math.floor(latestCandleUnix / 3600) * 3600;
-                              const plotted = Array.from({ length: 24 }).map((_, i) => {
-                                const bucketUnix = currentHourUnix - (23 - i) * 3600;
-                                return hist.find(x => x.timestamp >= bucketUnix && x.timestamp < bucketUnix + 3600);
-                              });
-                              
-                              const validCandles = plotted.filter(c => !!c) as typeof hist;
-                              const referenceClose = validCandles.length > 0 ? validCandles[0].close : 0;
-
-                              // Derive scale from actual data range so bars fill the chart.
-                              let trendScale = MIN_TREND_SCALE_PCT;
-                              if (referenceClose > 0 && validCandles.length > 1) {
-                                const maxPct = validCandles.reduce((mx, cc) => Math.max(mx, Math.abs(((cc.close - referenceClose) / referenceClose) * 100)), 0);
-                                if (maxPct > trendScale) trendScale = maxPct * 1.1; // 10 % headroom
-                              }
-
-                              return plotted.map((c, i) => {
-                                if (!c) {
-                                  return (
-                                    <div 
-                                      key={`missing-${i}`} 
-                                      className="chart-bar empty"
-                                      style={{ height: '30%', backgroundColor: '#374151', opacity: 1 }}
-                                      title="Data unavailable"
-                                    />
-                                  );
-                                }
-
-                                const isUp = c.close >= c.open;
-                                const pctChange = referenceClose > 0 ? ((c.close - referenceClose) / referenceClose) * 100 : 0;
-                                const boundedPctChange = Math.max(-trendScale, Math.min(trendScale, pctChange));
-                                const heightPct = ((boundedPctChange + trendScale) / (trendScale * 2)) * 100;
-                                return (
-                                  <div 
-                                    key={`val-${i}`} 
-                                    className={`chart-bar ${isUp ? 'up' : 'down'}`}
-                                    style={{ height: `${Math.max(8, heightPct)}%` }}
-                                    title={`C: ${formatNumber(c.close)} (${pctChange >= 0 ? "+" : ""}${formatNumber(pctChange)}%)`}
-                                  />
-                                );
-                              });
-                            })()}
-                          </div>
+                          <Sparkline candles={hist} width={sparklineWidth} height={sparklineHeight} />
                         </td>
                       </tr>
                     );

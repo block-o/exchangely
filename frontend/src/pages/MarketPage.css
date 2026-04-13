@@ -1,0 +1,267 @@
+/* MarketPage styles */
+
+/* Market Card Styles */
+.market-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.market-card {
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-bg-card);
+  transition: transform 0.2s ease, background 0.2s ease;
+  overflow: hidden;
+}
+
+.market-card:hover {
+  transform: translateY(-2px);
+  background: var(--color-interactive-bg);
+}
+
+.market-card-primary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.market-card-change {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.market-card-secondary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
+.market-card-secondary .label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+}
+
+.market-card-secondary .value {
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+/* Tablet Market Table Column Hiding */
+.tablet-market-table th.col-1h,
+.tablet-market-table td.col-1h,
+.tablet-market-table th.col-7d,
+.tablet-market-table td.col-7d,
+.tablet-market-table th.col-high,
+.tablet-market-table td.col-high,
+.tablet-market-table th.col-low,
+.tablet-market-table td.col-low {
+  display: none;
+}
+
+.market-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px;
+  color: var(--color-text-secondary);
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+
+.market-footer > span:not(:last-child)::after {
+  content: "\00b7";
+  margin-left: 8px;
+}
+
+/* Status Grid */
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-subtle-border);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.status-card:hover {
+  transform: translateY(-2px);
+  background: var(--color-interactive-bg);
+}
+
+.status-card .label {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.status-card .value {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+.status-card .value.ok,
+.status-card .value.complete { color: var(--color-up); }
+.status-card .value.degraded,
+.status-card .value.unknown { color: var(--color-down); }
+
+/* Table Styles */
+.data-table-wrapper {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th {
+  text-align: center;
+  padding: 16px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.data-table td {
+  padding: 20px 16px;
+  text-align: center;
+  border-bottom: 1px solid var(--color-subtle-border);
+  font-variant-numeric: tabular-nums;
+  transition: background 0.2s ease;
+}
+
+.data-table th:first-child,
+.data-table td:first-child {
+  text-align: left;
+}
+
+.data-table tbody tr {
+  transition: background 0.2s ease;
+}
+
+.data-table tbody tr:hover td {
+  background: var(--color-row-hover);
+}
+
+.data-table .symbol {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+.asset-cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.asset-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.asset-code {
+  color: var(--color-text-secondary);
+  font-size: 0.84rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.data-table .price {
+  font-weight: 500;
+  font-size: 1.1rem;
+}
+
+/* Sync List */
+.sync-list {
+  display: grid;
+  gap: 12px;
+}
+
+.sync-item {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  background: var(--color-bg-card);
+  align-items: center;
+}
+
+.sync-item strong {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+}
+
+
+
+/* Mobile responsive */
+@media (max-width: 639px) {
+  .content { gap: 16px; }
+  .data-table td { padding: 12px 8px; }
+  .asset-cell { gap: 8px; }
+  .market-footer { justify-content: flex-start; }
+  .status-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Tablet responsive */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .content { gap: 20px; }
+  .data-table td { padding: 16px 12px; }
+  .asset-cell { gap: 8px; }
+}
+
+/* Light theme overrides */
+[data-theme="light"] .status-card {
+  border-color: rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="light"] .status-card:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+[data-theme="light"] .data-table td {
+  border-bottom-color: rgba(15, 23, 42, 0.05);
+}
+
+[data-theme="light"] .data-table tbody tr:hover td {
+  background: rgba(15, 23, 42, 0.03);
+}
+
+[data-theme="light"] .market-card:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+[data-theme="light"] .market-card-secondary {
+  border-top-color: rgba(15, 23, 42, 0.08);
+}

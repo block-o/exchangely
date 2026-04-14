@@ -3,7 +3,10 @@ lockfileVersion: '9.0'
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
-
+  blockExoticSubdeps: true
+  minimumReleaseAge: 1440
+  trustPolicy: no-downgrade
+  
 importers:
 
   .:

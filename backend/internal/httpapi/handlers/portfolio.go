@@ -657,6 +657,11 @@ func (h *PortfolioHandler) handleServiceError(w http.ResponseWriter, err error) 
 		return
 	}
 
+	if errors.Is(err, portfolio.ErrDuplicateCredential) {
+		h.writeJSONError(w, http.StatusConflict, err.Error())
+		return
+	}
+
 	// Map known validation errors to 400.
 	if errors.Is(err, portfolio.ErrNonPositiveQuantity) ||
 		errors.Is(err, portfolio.ErrInvalidAssetSymbol) ||

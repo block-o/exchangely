@@ -57,11 +57,17 @@ export function WalletManager({ onSynced, initialShowAdd = false, onModalClose }
     setAddError(null);
     setSubmitting(true);
     try {
-      await createWallet({ chain, address: address.trim(), label: label.trim() || undefined });
-      closeModal();
+      const w = await createWallet({ chain, address: address.trim(), label: label.trim() || undefined });
       setAddress("");
       setLabel("");
+      try {
+        await syncWallet(w.id);
+      } catch {
+        // Sync failure is non-fatal — wallet is saved, user can retry.
+      }
       await fetchWallets();
+      onSynced();
+      closeModal();
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Failed to add wallet");
     } finally {

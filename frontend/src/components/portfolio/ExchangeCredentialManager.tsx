@@ -11,6 +11,43 @@ import { Modal, Input, Alert, Button, ToggleGroup } from "../ui";
 const EXCHANGES = ["binance", "kraken", "coinbase"] as const;
 const EXCHANGE_OPTIONS = EXCHANGES.map((ex) => ({ value: ex, label: ex.charAt(0).toUpperCase() + ex.slice(1) }));
 
+// Each exchange has different credential naming and formats.
+type ExchangeFieldConfig = {
+  keyLabel: string;
+  keyPlaceholder: string;
+  keyHint?: string;
+  secretLabel: string;
+  secretPlaceholder: string;
+  secretHint?: string;
+  secretMultiline?: boolean;
+};
+
+const EXCHANGE_FIELDS: Record<string, ExchangeFieldConfig> = {
+  binance: {
+    keyLabel: "API Key",
+    keyPlaceholder: "Your read-only API key",
+    secretLabel: "API Secret",
+    secretPlaceholder: "Your API secret",
+  },
+  kraken: {
+    keyLabel: "API Key",
+    keyPlaceholder: "Your read-only API key",
+    keyHint: "Found in Kraken → Settings → API → Create Key",
+    secretLabel: "Private Key",
+    secretPlaceholder: "Base64-encoded private key",
+    secretHint: "The long base64 string shown once when you create the key",
+  },
+  coinbase: {
+    keyLabel: "API Key Name",
+    keyPlaceholder: "organizations/…/apiKeys/…",
+    keyHint: "The full path shown in CDP Portal → API Keys",
+    secretLabel: "Private Key",
+    secretPlaceholder: "Starts with -----BEGIN EC PRIVATE KEY-----",
+    secretHint: "PEM-encoded EC key, downloaded once at creation",
+    secretMultiline: true,
+  },
+};
+
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "Never";
   return new Date(iso).toLocaleDateString(undefined, {
@@ -57,11 +94,18 @@ export function ExchangeCredentialManager({ onSynced, initialShowAdd = false, on
     setAddError(null);
     setSubmitting(true);
     try {
-      await createCredential({ exchange, api_key: apiKey.trim(), api_secret: apiSecret.trim() });
-      closeModal();
+      const cred = await createCredential({ exchange, api_key: apiKey.trim(), api_secret: apiSecret.trim() });
       setApiKey("");
       setApiSecret("");
+      // Auto-sync to pull balances immediately after connecting.
+      try {
+        await syncCredential(cred.id);
+      } catch {
+        // Sync failure is non-fatal — credential is saved, user can retry.
+      }
       await fetchCredentials();
+      onSynced();
+      closeModal();
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Failed to add credential");
     } finally {
@@ -108,14 +152,36 @@ export function ExchangeCredentialManager({ onSynced, initialShowAdd = false, on
           style={{ marginBottom: 12 }}
         />
 
-        <Input label="API Key" id="cred-key" type="text" required value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Your read-only API key" />
+        <Input label={EXCHANGE_FIELDS[exchange]?.keyLabel ?? "API Key"} id="cred-key" type="password" required value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={EXCHANGE_FIELDS[exchange]?.keyPlaceholder ?? "Your read-only API key"} />
+        {EXCHANGE_FIELDS[exchange]?.keyHint && (
+          <p className="portfolio-field-hint">{EXCHANGE_FIELDS[exchange].keyHint}</p>
+        )}
 
-        <Input label="API Secret" id="cred-secret" type="password" required value={apiSecret} onChange={(e) => setApiSecret(e.target.value)} placeholder="Your API secret" style={{ marginTop: 8 }} />
+        {EXCHANGE_FIELDS[exchange]?.secretMultiline ? (
+          <>
+            <label className="ui-input-label" htmlFor="cred-secret" style={{ marginTop: 8 }}>{EXCHANGE_FIELDS[exchange]?.secretLabel ?? "API Secret"}</label>
+            <textarea
+              id="cred-secret"
+              className="ui-input portfolio-secret-textarea"
+              required
+              value={apiSecret}
+              onChange={(e) => setApiSecret(e.target.value)}
+              placeholder={EXCHANGE_FIELDS[exchange]?.secretPlaceholder ?? "Your API secret"}
+              rows={4}
+              style={{ fontSize: "0.82rem", resize: "vertical" }}
+            />
+          </>
+        ) : (
+          <Input label={EXCHANGE_FIELDS[exchange]?.secretLabel ?? "API Secret"} id="cred-secret" type="password" required value={apiSecret} onChange={(e) => setApiSecret(e.target.value)} placeholder={EXCHANGE_FIELDS[exchange]?.secretPlaceholder ?? "Your API secret"} style={{ marginTop: 8 }} />
+        )}
+        {EXCHANGE_FIELDS[exchange]?.secretHint && (
+          <p className="portfolio-field-hint">{EXCHANGE_FIELDS[exchange].secretHint}</p>
+        )}
 
         {addError && <div style={{ marginTop: 12 }}><Alert level="error">{addError}</Alert></div>}
 
         <Button type="submit" variant="primary" disabled={submitting || !apiKey.trim() || !apiSecret.trim()} style={{ width: "100%", marginTop: 16 }}>
-          {submitting ? "Adding…" : "Add Credential"}
+          {submitting ? "Connecting…" : "Connect Exchange"}
         </Button>
       </form>
     </Modal>

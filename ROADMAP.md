@@ -68,14 +68,14 @@ The jump from "data service" to "platform with users." These are the enablers fo
 Require auth to be in place. Transform Exchangely from a dashboard into a tool people use daily.
 
 ### 2.1 Portfolio Tracker
-- [ ] Design portfolio data model: manual holdings + exchange-linked positions
-- [ ] Support manual portfolio entry (coin, quantity, avg buy price)
-- [ ] Integrate read-only API keys for Kraken and Binance to pull live balances
-- [ ] Calculate portfolio value over time using Exchangely's own historical price data
-- [ ] Build Portfolio dashboard page: total value, allocation pie chart, P&L per asset
-- [ ] Historical portfolio value chart (1d, 7d, 30d, 1y) using stored candle data
-- [ ] SSE-driven live portfolio value updates (reuse ticker stream)
-- [ ] Secure API key storage (encrypted at rest in PostgreSQL)
+- [x] Design portfolio data model: manual holdings + exchange-linked positions
+- [x] Support manual portfolio entry (coin, quantity, avg buy price)
+- [x] Integrate read-only API keys for Kraken and Binance to pull live balances
+- [x] Calculate portfolio value over time using Exchangely's own historical price data
+- [x] Build Portfolio dashboard page: total value, allocation pie chart, P&L per asset
+- [x] Historical portfolio value chart (1d, 7d, 30d, 1y) using stored candle data
+- [x] SSE-driven live portfolio value updates (reuse ticker stream)
+- [x] Secure API key storage (encrypted at rest in PostgreSQL)
 
 ### 2.2 Price Alert Webhooks
 - [ ] Design alert model: user, pair, condition (above/below/crosses), threshold, delivery method

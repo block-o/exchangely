@@ -41,7 +41,7 @@ func TestValidatorExecutorIdentifiesDivergence(t *testing.T) {
 	source2 := &fakeMarketSource{
 		name: "s2",
 		items: []candle.Candle{
-			{Pair: "BTCEUR", Timestamp: 1000, Close: 101.0, Source: "s2"},
+			{Pair: "BTCEUR", Timestamp: 1000, Close: 103.0, Source: "s2"},
 		},
 	}
 
@@ -339,7 +339,7 @@ func TestValidatorExecutorRecordsFailedResult(t *testing.T) {
 	source2 := &fakeMarketSource{
 		name: "s2",
 		items: []candle.Candle{
-			{Pair: "BTCEUR", Timestamp: 1000, Close: 102.0, Source: "s2"},
+			{Pair: "BTCEUR", Timestamp: 1000, Close: 103.0, Source: "s2"},
 		},
 	}
 

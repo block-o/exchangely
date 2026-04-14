@@ -219,7 +219,7 @@ All settings are controlled via environment variables. Override them in `.env` o
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `BACKEND_INTEGRITY_MIN_SOURCES` | Minimum sources required for cross-source validation | `2` |
-| `BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT` | Max allowed price divergence % between sources | `0.5` |
+| `BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT` | Max allowed price divergence % between sources | `2.0` |
 
 #### Caching
 

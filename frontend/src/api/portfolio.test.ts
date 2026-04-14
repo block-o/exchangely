@@ -176,13 +176,34 @@ describe("portfolio API client", () => {
   });
 
   describe("createCredential", () => {
-    it("calls authPost with credential request", async () => {
+    it("calls authFetch with POST and credential request", async () => {
       const req = { exchange: "binance", api_key: "key", api_secret: "secret" };
-      mockAuthPost.mockResolvedValue({ id: "c2", exchange: "binance" });
+      const fakeResponse = {
+        ok: true,
+        status: 201,
+        json: () => Promise.resolve({ id: "c2", exchange: "binance" }),
+      } as unknown as Response;
+      mockAuthFetch.mockResolvedValue(fakeResponse);
 
-      await createCredential(req);
+      const result = await createCredential(req);
 
-      expect(mockAuthPost).toHaveBeenCalledWith("/portfolio/credentials", req);
+      expect(mockAuthFetch).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/portfolio/credentials",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify(req),
+        }),
+      );
+      expect(result).toEqual({ id: "c2", exchange: "binance" });
+    });
+
+    it("throws a user-friendly error on 409 conflict", async () => {
+      const req = { exchange: "kraken", api_key: "key", api_secret: "secret" };
+      mockAuthFetch.mockResolvedValue({ ok: false, status: 409 } as Response);
+
+      await expect(createCredential(req)).rejects.toThrow(
+        "A kraken connection already exists. Remove the existing one first.",
+      );
     });
   });
 

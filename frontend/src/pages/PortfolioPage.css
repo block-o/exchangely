@@ -14,6 +14,7 @@
   flex-direction: column;
   gap: 24px;
   flex: 1;
+  min-height: 0;
 }
 
 .portfolio-top-bar {
@@ -28,6 +29,11 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 300px;
+}
+
+.portfolio-panel-grow .portfolio-manager-section {
+  flex: 1;
 }
 
 .portfolio-grid {
@@ -513,6 +519,26 @@
   flex: 1;
 }
 
+/* Add Holding panel — centered form */
+.portfolio-add-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  padding-top: 8px;
+}
+
+.portfolio-add-subtitle {
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+  margin: 0 0 24px;
+}
+
+.portfolio-add-form {
+  width: 100%;
+  max-width: 440px;
+}
+
 .portfolio-manager-header {
   display: flex;
   align-items: center;
@@ -531,6 +557,19 @@
   font-size: 0.8rem;
   color: var(--color-down);
   margin-top: 4px;
+}
+
+.portfolio-field-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  margin: 4px 0 0;
+  line-height: 1.3;
+  opacity: 0.8;
+}
+
+.portfolio-secret-textarea {
+  -webkit-text-security: disc;
+  font-family: text-security-disc, monospace;
 }
 
 .portfolio-wallet-label {

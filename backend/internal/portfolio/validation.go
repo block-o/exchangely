@@ -17,6 +17,7 @@ var (
 	ErrUnsupportedExchange    = errors.New("unsupported exchange: must be one of binance, kraken, coinbase")
 	ErrInvalidAssetSymbol     = errors.New("asset symbol not found in catalog")
 	ErrNonPositiveQuantity    = errors.New("holding quantity must be greater than zero")
+	ErrDuplicateCredential    = errors.New("exchange credential already exists for this user")
 )
 
 // Allowed exchanges and chains.

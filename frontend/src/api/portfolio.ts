@@ -173,8 +173,20 @@ export async function getCredentials(): Promise<ExchangeCredential[]> {
   return res.data;
 }
 
-export function createCredential(req: CreateCredentialRequest): Promise<ExchangeCredential> {
-  return authPost<ExchangeCredential>("/portfolio/credentials", req);
+export async function createCredential(req: CreateCredentialRequest): Promise<ExchangeCredential> {
+  const response = await authFetch(`${API_BASE_URL}/portfolio/credentials`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(req),
+  });
+  if (!response.ok) {
+    if (response.status === 409) {
+      throw new Error(`A ${req.exchange} connection already exists. Remove the existing one first.`);
+    }
+    throw new Error(`request failed: ${response.status}`);
+  }
+  return response.json() as Promise<ExchangeCredential>;
 }
 
 export async function deleteCredential(id: string): Promise<void> {

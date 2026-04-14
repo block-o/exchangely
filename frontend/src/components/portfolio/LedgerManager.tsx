@@ -26,8 +26,8 @@ export function LedgerManager({ onSynced, initialShowUpload = false, onModalClos
     try {
       const result = await uploadLedgerExport(file);
       setImportedCount(result.imported);
-      closeModal();
       onSynced();
+      closeModal();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to import Ledger export");
     } finally {

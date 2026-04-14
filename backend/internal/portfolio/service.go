@@ -202,6 +202,9 @@ func (s *PortfolioService) CreateCredential(ctx context.Context, userID uuid.UUI
 	}
 
 	if err := s.credentials.Create(ctx, cred); err != nil {
+		if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
+			return nil, fmt.Errorf("%w: %s", ErrDuplicateCredential, exchangeName)
+		}
 		return nil, err
 	}
 

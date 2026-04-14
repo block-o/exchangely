@@ -3,12 +3,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ValuationHeader } from "./ValuationHeader";
 import type { Valuation } from "../../api/portfolio";
 
-// Mock the SSE subscription to avoid real EventSource usage
+// Mock the SSE subscription to avoid real EventSource usage.
+// The component uses addEventListener("portfolio", ...) for named SSE events.
 vi.mock("../../api/portfolio", () => ({
   subscribePortfolioStream: vi.fn(() => ({
     close: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
     onopen: null,
-    onmessage: null,
     onerror: null,
   })),
 }));

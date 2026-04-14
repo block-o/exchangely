@@ -65,7 +65,7 @@ func NewValidatorExecutor(sources []provider.Source, integrity IntegrityWriter, 
 		opts.MinSources = 2
 	}
 	if opts.MaxDivergencePct <= 0 {
-		opts.MaxDivergencePct = 0.5
+		opts.MaxDivergencePct = 2.0
 	}
 	if opts.MaxDaysPerRun <= 0 {
 		opts.MaxDaysPerRun = 7

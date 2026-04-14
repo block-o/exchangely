@@ -132,7 +132,7 @@ func Load() Config {
 		CoinGeckoAPIKey:           getenv("BACKEND_COINGECKO_API_KEY", ""),
 		CDDAvailabilityBaseURL:    getenv("BACKEND_CDD_AVAILABILITY_BASE_URL", ""),
 		IntegrityMinSources:       parseInt(getenv("BACKEND_INTEGRITY_MIN_SOURCES", "2"), 2),
-		IntegrityMaxDivergencePct: parseFloat(getenv("BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT", "0.5"), 0.5),
+		IntegrityMaxDivergencePct: parseFloat(getenv("BACKEND_INTEGRITY_MAX_DIVERGENCE_PCT", "2.0"), 2.0),
 		DefaultQuoteAssets:        splitCSV(getenv("BACKEND_DEFAULT_QUOTE_ASSETS", "EUR,USD")),
 		TaskRetentionPeriod:       parseDuration(getenv("BACKEND_TASK_RETENTION_PERIOD", "24h")),
 		TaskRetentionCount:        parseInt(getenv("BACKEND_TASK_MAX_LOG_COUNT", "1000"), 1000),

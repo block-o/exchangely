@@ -4,6 +4,7 @@ import type { HistoricalPoint } from "../../api/portfolio";
 
 type HistoryChartProps = {
   quoteCurrency: string;
+  refreshKey?: number;
 };
 
 const RANGES = ["1d", "7d", "30d", "1y"] as const;
@@ -25,7 +26,7 @@ function formatTimestamp(ts: number, range: Range): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export function HistoryChart({ quoteCurrency }: HistoryChartProps) {
+export function HistoryChart({ quoteCurrency, refreshKey }: HistoryChartProps) {
   const [range, setRange] = useState<Range>("7d");
   const [data, setData] = useState<HistoricalPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,7 +48,7 @@ export function HistoryChart({ quoteCurrency }: HistoryChartProps) {
 
   useEffect(() => {
     fetchData(range);
-  }, [range, fetchData]);
+  }, [range, fetchData, refreshKey]);
 
   const handleRange = (r: Range) => setRange(r);
 

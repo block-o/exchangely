@@ -9,19 +9,20 @@ import { AllocationChart } from "../components/portfolio/AllocationChart";
 import { HoldingsTable } from "../components/portfolio/HoldingsTable";
 import { HistoryChart } from "../components/portfolio/HistoryChart";
 import { EmptyState } from "../components/portfolio/EmptyState";
-import { AddHoldingModal } from "../components/portfolio/AddHoldingModal";
+import { ManualHoldingPanel } from "../components/portfolio/ManualHoldingPanel";
 import { ExchangeCredentialManager } from "../components/portfolio/ExchangeCredentialManager";
 import { WalletManager } from "../components/portfolio/WalletManager";
 import { LedgerManager } from "../components/portfolio/LedgerManager";
-import { Alert, Button, ToggleGroup } from "../components/ui";
+import { Alert, ToggleGroup } from "../components/ui";
 
-type ActivePanel = "overview" | "exchanges" | "wallets" | "ledger";
+type ActivePanel = "overview" | "exchanges" | "wallets" | "ledger" | "add";
 
 const PANEL_OPTIONS = [
   { value: "overview", label: "Overview" },
   { value: "exchanges", label: "Exchanges" },
   { value: "wallets", label: "Wallets" },
   { value: "ledger", label: "Ledger" },
+  { value: "add", label: "Others" },
 ];
 
 export function PortfolioPage() {
@@ -32,11 +33,11 @@ export function PortfolioPage() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showAddHolding, setShowAddHolding] = useState(false);
   const [showAddExchange, setShowAddExchange] = useState(false);
   const [showAddWallet, setShowAddWallet] = useState(false);
   const [showLedgerUpload, setShowLedgerUpload] = useState(false);
   const [activePanel, setActivePanel] = useState<ActivePanel>("overview");
+  const [refreshCounter, setRefreshCounter] = useState(0);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -67,6 +68,7 @@ export function PortfolioPage() {
 
   const handleRefresh = useCallback(() => {
     fetchValuation();
+    setRefreshCounter((c) => c + 1);
   }, [fetchValuation]);
 
   const handleSyncAll = useCallback(async () => {
@@ -92,26 +94,21 @@ export function PortfolioPage() {
       <div className="portfolio-container">
         {error && <Alert level="error">{error}</Alert>}
 
-        {isEmpty && !error ? (
+        <div className="portfolio-top-bar">
+          <ToggleGroup
+            options={PANEL_OPTIONS}
+            value={activePanel}
+            onChange={(v) => setActivePanel(v as ActivePanel)}
+          />
+        </div>
+
+        {activePanel === "overview" && isEmpty && !error && (
           <EmptyState
-            onAddHolding={() => setShowAddHolding(true)}
+            onAddHolding={() => setActivePanel("add")}
             onManageExchanges={() => setShowAddExchange(true)}
             onManageWallets={() => setShowAddWallet(true)}
             onImportLedger={() => setShowLedgerUpload(true)}
           />
-        ) : (
-          <>
-            <div className="portfolio-top-bar">
-              <ToggleGroup
-                options={PANEL_OPTIONS}
-                value={activePanel}
-                onChange={(v) => setActivePanel(v as ActivePanel)}
-              />
-              <Button variant="primary" onClick={() => setShowAddHolding(true)} style={{ padding: "8px 16px", fontSize: "0.82rem" }}>
-                Add Holding
-              </Button>
-            </div>
-          </>
         )}
 
         {activePanel === "overview" && hasHoldings && (
@@ -125,7 +122,7 @@ export function PortfolioPage() {
                 <AllocationChart assets={valuation!.assets} />
               </div>
               <div className="settings-panel">
-                <HistoryChart quoteCurrency={quoteCurrency} />
+                <HistoryChart quoteCurrency={quoteCurrency} refreshKey={refreshCounter} />
               </div>
             </div>
 
@@ -133,6 +130,12 @@ export function PortfolioPage() {
               <HoldingsTable assets={valuation!.assets} holdings={holdings} quoteCurrency={quoteCurrency} onDeleted={handleRefresh} />
             </div>
           </>
+        )}
+
+        {activePanel === "add" && (
+          <div className="settings-panel portfolio-panel-grow">
+            <ManualHoldingPanel quoteCurrency={quoteCurrency} onCreated={handleRefresh} />
+          </div>
         )}
 
         {activePanel === "exchanges" && (
@@ -153,17 +156,6 @@ export function PortfolioPage() {
           </div>
         )}
       </div>
-
-      {showAddHolding && (
-        <AddHoldingModal
-          quoteCurrency={quoteCurrency}
-          onClose={() => setShowAddHolding(false)}
-          onCreated={() => {
-            setShowAddHolding(false);
-            fetchValuation();
-          }}
-        />
-      )}
 
       {showAddExchange && (
         <ExchangeCredentialManager

@@ -155,7 +155,13 @@ export function AppShell({ children }: PropsWithChildren) {
 
   // Resolve which page to render for the current hash
   const renderPage = () => {
-    if (activeHash === "#login") return <LoginPage />;
+    if (activeHash === "#login") {
+      if (isAuthenticated) {
+        window.location.hash = "#market";
+        return pages[0] ?? null;
+      }
+      return <LoginPage />;
+    }
     if (activeHash === "#settings") return <SettingsPage />;
     if (activeHash === "#change-password") return <PasswordChangePage />;
     if (activeHash === "#api-keys") return <APIKeysPage />;

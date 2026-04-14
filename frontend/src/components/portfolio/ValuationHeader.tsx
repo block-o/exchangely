@@ -37,7 +37,7 @@ export function ValuationHeader({ valuation, loading, onSyncAll }: ValuationHead
     const es = subscribePortfolioStream();
     esRef.current = es;
 
-    es.onmessage = (event) => {
+    const handlePortfolio = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data) as Valuation;
         setLiveValue(data.total_value);
@@ -48,6 +48,10 @@ export function ValuationHeader({ valuation, loading, onSyncAll }: ValuationHead
       }
     };
 
+    // Backend sends named "portfolio" events, so we must use addEventListener
+    // instead of onmessage (which only catches unnamed events).
+    es.addEventListener("portfolio", handlePortfolio as EventListener);
+
     es.onerror = () => {
       setIsLive(false);
     };
@@ -57,10 +61,18 @@ export function ValuationHeader({ valuation, loading, onSyncAll }: ValuationHead
     };
 
     return () => {
+      es.removeEventListener("portfolio", handlePortfolio as EventListener);
       es.close();
       esRef.current = null;
     };
   }, []);
+
+  // Reset live overrides when the parent refreshes valuation data
+  // (e.g. after a holding is added or removed).
+  useEffect(() => {
+    setLiveValue(null);
+    setLiveUpdatedAt(null);
+  }, [valuation]);
 
   const displayValue = liveValue ?? valuation?.total_value ?? 0;
   const displayCurrency = valuation?.quote_currency ?? "USD";

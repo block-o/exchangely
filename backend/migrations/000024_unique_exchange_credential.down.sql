@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_exchange_credentials_user_exchange;

@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // --- Binance connector tests ---
@@ -213,19 +215,19 @@ func TestKrakenZeroBalanceFiltering(t *testing.T) {
 
 // --- Coinbase connector tests ---
 
+// coinbaseTestKey generates a fresh EC key pair and returns the PEM string
+// for use as the apiSecret in Coinbase connector tests.
+func coinbaseTestPEM() string {
+	_, pemStr := generateTestECKey()
+	return pemStr
+}
+
 func TestCoinbaseRequestAuth(t *testing.T) {
+	pemKey := coinbaseTestPEM()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := r.Header.Get("CB-ACCESS-KEY")
-		if key != "test-cb-key" {
-			t.Errorf("expected CB-ACCESS-KEY=test-cb-key, got %q", key)
-		}
-		sign := r.Header.Get("CB-ACCESS-SIGN")
-		if sign == "" {
-			t.Error("expected CB-ACCESS-SIGN header to be set, got empty")
-		}
-		ts := r.Header.Get("CB-ACCESS-TIMESTAMP")
-		if ts == "" {
-			t.Error("expected CB-ACCESS-TIMESTAMP header to be set, got empty")
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			t.Errorf("expected Authorization: Bearer header, got %q", auth)
 		}
 		_, _ = w.Write([]byte(`{
 			"accounts": [{"currency": "BTC", "available_balance": {"value": "1.0"}}],
@@ -235,7 +237,7 @@ func TestCoinbaseRequestAuth(t *testing.T) {
 	defer server.Close()
 
 	c := NewCoinbaseConnector(server.URL, server.Client())
-	balances, err := c.FetchBalances(context.Background(), "test-cb-key", "test-cb-secret")
+	balances, err := c.FetchBalances(context.Background(), "organizations/test/apiKeys/test-key", pemKey)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -245,6 +247,7 @@ func TestCoinbaseRequestAuth(t *testing.T) {
 }
 
 func TestCoinbaseBalanceParsing(t *testing.T) {
+	pemKey := coinbaseTestPEM()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{
 			"accounts": [
@@ -258,7 +261,7 @@ func TestCoinbaseBalanceParsing(t *testing.T) {
 	defer server.Close()
 
 	c := NewCoinbaseConnector(server.URL, server.Client())
-	balances, err := c.FetchBalances(context.Background(), "key", "secret")
+	balances, err := c.FetchBalances(context.Background(), "key", pemKey)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -282,6 +285,7 @@ func TestCoinbaseBalanceParsing(t *testing.T) {
 }
 
 func TestCoinbaseZeroBalanceFiltering(t *testing.T) {
+	pemKey := coinbaseTestPEM()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{
 			"accounts": [
@@ -295,7 +299,7 @@ func TestCoinbaseZeroBalanceFiltering(t *testing.T) {
 	defer server.Close()
 
 	c := NewCoinbaseConnector(server.URL, server.Client())
-	balances, err := c.FetchBalances(context.Background(), "key", "secret")
+	balances, err := c.FetchBalances(context.Background(), "key", pemKey)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -308,6 +312,7 @@ func TestCoinbaseZeroBalanceFiltering(t *testing.T) {
 }
 
 func TestCoinbasePagination(t *testing.T) {
+	pemKey := coinbaseTestPEM()
 	page := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		page++
@@ -326,7 +331,7 @@ func TestCoinbasePagination(t *testing.T) {
 	defer server.Close()
 
 	c := NewCoinbaseConnector(server.URL, server.Client())
-	balances, err := c.FetchBalances(context.Background(), "key", "secret")
+	balances, err := c.FetchBalances(context.Background(), "key", pemKey)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -390,6 +395,7 @@ func TestKrakenRetryOnServerError(t *testing.T) {
 }
 
 func TestCoinbaseRetryOnServerError(t *testing.T) {
+	pemKey := coinbaseTestPEM()
 	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
@@ -401,7 +407,7 @@ func TestCoinbaseRetryOnServerError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err := c.FetchBalances(ctx, "key", "secret")
+	_, err := c.FetchBalances(ctx, "key", pemKey)
 	if err == nil {
 		t.Fatal("expected error after retries exhausted")
 	}
@@ -458,6 +464,7 @@ func TestKrakenNoRetryOnClientError(t *testing.T) {
 }
 
 func TestCoinbaseNoRetryOnClientError(t *testing.T) {
+	pemKey := coinbaseTestPEM()
 	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
@@ -466,7 +473,7 @@ func TestCoinbaseNoRetryOnClientError(t *testing.T) {
 	defer server.Close()
 
 	c := NewCoinbaseConnector(server.URL, server.Client())
-	_, err := c.FetchBalances(context.Background(), "key", "secret")
+	_, err := c.FetchBalances(context.Background(), "key", pemKey)
 	if err == nil {
 		t.Fatal("expected error on 400")
 	}
@@ -592,18 +599,96 @@ func TestKrakenAPIErrorResponse(t *testing.T) {
 // --- Coinbase JSON decode error ---
 
 func TestCoinbaseMalformedJSON(t *testing.T) {
+	pemKey := coinbaseTestPEM()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{invalid-json`))
 	}))
 	defer server.Close()
 
 	c := NewCoinbaseConnector(server.URL, server.Client())
-	_, err := c.FetchBalances(context.Background(), "key", "secret")
+	_, err := c.FetchBalances(context.Background(), "key", pemKey)
 	if err == nil {
 		t.Fatal("expected decode error")
 	}
 	if !strings.Contains(err.Error(), "decode error") {
 		t.Errorf("expected decode error, got: %v", err)
+	}
+}
+
+func TestCoinbaseInvalidPEMKey(t *testing.T) {
+	c := NewCoinbaseConnector("https://api.coinbase.com", nil)
+	_, err := c.FetchBalances(context.Background(), "key", "not-a-pem-key")
+	if err == nil {
+		t.Fatal("expected error for invalid PEM key")
+	}
+	if !strings.Contains(err.Error(), "no PEM block") {
+		t.Errorf("expected PEM parse error, got: %v", err)
+	}
+}
+
+func TestCoinbasePEMWithEscapedNewlines(t *testing.T) {
+	_, realPEM := generateTestECKey()
+	// Simulate a key copied from a JSON/.env file with literal \n sequences.
+	escaped := strings.ReplaceAll(realPEM, "\n", `\n`)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			t.Errorf("expected Bearer auth, got %q", auth)
+		}
+		_, _ = w.Write([]byte(`{"accounts":[{"currency":"BTC","available_balance":{"value":"1.0"}}],"cursor":""}`))
+	}))
+	defer server.Close()
+
+	c := NewCoinbaseConnector(server.URL, server.Client())
+	balances, err := c.FetchBalances(context.Background(), "organizations/test/apiKeys/key", escaped)
+	if err != nil {
+		t.Fatalf("expected escaped \\n PEM to work, got: %v", err)
+	}
+	if len(balances) != 1 || balances[0].Asset != "BTC" {
+		t.Fatalf("unexpected balances: %+v", balances)
+	}
+}
+
+func TestCoinbaseJWTContainsExpectedClaims(t *testing.T) {
+	key, pemStr := generateTestECKey()
+	c := NewCoinbaseConnector("https://api.coinbase.com", nil)
+
+	token, err := c.buildJWT("organizations/test-org/apiKeys/test-key", pemStr, "GET", "/api/v3/brokerage/accounts")
+	if err != nil {
+		t.Fatalf("unexpected error building JWT: %v", err)
+	}
+
+	parsed, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
+		return &key.PublicKey, nil
+	})
+	if err != nil {
+		t.Fatalf("failed to parse JWT: %v", err)
+	}
+
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok {
+		t.Fatal("expected MapClaims")
+	}
+
+	if claims["sub"] != "organizations/test-org/apiKeys/test-key" {
+		t.Errorf("expected sub=organizations/test-org/apiKeys/test-key, got %v", claims["sub"])
+	}
+	if claims["iss"] != "cdp" {
+		t.Errorf("expected iss=cdp, got %v", claims["iss"])
+	}
+	uri, _ := claims["uri"].(string)
+	if !strings.Contains(uri, "GET api.coinbase.com/api/v3/brokerage/accounts") {
+		t.Errorf("expected uri to contain request path, got %v", uri)
+	}
+
+	kid, _ := parsed.Header["kid"].(string)
+	if kid != "organizations/test-org/apiKeys/test-key" {
+		t.Errorf("expected kid header to match apiKey, got %v", kid)
+	}
+	nonce, _ := parsed.Header["nonce"].(string)
+	if nonce == "" {
+		t.Error("expected nonce header to be set")
 	}
 }
 
@@ -663,12 +748,13 @@ func TestEmptyBalanceResponses(t *testing.T) {
 	})
 
 	t.Run("coinbase empty", func(t *testing.T) {
+		pemKey := coinbaseTestPEM()
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"accounts":[],"cursor":""}`))
 		}))
 		defer server.Close()
 		c := NewCoinbaseConnector(server.URL, server.Client())
-		balances, err := c.FetchBalances(context.Background(), "key", "secret")
+		balances, err := c.FetchBalances(context.Background(), "key", pemKey)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

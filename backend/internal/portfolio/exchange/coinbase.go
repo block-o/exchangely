@@ -2,19 +2,24 @@ package exchange
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
-// CoinbaseConnector fetches account balances from the Coinbase Advanced Trade API.
+// CoinbaseConnector fetches account balances from the Coinbase Advanced Trade API
+// using JWT (ES256) authentication with CDP API keys.
 type CoinbaseConnector struct {
 	baseURL    string
 	httpClient *http.Client
@@ -85,19 +90,16 @@ func (c *CoinbaseConnector) fetchPage(ctx context.Context, apiKey, apiSecret, cu
 		path += "?cursor=" + cursor
 	}
 
-	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
-	message := timestamp + "GET" + path
-	mac := hmac.New(sha256.New, []byte(apiSecret))
-	mac.Write([]byte(message))
-	signature := hex.EncodeToString(mac.Sum(nil))
+	token, err := c.buildJWT(apiKey, apiSecret, "GET", path)
+	if err != nil {
+		return nil, "", false, fmt.Errorf("coinbase: jwt build failed: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return nil, "", false, err
 	}
-	req.Header.Set("CB-ACCESS-KEY", apiKey)
-	req.Header.Set("CB-ACCESS-SIGN", signature)
-	req.Header.Set("CB-ACCESS-TIMESTAMP", timestamp)
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -141,4 +143,92 @@ func (c *CoinbaseConnector) fetchPage(ctx context.Context, apiKey, apiSecret, cu
 		})
 	}
 	return balances, payload.Cursor, false, nil
+}
+
+// buildJWT creates an ES256-signed JWT for Coinbase CDP API authentication.
+// The apiKey is the key name (e.g. "organizations/.../apiKeys/...") and
+// apiSecret is the PEM-encoded EC private key.
+func (c *CoinbaseConnector) buildJWT(apiKey, apiSecret, method, path string) (string, error) {
+	key, err := parseECPrivateKey(apiSecret)
+	if err != nil {
+		return "", fmt.Errorf("parsing EC private key: %w", err)
+	}
+
+	uri := fmt.Sprintf("%s %s%s", method, "api.coinbase.com", path)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"sub": apiKey,
+		"iss": "cdp",
+		"aud": []string{"cdp_service"},
+		"nbf": now.Unix(),
+		"exp": now.Add(2 * time.Minute).Unix(),
+		"uri": uri,
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+
+	// Coinbase requires a "kid" header with the API key name and a random nonce.
+	token.Header["kid"] = apiKey
+	token.Header["nonce"] = randomHex(16)
+	token.Header["typ"] = "JWT"
+
+	return token.SignedString(key)
+}
+
+// parseECPrivateKey parses a PEM-encoded EC private key. It accepts both
+// SEC 1 (EC PRIVATE KEY) and PKCS#8 (PRIVATE KEY) formats. Literal "\n"
+// escape sequences (common when copying from JSON or .env files) are
+// converted to real newlines before parsing.
+func parseECPrivateKey(pemStr string) (*ecdsa.PrivateKey, error) {
+	// Normalize literal \n sequences to real newlines.
+	normalized := strings.ReplaceAll(pemStr, `\n`, "\n")
+
+	block, _ := pem.Decode([]byte(normalized))
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block found in private key")
+	}
+
+	switch block.Type {
+	case "EC PRIVATE KEY":
+		return x509.ParseECPrivateKey(block.Bytes)
+	case "PRIVATE KEY":
+		parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err != nil {
+			return nil, err
+		}
+		ecKey, ok := parsed.(*ecdsa.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("PKCS#8 key is not an EC key")
+		}
+		return ecKey, nil
+	default:
+		return nil, fmt.Errorf("unsupported PEM block type: %s", block.Type)
+	}
+}
+
+// randomHex generates a random hex string of the given byte length.
+func randomHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("%x", b)
+}
+
+// GenerateTestECKey creates a P-256 EC key pair for testing.
+func generateTestECKey() (*ecdsa.PrivateKey, string) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	der, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		panic(err)
+	}
+	pemBlock := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+	return key, string(pemBlock)
+}
+
+// init ensures jwt.SigningMethodES256 is registered (it is by default).
+func init() {
+	_ = jwt.SigningMethodES256
 }

@@ -24,12 +24,24 @@ type AdminUserServiceInterface interface {
 
 // AdminUserHandler exposes HTTP handler methods for admin user management endpoints.
 type AdminUserHandler struct {
-	service AdminUserServiceInterface
+	service   AdminUserServiceInterface
+	txService AdminRecomputeService
+}
+
+// AdminRecomputeService allows admins to trigger portfolio recompute for any user.
+type AdminRecomputeService interface {
+	QueueRecompute(ctx context.Context, userID uuid.UUID) error
 }
 
 // NewAdminUserHandler creates an AdminUserHandler.
 func NewAdminUserHandler(service AdminUserServiceInterface) *AdminUserHandler {
 	return &AdminUserHandler{service: service}
+}
+
+// WithRecomputeService attaches a recompute service for portfolio P&L recalculation.
+func (h *AdminUserHandler) WithRecomputeService(svc AdminRecomputeService) *AdminUserHandler {
+	h.txService = svc
+	return h
 }
 
 // List handles GET /api/v1/system/users with pagination, search, and filters.
@@ -252,6 +264,32 @@ func (h *AdminUserHandler) ForcePasswordReset(w http.ResponseWriter, r *http.Req
 
 	// Write response.
 	h.writeJSON(w, http.StatusOK, user)
+}
+
+// RecomputePnL handles POST /api/v1/system/users/{id}/recompute-pnl.
+func (h *AdminUserHandler) RecomputePnL(w http.ResponseWriter, r *http.Request) {
+	if h.txService == nil {
+		h.writeJSONError(w, http.StatusServiceUnavailable, "portfolio features are not enabled")
+		return
+	}
+
+	userIDStr := strings.TrimPrefix(r.URL.Path, "/api/v1/system/users/")
+	userIDStr = strings.TrimSuffix(userIDStr, "/recompute-pnl")
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		h.writeJSONError(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+
+	if err := h.txService.QueueRecompute(r.Context(), userID); err != nil {
+		slog.Error("admin recompute pnl failed", "target_user", userID, "error", err)
+		h.writeJSONError(w, http.StatusInternalServerError, "failed to queue recompute")
+		return
+	}
+
+	slog.Info("admin triggered portfolio recompute", "target_user", userID)
+	h.writeJSON(w, http.StatusOK, map[string]string{"status": "queued"})
 }
 
 // getIntParam extracts an integer query parameter with a default value.

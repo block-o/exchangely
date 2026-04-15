@@ -9,6 +9,7 @@ import (
 	"github.com/block-o/exchangely/backend/internal/domain/pair"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
 	postgresrepo "github.com/block-o/exchangely/backend/internal/storage/postgres"
+	"github.com/google/uuid"
 )
 
 type PairProvider interface {
@@ -41,6 +42,12 @@ type TaskPublisher interface {
 	Publish(ctx context.Context, tasks []task.Task) error
 }
 
+// PortfolioUserProvider lists user IDs that have active portfolio holdings.
+// When nil (portfolio feature disabled), the planner skips P&L refresh scheduling.
+type PortfolioUserProvider interface {
+	ListDistinctUserIDs(ctx context.Context) ([]uuid.UUID, error)
+}
+
 // Runner owns planner leadership and periodically turns catalog + sync state into executable tasks.
 type Runner struct {
 	instanceID              string
@@ -56,6 +63,7 @@ type Runner struct {
 	coverage                CoverageProvider
 	integrity               IntegrityCoverageProvider
 	publisher               TaskPublisher
+	portfolioUsers          PortfolioUserProvider // nil when portfolio is disabled
 	isLeader                bool
 }
 
@@ -72,6 +80,7 @@ func NewRunner(
 	coverage CoverageProvider,
 	integrity IntegrityCoverageProvider,
 	publisher TaskPublisher,
+	portfolioUsers PortfolioUserProvider,
 ) *Runner {
 	return &Runner{
 		instanceID:              instanceID,
@@ -87,6 +96,7 @@ func NewRunner(
 		coverage:                coverage,
 		integrity:               integrity,
 		publisher:               publisher,
+		portfolioUsers:          portfolioUsers,
 	}
 }
 
@@ -192,6 +202,16 @@ func (r *Runner) runTick(ctx context.Context) error {
 	followUpTasks = append(followUpTasks, r.scheduler.BuildConsolidationTasks(pairs, adapted, now)...)
 	followUpTasks = append(followUpTasks, r.scheduler.BuildCleanupTask(now))
 	followUpTasks = append(followUpTasks, r.scheduler.BuildNewsFetchTasks(now)...)
+
+	// Schedule periodic P&L refresh tasks for users with active portfolios.
+	if r.portfolioUsers != nil {
+		userIDs, err := r.portfolioUsers.ListDistinctUserIDs(ctx)
+		if err != nil {
+			slog.Warn("planner failed to list portfolio users for pnl refresh", "error", err)
+		} else if len(userIDs) > 0 {
+			followUpTasks = append(followUpTasks, r.scheduler.BuildPnLRefreshTasks(userIDs, now)...)
+		}
+	}
 
 	if len(realtimeTasks) == 0 && len(followUpTasks) == 0 {
 		slog.Debug("planner tick complete", "instance_id", r.instanceID, "pair_count", len(pairs), "task_count", 0)

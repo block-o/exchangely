@@ -6,7 +6,7 @@ import {
   syncCredential,
 } from "../../api/portfolio";
 import type { ExchangeCredential } from "../../api/portfolio";
-import { Modal, Input, Alert, Button, ToggleGroup } from "../ui";
+import { Modal, Input, Alert, Button, Badge, ToggleGroup } from "../ui";
 
 const EXCHANGES = ["binance", "kraken", "coinbase"] as const;
 const EXCHANGE_OPTIONS = EXCHANGES.map((ex) => ({ value: ex, label: ex.charAt(0).toUpperCase() + ex.slice(1) }));
@@ -47,6 +47,9 @@ const EXCHANGE_FIELDS: Record<string, ExchangeFieldConfig> = {
     secretMultiline: true,
   },
 };
+
+// Exchanges that support trade history fetching via their API.
+const TRADE_HISTORY_EXCHANGES = new Set(["kraken"]);
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "Never";
@@ -211,15 +214,35 @@ export function ExchangeCredentialManager({ onSynced, initialShowAdd = false, on
               <div className="apikeys-token-info">
                 <div className="apikeys-token-label-row">
                   <span className="apikeys-token-label" style={{ textTransform: "capitalize" }}>{c.exchange}</span>
-                  <span className={`apikeys-badge ${c.status === "active" ? "apikeys-badge-active" : "apikeys-badge-revoked"}`}>
-                    {c.status}
-                  </span>
+                  <div className="portfolio-cred-caps">
+                    <Badge
+                      variant={c.status === "active" ? "success" : "danger"}
+                      title={c.status === "active" ? "Balance sync is working" : (c.error_reason || "Balance sync failed")}
+                    >
+                      Balances
+                    </Badge>
+                    <Badge
+                      variant={c.status === "active" && TRADE_HISTORY_EXCHANGES.has(c.exchange) ? "success" : "danger"}
+                      title={
+                        TRADE_HISTORY_EXCHANGES.has(c.exchange)
+                          ? (c.status === "active" ? "Trade history sync is available" : "Trade history requires a working connection")
+                          : `Trade history is not yet supported for ${c.exchange.charAt(0).toUpperCase() + c.exchange.slice(1)}`
+                      }
+                    >
+                      Transactions
+                    </Badge>
+                  </div>
                 </div>
                 <div className="apikeys-token-meta">
                   <code className="apikeys-token-prefix">{c.api_key_prefix}…</code>
                   <span>Last sync: {formatDate(c.last_sync_at)}</span>
                 </div>
                 {c.error_reason && <div className="portfolio-cred-error">{c.error_reason}</div>}
+                {c.status === "failed" && (
+                  <div className="portfolio-cred-hint">
+                    Check that your API key has read-only balance permissions enabled. You may need to regenerate the key on {c.exchange.charAt(0).toUpperCase() + c.exchange.slice(1)} and reconnect.
+                  </div>
+                )}
               </div>
               <div className="portfolio-cred-actions">
                 <button

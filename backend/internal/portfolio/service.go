@@ -257,34 +257,42 @@ func (s *PortfolioService) DeleteCredential(ctx context.Context, userID, credID 
 	return s.credentials.Delete(ctx, credID, userID)
 }
 
+// SyncCredentialResult holds the outcome of a credential sync, including any
+// trade history entries that were fetched from the exchange.
+type SyncCredentialResult struct {
+	Exchange string
+	Trades   []domain.LedgerEntry
+}
+
 // SyncCredential decrypts the credential, fetches balances from the exchange,
 // filters against the asset catalog, upserts holdings, and updates the sync timestamp.
+// If the connector supports trade history, trades are fetched and returned as ledger entries.
 // On auth errors the credential is marked as failed.
-func (s *PortfolioService) SyncCredential(ctx context.Context, userID, credID uuid.UUID) error {
+func (s *PortfolioService) SyncCredential(ctx context.Context, userID, credID uuid.UUID) (*SyncCredentialResult, error) {
 	cred, err := s.credentials.FindByID(ctx, credID, userID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if cred == nil {
-		return ErrForbidden
+		return nil, ErrForbidden
 	}
 	if cred.UserID != userID {
-		return ErrForbidden
+		return nil, ErrForbidden
 	}
 
 	connector, ok := s.exchangeMap[cred.Exchange]
 	if !ok {
-		return fmt.Errorf("no connector for exchange %q", cred.Exchange)
+		return nil, fmt.Errorf("no connector for exchange %q", cred.Exchange)
 	}
 
 	// Decrypt API key and secret.
 	apiKeyBytes, err := s.encryption.DecryptForUser(userID, cred.APIKeyCipher, cred.KeyNonce)
 	if err != nil {
-		return fmt.Errorf("decrypting API key: %w", err)
+		return nil, fmt.Errorf("decrypting API key: %w", err)
 	}
 	secretBytes, err := s.encryption.DecryptForUser(userID, cred.SecretCipher, cred.Nonce)
 	if err != nil {
-		return fmt.Errorf("decrypting API secret: %w", err)
+		return nil, fmt.Errorf("decrypting API secret: %w", err)
 	}
 
 	balances, err := connector.FetchBalances(ctx, string(apiKeyBytes), string(secretBytes))
@@ -293,9 +301,9 @@ func (s *PortfolioService) SyncCredential(ctx context.Context, userID, credID uu
 		if isAuthError(err) {
 			reason := err.Error()
 			_ = s.credentials.UpdateSyncStatus(ctx, credID, "failed", &reason, nil)
-			return fmt.Errorf("exchange auth error: %w", err)
+			return nil, fmt.Errorf("exchange auth error: %w", err)
 		}
-		return fmt.Errorf("fetching exchange balances: %w", err)
+		return nil, fmt.Errorf("fetching exchange balances: %w", err)
 	}
 
 	// Filter balances against asset catalog.
@@ -321,16 +329,53 @@ func (s *PortfolioService) SyncCredential(ctx context.Context, userID, credID uu
 	}
 
 	if err := s.holdings.UpsertBySource(ctx, userID, cred.Exchange, sourceRef, holdings); err != nil {
-		return fmt.Errorf("upserting exchange holdings: %w", err)
+		return nil, fmt.Errorf("upserting exchange holdings: %w", err)
+	}
+
+	// Fetch trade history if the connector supports it.
+	result := &SyncCredentialResult{Exchange: cred.Exchange}
+	if thc, ok := connector.(exchange.TradeHistoryConnector); ok {
+		trades, err := thc.FetchTrades(ctx, string(apiKeyBytes), string(secretBytes))
+		if err != nil {
+			slog.Warn("trade history fetch failed (non-fatal)",
+				"exchange", cred.Exchange,
+				"error", err,
+			)
+		} else {
+			for _, t := range trades {
+				symbol := strings.ToUpper(t.Asset)
+				if !s.catalog[symbol] {
+					continue
+				}
+				var fee *float64
+				if t.Fee > 0 {
+					f := t.Fee
+					fee = &f
+				}
+				result.Trades = append(result.Trades, domain.LedgerEntry{
+					Asset:       symbol,
+					Quantity:    t.Quantity,
+					Type:        t.Type,
+					Timestamp:   t.Timestamp,
+					SourceID:    t.TradeID,
+					Fee:         fee,
+					FeeCurrency: t.FeeCurrency,
+				})
+			}
+			slog.Info("trade history synced",
+				"exchange", cred.Exchange,
+				"trade_count", len(result.Trades),
+			)
+		}
 	}
 
 	// Update sync timestamp and mark as active.
 	now := time.Now()
 	if err := s.credentials.UpdateSyncStatus(ctx, credID, "active", nil, &now); err != nil {
-		return fmt.Errorf("updating sync status: %w", err)
+		return nil, fmt.Errorf("updating sync status: %w", err)
 	}
 
-	return nil
+	return result, nil
 }
 
 // --- Wallet Management ---
@@ -513,7 +558,7 @@ func (s *PortfolioService) SyncAll(ctx context.Context, userID uuid.UUID) SyncAl
 		result.Errors = append(result.Errors, fmt.Sprintf("listing credentials: %v", err))
 	} else {
 		for _, cred := range creds {
-			if err := s.SyncCredential(ctx, userID, cred.ID); err != nil {
+			if _, err := s.SyncCredential(ctx, userID, cred.ID); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("sync exchange %s (%s): %v", cred.Exchange, cred.ID, err))
 			} else {
 				result.ExchangesSynced++

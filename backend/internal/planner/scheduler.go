@@ -6,6 +6,7 @@ import (
 
 	"github.com/block-o/exchangely/backend/internal/domain/pair"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
+	"github.com/google/uuid"
 )
 
 type SyncState struct {
@@ -26,12 +27,13 @@ type Scheduler struct {
 	newsFetchInterval      time.Duration
 	integrityCheckInterval time.Duration
 	gapValidationInterval  time.Duration
+	pnlRefreshInterval     time.Duration
 }
 
 // NewScheduler returns the planner scheduler tuned for coarse-grained backfill windows
 // and the given realtime poll cadence. The pollInterval determines how often the planner
 // generates a fresh realtime task per pair — e.g. 5s means prices update every ~5 seconds.
-func NewScheduler(pollInterval, newsInterval, integrityInterval, gapInterval time.Duration) *Scheduler {
+func NewScheduler(pollInterval, newsInterval, integrityInterval, gapInterval, pnlRefreshInterval time.Duration) *Scheduler {
 	if pollInterval <= 0 {
 		pollInterval = 5 * time.Second
 	}
@@ -44,6 +46,9 @@ func NewScheduler(pollInterval, newsInterval, integrityInterval, gapInterval tim
 	if gapInterval <= 0 {
 		gapInterval = 24 * time.Hour
 	}
+	if pnlRefreshInterval <= 0 {
+		pnlRefreshInterval = 1 * time.Hour
+	}
 	return &Scheduler{
 		backfillWindow1H:       1 * time.Hour,
 		backfillWindow1D:       24 * time.Hour,
@@ -51,6 +56,7 @@ func NewScheduler(pollInterval, newsInterval, integrityInterval, gapInterval tim
 		newsFetchInterval:      newsInterval,
 		integrityCheckInterval: integrityInterval,
 		gapValidationInterval:  gapInterval,
+		pnlRefreshInterval:     pnlRefreshInterval,
 	}
 }
 
@@ -414,6 +420,30 @@ func (s *Scheduler) BuildBackfillProbeTasks(pairs []pair.Pair, state map[string]
 			WindowEnd:   probeEnd,
 			Description: fmt.Sprintf("1h probe candle %s → %s", probeStart.UTC().Format("Jan 2 2006 15:04"), probeEnd.UTC().Format("Jan 2 2006 15:04")),
 		})
+	}
+
+	return tasks
+}
+
+// BuildPnLRefreshTasks emits one pnl_refresh task per user with active
+// portfolio holdings. The stable ID ensures at most one pending/running
+// refresh task per user exists at a time.
+func (s *Scheduler) BuildPnLRefreshTasks(userIDs []uuid.UUID, now time.Time) []task.Task {
+	windowStart := now.UTC().Truncate(s.pnlRefreshInterval)
+	windowEnd := windowStart.Add(s.pnlRefreshInterval)
+	tasks := make([]task.Task, 0, len(userIDs))
+
+	for _, uid := range userIDs {
+		t := task.Task{
+			ID:          fmt.Sprintf("%s:%s:periodic", task.TypePnLRefresh, uid.String()),
+			Type:        task.TypePnLRefresh,
+			Pair:        uid.String(),
+			Interval:    s.pnlRefreshInterval.String(),
+			WindowStart: windowStart,
+			WindowEnd:   windowEnd,
+		}
+		t.Description = task.BuildDescription(t)
+		tasks = append(tasks, t)
 	}
 
 	return tasks

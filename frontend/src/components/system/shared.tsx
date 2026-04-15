@@ -33,6 +33,8 @@ export const TASK_TYPES = [
   "task_cleanup",
   "news_fetch",
   "gap_validation",
+  "portfolio_recompute",
+  "pnl_refresh",
 ];
 
 export const TYPE_LABELS: Record<string, string> = {
@@ -43,6 +45,8 @@ export const TYPE_LABELS: Record<string, string> = {
   task_cleanup: "Task Log Cleanup",
   news_fetch: "News Fetch",
   gap_validation: "Gap Validation",
+  portfolio_recompute: "Portfolio Recompute",
+  pnl_refresh: "P&L Refresh",
 };
 
 export const RECENT_TASK_STATUSES = ["completed", "failed"];
@@ -97,6 +101,18 @@ const TYPE_ICON_PATHS: Record<string, React.ReactNode> = {
   gap_validation: (
     <>
       <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+    </>
+  ),
+  // repeat (recompute cycle)
+  portfolio_recompute: (
+    <>
+      <polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" />
+    </>
+  ),
+  // trending-up (P&L refresh)
+  pnl_refresh: (
+    <>
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" />
     </>
   ),
 };
@@ -193,6 +209,10 @@ export function compactDescription(t: Task): string {
       return "Fetch latest crypto news";
     case "live_ticker":
       return "—";
+    case "portfolio_recompute":
+      return "Full transaction + P&L recompute";
+    case "pnl_refresh":
+      return "Unrealized P&L refresh with current prices";
     default:
       return t.description || "—";
   }

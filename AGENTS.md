@@ -44,6 +44,8 @@ These are non-negotiable unless the user explicitly changes the architecture.
 - News fetch tasks use a stable ID per RSS source (`news_fetch:{source}:periodic`). One pending/running task per source at a time. Do not add timestamps to news fetch task IDs.
 - Integrity check tasks use a stable per-pair sweep ID (`integrity_check:{PAIR}:sweep`). The executor walks unverified days and marks results in the `integrity_coverage` table. Do not create per-hour windowed integrity tasks.
 - Gap validation tasks use a stable per-pair sweep ID (`gap_validation:{PAIR}:sweep`). The executor walks uncovered days and marks complete days in the `data_coverage` table. Do not create per-day windowed gap tasks.
+- Portfolio recompute tasks use a stable per-user ID (`portfolio_recompute:{USER_ID}:pending`). The `Interval` field carries an optional currency hint (e.g. "EUR") set by the handler on currency change; when empty, the executor queries distinct currencies from the user's transactions and computes P&L for each. Do not hardcode a single currency.
+- P&L refresh tasks use a stable per-user ID (`pnl_refresh:{USER_ID}:periodic`). The executor queries distinct currencies from the user's transactions and refreshes P&L for all of them. If the currency lookup fails, it falls back to USD gracefully.
 - Worker batch processing reserves slots for live_ticker tasks first, then fills remaining capacity with other task types, then backfill. This ensures realtime tasks always get worker slots regardless of queue depth.
 - Prefer SSE for live UI updates when a stream already exists. Do not replace stream-driven flows with aggressive polling.
 - The backend is intentionally one binary with role gating. Preserve that unless a deliberate architecture change is requested.
@@ -96,6 +98,13 @@ Default quote assets: `EUR` and `USD`.
 - Per-user API tokens (`exly_`-prefixed) for programmatic access with SHA-256 hashed storage
 - Tiered PostgreSQL-backed rate limiting (user/premium/admin) with sliding window counters and per-IP abuse prevention
 - Admin user management: list, role change (user/premium/admin), disable/enable with session invalidation, force password reset
+- Portfolio transactions: normalized transaction records from exchange syncs, wallet syncs, and Ledger imports with price resolution fallback chain (hourly → daily → unresolvable)
+- FIFO P&L engine: realized/unrealized profit & loss computed from transactions using candle data, persisted as snapshots per user per currency
+- Multi-currency P&L: executors query distinct currencies from user transactions and compute P&L for each; currency hint passed via task Interval field on recompute
+- Debounced recompute: `portfolio_recompute` tasks use stable per-user IDs with configurable debounce window to batch rapid sync/import changes
+- Periodic P&L refresh: planner schedules `pnl_refresh` tasks for users with active portfolios at configurable interval
+- Admin P&L recompute: `POST /api/v1/system/users/{id}/recompute-pnl` triggers recompute for any user (admin only)
+- Kraken trade history: `TradeHistoryConnector` interface with paginated `/0/private/TradesHistory` fetching, normalized into transactions during sync
 
 ### Frontend
 - Premium dark-themed dashboard with SSE-driven realtime market updates
@@ -105,6 +114,12 @@ Default quote assets: `EUR` and `USD`.
 - Coverage tab: pairs grouped by base asset in collapsible cards with live feed health, backfill badges, earliest data
 - Horizontal scrolling news ticker from RSS feeds
 - API Key management page (create, list, revoke tokens with rate limit usage display)
+- Portfolio page with four tabs: Holdings, P&L, Transactions, Sources
+- Transactions tab: paginated list with resolution badges (~1h, ~1d, ⚠️ unresolvable), manual edit modal, source labels
+- P&L tab: realized/unrealized/total summary cards, per-asset breakdown table, approximate values notice, excluded transaction count
+- Sources tab: unified view merging Exchange Connections, Wallets, Ledger, and Manual Holdings managers
+- Exchange capability badges: per-credential Balances + Transactions status indicators (green/red based on connection health and trade history support)
+- Currency resync notification: inline warning banner and "recalculating…" tab badges during reference currency change, SSE-driven completion
 - Vitest testing stack
 - Dynamic `__APP_VERSION__` injection
 
@@ -137,6 +152,30 @@ Default quote assets: `EUR` and `USD`.
 - `PATCH /api/v1/system/users/{id}/role` (update user role, admin only)
 - `PATCH /api/v1/system/users/{id}/status` (enable/disable user, admin only)
 - `POST /api/v1/system/users/{id}/force-password-reset` (force password reset, admin only)
+- `POST /api/v1/system/users/{id}/recompute-pnl` (trigger P&L recalculation for user, admin only)
+- `GET /api/v1/portfolio/holdings` (list user holdings)
+- `POST /api/v1/portfolio/holdings` (create manual holding)
+- `PUT /api/v1/portfolio/holdings/{id}` (update holding)
+- `DELETE /api/v1/portfolio/holdings/{id}` (delete holding)
+- `GET /api/v1/portfolio/valuation` (portfolio valuation with `?quote=`)
+- `GET /api/v1/portfolio/history` (historical portfolio value)
+- `POST /api/v1/portfolio/sync-all` (sync all exchange/wallet sources)
+- `POST /api/v1/portfolio/recompute` (recompute transactions + P&L, accepts `?quote=` currency hint)
+- `GET /api/v1/portfolio/credentials` (list exchange credentials)
+- `POST /api/v1/portfolio/credentials` (add exchange credential)
+- `DELETE /api/v1/portfolio/credentials/{id}` (remove credential)
+- `POST /api/v1/portfolio/credentials/{id}/sync` (sync single credential)
+- `GET /api/v1/portfolio/wallets` (list wallets)
+- `POST /api/v1/portfolio/wallets` (add wallet)
+- `DELETE /api/v1/portfolio/wallets/{id}` (remove wallet)
+- `POST /api/v1/portfolio/wallets/{id}/sync` (sync single wallet)
+- `POST /api/v1/portfolio/ledger/connect` (import Ledger Live export)
+- `POST /api/v1/portfolio/ledger/sync` (re-sync ledger)
+- `DELETE /api/v1/portfolio/ledger` (disconnect ledger)
+- `GET /api/v1/portfolio/stream` (SSE: portfolio valuation + transaction/P&L update events)
+- `GET /api/v1/portfolio/transactions` (paginated transaction list with asset/type/date filters)
+- `PUT /api/v1/portfolio/transactions/{id}` (edit transaction value/notes, sets manually_edited flag)
+- `GET /api/v1/portfolio/pnl` (P&L snapshot with `?quote=` currency)
 
 When changing API behavior, update `router.go:defaultOpenAPIYAML()` if the contract changes materially.
 
@@ -158,6 +197,8 @@ When changing API behavior, update `router.go:defaultOpenAPIYAML()` if the contr
 | `task_cleanup`        | Scheduled pruning of completed/failed task logs                |
 | `news_fetch`          | Stable per-source RSS fetch (coindesk, cointelegraph, theblock)|
 | `gap_validation`      | Stable per-pair sweep; validates coverage, marks complete days |
+| `portfolio_recompute` | Full transaction re-normalization + FIFO P&L recompute per user. Stable ID: `portfolio_recompute:{USER_ID}:pending`. Interval field carries currency hint when triggered by currency change. |
+| `pnl_refresh`         | Periodic unrealized P&L refresh with current ticker prices per user. Stable ID: `pnl_refresh:{USER_ID}:periodic`. Queries distinct currencies from user's transactions. |
 
 ---
 
@@ -212,6 +253,24 @@ Key implementation files:
 - `docs/api.md`: API documentation (endpoints, tokens, rate limiting).
 - `docs/lifecycle.md`: task lifecycle documentation (planner, worker, coordinator interaction).
 - `market_dashboard.png`: current dashboard reference image.
+- `backend/internal/portfolio/*`: portfolio services (valuation, transactions, P&L, price resolution, encryption, notifier).
+- `backend/internal/portfolio/exchange/*`: exchange connectors (Binance, Kraken, Coinbase) with balance and trade history fetching.
+- `backend/internal/portfolio/wallet/*`: on-chain wallet connectors (Ethereum, Solana, Bitcoin).
+- `backend/internal/portfolio/ledger/*`: Ledger Live export parser.
+- `backend/internal/portfolio/transaction_service.go`: transaction normalization, manual edits, debounced recompute queuing.
+- `backend/internal/portfolio/pnl_engine.go`: FIFO P&L computation and snapshot persistence.
+- `backend/internal/portfolio/price_resolver.go`: candle-based price resolution with hourly → daily → unresolvable fallback.
+- `backend/internal/portfolio/notifier.go`: SSE portfolio update broadcaster for recompute/refresh completion.
+- `backend/internal/worker/recompute_executor.go`: portfolio_recompute task executor with multi-currency support.
+- `backend/internal/worker/pnl_refresh_executor.go`: pnl_refresh task executor with multi-currency support.
+- `backend/internal/httpapi/handlers/transactions.go`: transaction and P&L HTTP handlers.
+- `backend/internal/httpapi/handlers/portfolio.go`: portfolio holdings, credentials, wallets, ledger, valuation, sync, recompute handlers.
+- `backend/internal/storage/postgres/transaction_repository.go`: transaction persistence with DistinctCurrencies query.
+- `backend/internal/storage/postgres/pnl_repository.go`: P&L snapshot persistence keyed by (user_id, reference_currency).
+- `backend/internal/domain/portfolio/transaction.go`: Transaction, PnLSnapshot, AssetPnL, LedgerEntry domain types and repository interfaces.
+- `frontend/src/components/portfolio/*`: portfolio UI components (TransactionsTab, PnLTab, ExchangeCredentialManager, WalletManager, LedgerManager, etc.).
+- `frontend/src/components/system/shared.tsx`: task type filters, labels, icons, and descriptions for the operations panel.
+- `frontend/src/pages/PortfolioPage.tsx`: portfolio page with Holdings/P&L/Transactions/Sources tabs.
 
 ---
 

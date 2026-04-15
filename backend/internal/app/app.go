@@ -158,9 +158,18 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		slog.Info("auth disabled — BACKEND_AUTH_MODE not set")
 	}
 
+	// Kafka publishers — created early so portfolio services can use the task publisher.
+	taskPublisher := kafka.NewTaskPublisher(cfg.KafkaBrokers, cfg.KafkaTasksTopic)
+	marketPublisher := kafka.NewMarketEventPublisher(cfg.KafkaBrokers, cfg.KafkaMarketTopic)
+
 	// Portfolio services — conditionally enabled when BACKEND_PORTFOLIO_ENABLED is set.
 	var portfolioService *portfolio.PortfolioService
 	var valuationEngine *portfolio.ValuationEngine
+	var transactionService *portfolio.TransactionService
+	var pnlEngine *portfolio.PnLEngine
+	var holdingRepo *postgresrepo.HoldingRepository
+	var portfolioBroadcaster *portfolio.PortfolioUpdateBroadcaster
+	var txRepo *postgresrepo.TransactionRepository
 	if cfg.PortfolioEnabled {
 		encryptionSvc, err := portfolio.NewKeyEncryptionService(cfg.PortfolioEncryptionKey)
 		if err != nil {
@@ -168,7 +177,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			return nil, fmt.Errorf("portfolio encryption service: %w", err)
 		}
 
-		holdingRepo := postgresrepo.NewHoldingRepository(db)
+		holdingRepo = postgresrepo.NewHoldingRepository(db)
 		credentialRepo := postgresrepo.NewCredentialRepository(db)
 		walletRepo := postgresrepo.NewWalletRepository(db)
 
@@ -216,6 +225,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			holdingRepo,
 		)
 
+		// Transaction and P&L services for the portfolio recompute/refresh executors.
+		txRepo = postgresrepo.NewTransactionRepository(db)
+		pnlRepo := postgresrepo.NewPnLRepository(db)
+		priceResolver := portfolio.NewPriceResolver(marketRepo)
+		transactionService = portfolio.NewTransactionService(txRepo, priceResolver, taskPublisher, cfg.RecomputeDebounceWindow)
+		pnlEngine = portfolio.NewPnLEngine(txRepo, pnlRepo, &tickerPriceAdapter{repo: marketRepo})
+		portfolioBroadcaster = portfolio.NewPortfolioUpdateBroadcaster()
+
 		slog.Info("portfolio enabled")
 	} else {
 		slog.Info("portfolio disabled — BACKEND_PORTFOLIO_ENABLED not set")
@@ -236,16 +253,19 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	marketService := service.NewMarketService(marketRepo, cfg.TickerCacheSize, cfg.TickersCacheTTL)
 
 	handler := router.New(router.Services{
-		Catalog:          catalogService,
-		Market:           marketService,
-		System:           systemService,
-		News:             newsService,
-		Auth:             authService,
-		APITokenService:  apiTokenService,
-		APIRateLimiter:   apiRateLimiter,
-		AdminUserService: adminUserService,
-		PortfolioService: portfolioService,
-		ValuationEngine:  valuationEngine,
+		Catalog:            catalogService,
+		Market:             marketService,
+		System:             systemService,
+		News:               newsService,
+		Auth:               authService,
+		APITokenService:    apiTokenService,
+		APIRateLimiter:     apiRateLimiter,
+		AdminUserService:   adminUserService,
+		PortfolioService:   portfolioService,
+		ValuationEngine:    valuationEngine,
+		TransactionService: transactionService,
+		PnLEngine:          pnlEngine,
+		PortfolioNotifier:  portfolioBroadcaster,
 	}, router.Options{
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 		Env:            cfg.Env,
@@ -254,8 +274,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		APIBaseURL:     cfg.APIBaseURL,
 	})
 
-	taskPublisher := kafka.NewTaskPublisher(cfg.KafkaBrokers, cfg.KafkaTasksTopic)
-	marketPublisher := kafka.NewMarketEventPublisher(cfg.KafkaBrokers, cfg.KafkaMarketTopic)
 	sources := buildSources(cfg)
 	sourceRegistry := provider.NewRegistry(sources.registrySources...)
 	realtimeIngest := realtime.NewIngestService(marketRepo, marketService)
@@ -264,7 +282,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		cfg.PlannerLeaseName,
 		cfg.PlannerLeaseTTL,
 		cfg.PlannerTick,
-		planner.NewScheduler(cfg.RealtimePollInterval, cfg.NewsFetchInterval, cfg.IntegrityCheckInterval, cfg.GapValidationInterval),
+		planner.NewScheduler(cfg.RealtimePollInterval, cfg.NewsFetchInterval, cfg.IntegrityCheckInterval, cfg.GapValidationInterval, cfg.PnLRefreshInterval),
 		planner.ComputeBackfillTaskCap(cfg.WorkerBatchSize, cfg.PlannerBackfillBatchPct),
 		catalogRepo,
 		syncRepo,
@@ -273,6 +291,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		coverageRepo,
 		integrityRepo,
 		taskPublisher,
+		portfolioUserProvider(holdingRepo),
 	)
 
 	backfillExe := worker.NewBackfillExecutor(marketRepo, syncRepo, sourceRegistry.WithCapability(provider.CapHistorical), marketService)
@@ -285,7 +304,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	cleanupExe := worker.NewCleanupExecutor(taskRepo, cfg.TaskRetentionPeriod, cfg.TaskRetentionCount)
 	gapValidatorExe := worker.NewGapValidatorExecutor(marketRepo, coverageRepo, coverageRepo)
 
-	routerExe := worker.NewRouterExecutor(map[string]worker.Executor{
+	routerMap := map[string]worker.Executor{
 		task.TypeBackfill:      backfillExe,
 		task.TypeRealtime:      realtimeExe,
 		task.TypeConsolidate:   backfillExe,
@@ -293,7 +312,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		task.TypeCleanup:       cleanupExe,
 		task.TypeGapValidation: gapValidatorExe,
 		task.TypeNewsFetch:     worker.NewNewsExecutor(newsService),
-	})
+	}
+
+	// Register portfolio executors when the feature is enabled.
+	if transactionService != nil && pnlEngine != nil {
+		routerMap[task.TypePortfolioRecompute] = worker.NewRecomputeExecutor(transactionService, pnlEngine, portfolioBroadcaster, txRepo)
+		routerMap[task.TypePnLRefresh] = worker.NewPnLRefreshExecutor(pnlEngine, portfolioBroadcaster, txRepo)
+	}
+
+	routerExe := worker.NewRouterExecutor(routerMap)
 
 	workerProcessor := worker.NewProcessor(
 		taskRepo,
@@ -535,4 +562,27 @@ func (a *integrityResultAdapter) RecordResult(ctx context.Context, r worker.Inte
 		SourcesChecked:  r.SourcesChecked,
 		ErrorMessage:    r.ErrorMessage,
 	})
+}
+
+// tickerPriceAdapter bridges the portfolio.TickerProvider interface to the
+// MarketRepository, converting asset+quoteCurrency into a pair symbol lookup.
+type tickerPriceAdapter struct {
+	repo *postgresrepo.MarketRepository
+}
+
+func (a *tickerPriceAdapter) GetPrice(ctx context.Context, asset, quoteCurrency string) (float64, error) {
+	t, err := a.repo.Ticker(ctx, asset+quoteCurrency)
+	if err != nil {
+		return 0, fmt.Errorf("ticker price for %s/%s: %w", asset, quoteCurrency, err)
+	}
+	return t.Price, nil
+}
+
+// portfolioUserProvider returns the holding repository as a PortfolioUserProvider
+// when portfolio is enabled, or nil when disabled.
+func portfolioUserProvider(repo *postgresrepo.HoldingRepository) planner.PortfolioUserProvider {
+	if repo == nil {
+		return nil
+	}
+	return repo
 }

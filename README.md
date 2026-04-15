@@ -9,14 +9,25 @@ Started as a "poor man's CoinGecko" for historical data availability Exchangely 
 <table>
   <tr>
     <td>Market Overview</td>
-     <td>Portfolio Tracker</td>
+    <td>Holdings</td>
   </tr>
   <tr>
     <td><img src="./market.png" width=640 height=480></td>
-    <td><img src="./portfolio.png" width=640 height=480></td>
+    <td><img src="./holdings.png" width=640 height=480></td>
+
   </tr>
  </table>
 
+<table>
+  <tr>
+    <td>Holdings</td>
+    <td>Transactions</td>
+  </tr>
+  <tr>
+    <td><img src="./pnl.png" width=640 height=480></td>
+    <td><img src="./transactions.png" width=640 height=480></td>
+  </tr>
+ </table>
 
 ## Features
 
@@ -26,7 +37,7 @@ Started as a "poor man's CoinGecko" for historical data availability Exchangely 
 - **Market News Feed** — Horizontal scrolling ticker with curated crypto news from CoinDesk, Cointelegraph, and TheBlock RSS feeds, refreshed every 15 minutes.
 - **Authentication & Access Control** — Opt-in auth via `BACKEND_AUTH_MODE` supporting Google OAuth 2.0, local email/password, or both. JWT sessions with refresh tokens, role-based access (admin/user), rate limiting with progressive IP lockout, and password change flow. See [Authentication documentation](./docs/authentication.md).
 - **API Tokens & Rate Limiting** — Per-user `exly_`-prefixed API tokens for programmatic access. Tiered rate limits (user/premium/admin) backed by PostgreSQL sliding window counters, per-IP abuse prevention, and a frontend API key management page. See [API documentation](./docs/api.md).
-- **Portfolio Tracker** — Track crypto holdings from manual entries, exchange API syncs (Binance, Kraken, Coinbase), on-chain wallet addresses (Ethereum/ERC-20, Solana/SPL, Bitcoin), and Ledger Live imports. Live portfolio valuation, allocation breakdown, P&L, and historical value charts powered by Exchangely's own price data. All sensitive data encrypted at rest with per-user keys. See [Portfolio documentation](./docs/portfolio.md).
+- **Portfolio Tracker** — Track crypto holdings from manual entries, exchange API syncs (Binance, Kraken, Coinbase), on-chain wallet addresses (Ethereum/ERC-20, Solana/SPL, Bitcoin), and Ledger Live imports. Live portfolio valuation, allocation breakdown, and historical value charts powered by Exchangely's own price data. Transaction normalization with price resolution fallback (hourly → daily candle → unresolvable). FIFO-based P&L computation (realized + unrealized) with multi-currency support. Kraken trade history fetching. All sensitive data encrypted at rest with per-user keys. See [Portfolio documentation](./docs/portfolio.md).
 - **Admin User Management** — List, search, and filter users. Change roles (user/premium/admin), disable/enable accounts with automatic session invalidation, and force password resets. All operations are admin-only and audit-logged.
 - **Operations Center** — Three-tab admin panel (gated to admin role when auth is enabled): system health warnings, coin-grouped coverage view (live feed health + backfill status per base asset in collapsible cards), and task audit log. All SSE-driven.
 - **Event-Driven Task Engine** — Planner/worker architecture with Kafka-distributed tasks, DB-backed leader election, per-pair advisory locks, and configurable throughput controls. See [Task Lifecycle](./docs/lifecycle.md).
@@ -287,3 +298,5 @@ All settings are controlled via environment variables. Override them in `.env` o
 | `BACKEND_ETHERSCAN_API_KEY` | Etherscan API key for Ethereum balance lookups | _(empty)_ |
 | `BACKEND_SOLANA_RPC_URL` | Solana RPC endpoint for balance queries | `https://api.mainnet-beta.solana.com` |
 | `BACKEND_BITCOIN_API_URL` | Bitcoin API endpoint for balance queries | `https://blockstream.info/api` |
+| `BACKEND_RECOMPUTE_DEBOUNCE_WINDOW` | Debounce window for portfolio recompute tasks after sync/import | `30s` |
+| `BACKEND_PNL_REFRESH_INTERVAL` | How often unrealized P&L is refreshed with current prices | `1h` |

@@ -1,0 +1,52 @@
+/* TransactionsTab styles */
+
+.tx-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 8px 0;
+}
+
+.tx-pagination-info {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.tx-warning-icon {
+  cursor: help;
+  font-size: 1rem;
+}
+
+.tx-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+}
+
+.tx-pair-quote {
+  font-size: 0.75rem;
+  opacity: 0.5;
+}
+
+.tx-qty-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1.3;
+}
+
+.tx-unit-price {
+  font-size: 0.72rem;
+  opacity: 0.5;
+}
+
+.tx-no-value {
+  cursor: help;
+  opacity: 0.4;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}

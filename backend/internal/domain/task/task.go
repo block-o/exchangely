@@ -6,13 +6,15 @@ import (
 )
 
 const (
-	TypeBackfill      = "historical_backfill"
-	TypeConsolidate   = "consolidation"
-	TypeRealtime      = "live_ticker"
-	TypeDataSanity    = "integrity_check"
-	TypeCleanup       = "task_cleanup"
-	TypeNewsFetch     = "news_fetch"
-	TypeGapValidation = "gap_validation"
+	TypeBackfill           = "historical_backfill"
+	TypeConsolidate        = "consolidation"
+	TypeRealtime           = "live_ticker"
+	TypeDataSanity         = "integrity_check"
+	TypeCleanup            = "task_cleanup"
+	TypeNewsFetch          = "news_fetch"
+	TypeGapValidation      = "gap_validation"
+	TypePortfolioRecompute = "portfolio_recompute"
+	TypePnLRefresh         = "pnl_refresh"
 )
 
 type Task struct {
@@ -55,6 +57,10 @@ func BuildDescription(t Task) string {
 			return fmt.Sprintf("Fetch news from %s", t.Pair)
 		}
 		return "Fetch latest crypto news"
+	case TypePortfolioRecompute:
+		return "Full transaction + P&L recompute"
+	case TypePnLRefresh:
+		return "Unrealized P&L refresh with current prices"
 	default:
 		return ""
 	}
@@ -85,6 +91,10 @@ func SchedulingCadence(t Task) string {
 		return "1d"
 	case TypeNewsFetch:
 		return t.Interval
+	case TypePortfolioRecompute:
+		return "once"
+	case TypePnLRefresh:
+		return "1h"
 	default:
 		return t.Interval
 	}

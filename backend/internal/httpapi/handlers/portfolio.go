@@ -22,7 +22,9 @@ import (
 type PortfolioHandler struct {
 	svc       *portfolio.PortfolioService
 	ve        *portfolio.ValuationEngine
-	marketSvc *service.MarketService // nil when SSE is not available
+	marketSvc *service.MarketService                // nil when SSE is not available
+	txService *portfolio.TransactionService         // nil when transaction normalization is not available
+	notifier  *portfolio.PortfolioUpdateBroadcaster // nil when portfolio update notifications are not available
 }
 
 // NewPortfolioHandler creates a PortfolioHandler.
@@ -33,6 +35,19 @@ func NewPortfolioHandler(svc *portfolio.PortfolioService, ve *portfolio.Valuatio
 // WithMarketService attaches a MarketService for SSE streaming support.
 func (h *PortfolioHandler) WithMarketService(ms *service.MarketService) *PortfolioHandler {
 	h.marketSvc = ms
+	return h
+}
+
+// WithTransactionService attaches a TransactionService for post-sync recompute queuing.
+func (h *PortfolioHandler) WithTransactionService(ts *portfolio.TransactionService) *PortfolioHandler {
+	h.txService = ts
+	return h
+}
+
+// WithPortfolioNotifier attaches a PortfolioUpdateBroadcaster for SSE push of
+// transaction and P&L update events when recompute/refresh tasks complete.
+func (h *PortfolioHandler) WithPortfolioNotifier(n *portfolio.PortfolioUpdateBroadcaster) *PortfolioHandler {
+	h.notifier = n
 	return h
 }
 
@@ -335,12 +350,49 @@ func (h *PortfolioHandler) SyncCredential(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := h.svc.SyncCredential(r.Context(), userID, credID); err != nil {
+	result, err := h.svc.SyncCredential(r.Context(), userID, credID)
+	if err != nil {
 		h.handleServiceError(w, err)
 		return
 	}
 
+	// Normalize trades into transactions if any were fetched.
+	if h.txService != nil && result != nil && len(result.Trades) > 0 {
+		sourceRef := credID.String()
+		// Use the user's existing transaction currency, or default to USD.
+		// The recompute task will re-resolve for all currencies.
+		if nErr := h.txService.NormalizeForSource(r.Context(), userID, result.Exchange, sourceRef, "USD", result.Trades); nErr != nil {
+			slog.Warn("trade normalization failed (non-fatal)", "error", nErr)
+		}
+	}
+
+	h.queueRecompute(r, userID)
 	h.writeJSON(w, http.StatusOK, map[string]string{"status": "synced"})
+}
+
+// --- Recompute ---
+
+// Recompute handles POST /api/v1/portfolio/recompute.
+// It queues a recompute task for the authenticated user so that transaction
+// values and P&L are recalculated (e.g. after a reference currency change).
+func (h *PortfolioHandler) Recompute(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireJWTUser(w, r)
+	if !ok {
+		return
+	}
+
+	// Accept an optional currency hint from the request body or query param.
+	currency := r.URL.Query().Get("quote")
+	if currency == "" {
+		var body struct {
+			Currency string `json:"currency"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		currency = body.Currency
+	}
+
+	h.queueRecomputeWithCurrency(r, userID, currency)
+	h.writeJSON(w, http.StatusOK, map[string]string{"status": "queued"})
 }
 
 // --- Sync All ---
@@ -353,6 +405,7 @@ func (h *PortfolioHandler) SyncAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := h.svc.SyncAll(r.Context(), userID)
+	h.queueRecompute(r, userID)
 	h.writeJSON(w, http.StatusOK, result)
 }
 
@@ -452,6 +505,7 @@ func (h *PortfolioHandler) SyncWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.queueRecompute(r, userID)
 	h.writeJSON(w, http.StatusOK, map[string]string{"status": "synced"})
 }
 
@@ -494,6 +548,7 @@ func (h *PortfolioHandler) ConnectLedger(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	h.queueRecompute(r, userID)
 	h.writeJSON(w, http.StatusOK, map[string]int{"imported": imported})
 }
 
@@ -599,6 +654,15 @@ func (h *PortfolioHandler) StreamPortfolio(w http.ResponseWriter, r *http.Reques
 	sub := h.marketSvc.Subscribe()
 	defer h.marketSvc.Unsubscribe(sub)
 
+	// Subscribe to portfolio update notifications (recompute/refresh completions).
+	var portfolioUpdates <-chan uuid.UUID
+	var portfolioSub *portfolio.PortfolioUpdateSubscription
+	if h.notifier != nil {
+		portfolioSub = h.notifier.Subscribe()
+		defer h.notifier.Unsubscribe(portfolioSub)
+		portfolioUpdates = portfolioSub.Updates()
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -631,6 +695,25 @@ func (h *PortfolioHandler) StreamPortfolio(w http.ResponseWriter, r *http.Reques
 				return
 			}
 			flusher.Flush()
+
+		case notifiedUserID := <-portfolioUpdates:
+			if notifiedUserID != userID {
+				continue
+			}
+
+			// Emit transactions_updated and pnl_updated events so frontend tabs refresh.
+			ts := time.Now().UTC().Format(time.RFC3339)
+			payload, _ := json.Marshal(map[string]string{"updated_at": ts})
+
+			if err := writeSSEEvent(w, "transactions_updated", payload); err != nil {
+				slog.Warn("portfolio stream transactions_updated write failed", "error", err)
+				return
+			}
+			if err := writeSSEEvent(w, "pnl_updated", payload); err != nil {
+				slog.Warn("portfolio stream pnl_updated write failed", "error", err)
+				return
+			}
+			flusher.Flush()
 		}
 	}
 }
@@ -642,6 +725,22 @@ func writeSSEEvent(w http.ResponseWriter, event string, data []byte) error {
 }
 
 // --- Helpers ---
+
+// queueRecompute triggers a debounced recompute task for the user if the
+// TransactionService is available. Errors are logged but not propagated to
+// the caller — a failed recompute queue should not fail the sync response.
+func (h *PortfolioHandler) queueRecompute(r *http.Request, userID uuid.UUID) {
+	h.queueRecomputeWithCurrency(r, userID, "")
+}
+
+func (h *PortfolioHandler) queueRecomputeWithCurrency(r *http.Request, userID uuid.UUID, currency string) {
+	if h.txService == nil {
+		return
+	}
+	if err := h.txService.QueueRecomputeWithCurrency(r.Context(), userID, currency); err != nil {
+		slog.Warn("failed to queue recompute after sync", "user_id", userID, "error", err)
+	}
+}
 
 // extractPathID extracts a UUID from the URL path after the given prefix.
 func (h *PortfolioHandler) extractPathID(path, prefix string) (uuid.UUID, error) {

@@ -59,6 +59,16 @@ func TestBuildDescriptionPerTaskType(t *testing.T) {
 			want: "",
 		},
 		{
+			name: "portfolio recompute",
+			task: Task{Type: TypePortfolioRecompute},
+			want: "Full transaction + P&L recompute",
+		},
+		{
+			name: "pnl refresh",
+			task: Task{Type: TypePnLRefresh},
+			want: "Unrealized P&L refresh with current prices",
+		},
+		{
 			name: "unknown type returns empty",
 			task: Task{Type: "something_new"},
 			want: "",
@@ -88,6 +98,8 @@ func TestSchedulingCadence(t *testing.T) {
 		{"gap validation is 24h", Task{Type: TypeGapValidation, Interval: "1d"}, "24h"},
 		{"cleanup is 1d", Task{Type: TypeCleanup, Interval: "1d"}, "1d"},
 		{"news fetch uses interval", Task{Type: TypeNewsFetch, Interval: "15m"}, "15m"},
+		{"portfolio recompute is one-shot", Task{Type: TypePortfolioRecompute}, "once"},
+		{"pnl refresh is 1h", Task{Type: TypePnLRefresh}, "1h"},
 	}
 
 	for _, tt := range tests {

@@ -390,3 +390,43 @@ func TestValidatePortfolioConfigEnabledWithKey(t *testing.T) {
 		t.Fatalf("expected no errors for valid portfolio config, got %v", errs)
 	}
 }
+
+func TestLoadRecomputeDebounceWindowDefault(t *testing.T) {
+	_ = os.Unsetenv("BACKEND_RECOMPUTE_DEBOUNCE_WINDOW")
+
+	cfg := Load()
+
+	if cfg.RecomputeDebounceWindow != 30*time.Second {
+		t.Fatalf("expected RecomputeDebounceWindow default 30s, got %v", cfg.RecomputeDebounceWindow)
+	}
+}
+
+func TestLoadRecomputeDebounceWindowCustom(t *testing.T) {
+	t.Setenv("BACKEND_RECOMPUTE_DEBOUNCE_WINDOW", "45s")
+
+	cfg := Load()
+
+	if cfg.RecomputeDebounceWindow != 45*time.Second {
+		t.Fatalf("expected RecomputeDebounceWindow 45s, got %v", cfg.RecomputeDebounceWindow)
+	}
+}
+
+func TestLoadPnLRefreshIntervalDefault(t *testing.T) {
+	_ = os.Unsetenv("BACKEND_PNL_REFRESH_INTERVAL")
+
+	cfg := Load()
+
+	if cfg.PnLRefreshInterval != time.Hour {
+		t.Fatalf("expected PnLRefreshInterval default 1h, got %v", cfg.PnLRefreshInterval)
+	}
+}
+
+func TestLoadPnLRefreshIntervalCustom(t *testing.T) {
+	t.Setenv("BACKEND_PNL_REFRESH_INTERVAL", "30m")
+
+	cfg := Load()
+
+	if cfg.PnLRefreshInterval != 30*time.Minute {
+		t.Fatalf("expected PnLRefreshInterval 30m, got %v", cfg.PnLRefreshInterval)
+	}
+}

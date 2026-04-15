@@ -269,3 +269,103 @@ export interface SyncAllResult {
 export async function syncAll(): Promise<SyncAllResult> {
   return authPost<SyncAllResult>("/portfolio/sync-all");
 }
+
+// Transactions
+
+export interface Transaction {
+  id: string;
+  user_id: string;
+  asset_symbol: string;
+  quantity: number;
+  type: string;
+  timestamp: string;
+  source: string;
+  source_ref: string;
+  reference_value: number | null;
+  reference_currency: string;
+  resolution: string;
+  manually_edited: boolean;
+  notes: string;
+  fee: number | null;
+  fee_currency: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TransactionListParams {
+  asset?: string;
+  type?: string;
+  start?: string;
+  end?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export interface TransactionListResponse {
+  data: Transaction[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export async function getTransactions(params?: TransactionListParams): Promise<TransactionListResponse> {
+  const qs = new URLSearchParams();
+  if (params?.asset) qs.set("asset", params.asset);
+  if (params?.type) qs.set("type", params.type);
+  if (params?.start) qs.set("start", params.start);
+  if (params?.end) qs.set("end", params.end);
+  if (params?.page != null) qs.set("page", String(params.page));
+  if (params?.page_size != null) qs.set("page_size", String(params.page_size));
+  const query = qs.toString();
+  return authGet<TransactionListResponse>(`/portfolio/transactions${query ? `?${query}` : ""}`);
+}
+
+export interface UpdateTransactionRequest {
+  reference_value?: number;
+  notes?: string;
+}
+
+export async function updateTransaction(id: string, body: UpdateTransactionRequest): Promise<void> {
+  const response = await authFetch(`${API_BASE_URL}/portfolio/transactions/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`request failed: ${response.status}`);
+  }
+}
+
+// P&L
+
+export interface AssetPnL {
+  asset_symbol: string;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  total_pnl: number;
+  transaction_count: number;
+}
+
+export interface PnLSnapshot {
+  id: string;
+  user_id: string;
+  reference_currency: string;
+  total_realized: number;
+  total_unrealized: number;
+  total_pnl: number;
+  has_approximate: boolean;
+  excluded_count: number;
+  assets: AssetPnL[];
+  computed_at: string;
+}
+
+export function getPnL(quote?: string): Promise<PnLSnapshot> {
+  const params = quote ? `?quote=${encodeURIComponent(quote)}` : "";
+  return authGet<PnLSnapshot>(`/portfolio/pnl${params}`);
+}
+
+export function triggerRecompute(quote?: string): Promise<void> {
+  const params = quote ? `?quote=${encodeURIComponent(quote)}` : "";
+  return authPost(`/portfolio/recompute${params}`);
+}

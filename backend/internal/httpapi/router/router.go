@@ -21,16 +21,19 @@ import (
 )
 
 type Services struct {
-	Catalog          *service.CatalogService
-	Market           *service.MarketService
-	System           *service.SystemService
-	News             *service.NewsService
-	Auth             *auth.Service               // nil when auth is disabled
-	APITokenService  *auth.APITokenService       // nil when API tokens are not configured
-	APIRateLimiter   *auth.APIRateLimiter        // nil when rate limiting is not configured
-	AdminUserService *auth.AdminUserService      // nil when admin user management is not configured
-	PortfolioService *portfolio.PortfolioService // nil when portfolio is disabled
-	ValuationEngine  *portfolio.ValuationEngine  // nil when portfolio is disabled
+	Catalog            *service.CatalogService
+	Market             *service.MarketService
+	System             *service.SystemService
+	News               *service.NewsService
+	Auth               *auth.Service                         // nil when auth is disabled
+	APITokenService    *auth.APITokenService                 // nil when API tokens are not configured
+	APIRateLimiter     *auth.APIRateLimiter                  // nil when rate limiting is not configured
+	AdminUserService   *auth.AdminUserService                // nil when admin user management is not configured
+	PortfolioService   *portfolio.PortfolioService           // nil when portfolio is disabled
+	ValuationEngine    *portfolio.ValuationEngine            // nil when portfolio is disabled
+	TransactionService *portfolio.TransactionService         // nil when portfolio is disabled
+	PnLEngine          *portfolio.PnLEngine                  // nil when portfolio is disabled
+	PortfolioNotifier  *portfolio.PortfolioUpdateBroadcaster // nil when portfolio is disabled
 }
 
 type Options struct {
@@ -440,6 +443,9 @@ func New(svcs Services, opts Options) http.Handler {
 		// Admin user management routes (admin-only via /api/v1/system/ prefix).
 		if svcs.AdminUserService != nil {
 			adminUserHandler := handlers.NewAdminUserHandler(svcs.AdminUserService)
+			if svcs.TransactionService != nil {
+				adminUserHandler = adminUserHandler.WithRecomputeService(svcs.TransactionService)
+			}
 
 			// GET /api/v1/system/users — list users with pagination and filters.
 			mux.HandleFunc("/api/v1/system/users", func(w http.ResponseWriter, r *http.Request) {
@@ -473,6 +479,12 @@ func New(svcs Services, opts Options) http.Handler {
 					return
 				}
 
+				// POST /api/v1/system/users/{id}/recompute-pnl
+				if strings.HasSuffix(path, "/recompute-pnl") && r.Method == http.MethodPost {
+					adminUserHandler.RecomputePnL(w, r)
+					return
+				}
+
 				// GET /api/v1/system/users/{id} — must come after specific routes.
 				if r.Method == http.MethodGet {
 					// Check if this is a simple user ID path (no additional segments).
@@ -493,6 +505,12 @@ func New(svcs Services, opts Options) http.Handler {
 		ph := handlers.NewPortfolioHandler(svcs.PortfolioService, svcs.ValuationEngine)
 		if svcs.Market != nil {
 			ph = ph.WithMarketService(svcs.Market)
+		}
+		if svcs.TransactionService != nil {
+			ph = ph.WithTransactionService(svcs.TransactionService)
+		}
+		if svcs.PortfolioNotifier != nil {
+			ph = ph.WithPortfolioNotifier(svcs.PortfolioNotifier)
 		}
 
 		// Holdings CRUD.
@@ -531,6 +549,16 @@ func New(svcs Services, opts Options) http.Handler {
 				return
 			}
 			ph.SyncAll(w, r)
+		})
+
+		// Recompute transactions and P&L (e.g. after currency change).
+		mux.HandleFunc("/api/v1/portfolio/recompute", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			ph.Recompute(w, r)
 		})
 
 		// Exchange credentials.
@@ -611,6 +639,36 @@ func New(svcs Services, opts Options) http.Handler {
 
 		// Portfolio SSE stream.
 		mux.HandleFunc("/api/v1/portfolio/stream", ph.StreamPortfolio)
+
+		// Transaction and P&L endpoints (require TransactionService and PnLEngine).
+		if svcs.TransactionService != nil && svcs.PnLEngine != nil {
+			th := handlers.NewTransactionHandler(svcs.TransactionService, svcs.PnLEngine)
+
+			mux.HandleFunc("/api/v1/portfolio/transactions", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					w.Header().Set("Allow", http.MethodGet)
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
+				th.ListTransactions(w, r)
+			})
+			mux.HandleFunc("/api/v1/portfolio/transactions/", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPut {
+					w.Header().Set("Allow", http.MethodPut)
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
+				th.UpdateTransaction(w, r)
+			})
+			mux.HandleFunc("/api/v1/portfolio/pnl", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					w.Header().Set("Allow", http.MethodGet)
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
+				th.GetPnL(w, r)
+			})
+		}
 	}
 
 	mux.HandleFunc("/swagger/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
@@ -896,6 +954,104 @@ paths:
           content:
             text/event-stream:
               schema: { $ref: "#/components/schemas/Valuation" }
+  /api/v1/portfolio/recompute:
+    post:
+      tags: [Portfolio]
+      summary: Trigger portfolio recompute
+      description: Queues a recompute task for the authenticated user's transactions and P&L. Useful after changing the reference currency. Requires a valid JWT session.
+      responses:
+        "200":
+          description: Recompute task queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "queued" }
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden (API token access not allowed)
+  /api/v1/portfolio/transactions:
+    get:
+      tags: [Portfolio]
+      summary: List transactions
+      description: Returns a paginated list of the authenticated user's transactions with optional filters. Requires a valid JWT session.
+      parameters:
+        - { in: query, name: asset, schema: { type: string }, description: "Filter by asset symbol" }
+        - { in: query, name: type, schema: { type: string, enum: [buy, sell, transfer, fee] }, description: "Filter by transaction type" }
+        - { in: query, name: start, schema: { type: string, format: date-time }, description: "Filter transactions after this timestamp (RFC3339)" }
+        - { in: query, name: end, schema: { type: string, format: date-time }, description: "Filter transactions before this timestamp (RFC3339)" }
+        - { in: query, name: page, schema: { type: integer, default: 1 }, description: "Page number" }
+        - { in: query, name: page_size, schema: { type: integer, default: 50 }, description: "Items per page (max 200)" }
+      responses:
+        "200":
+          description: Paginated transaction list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Transaction" }
+                  total: { type: integer }
+                  page: { type: integer }
+                  page_size: { type: integer }
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden (API token access not allowed)
+  /api/v1/portfolio/transactions/{id}:
+    put:
+      tags: [Portfolio]
+      summary: Update transaction
+      description: Updates a transaction's reference-currency value and/or notes. Sets the manually_edited flag. Requires a valid JWT session.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reference_value: { type: number, format: double, nullable: true }
+                notes: { type: string, nullable: true }
+      responses:
+        "200":
+          description: Transaction updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        "400":
+          description: Invalid request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden (API token access not allowed)
+        "404":
+          description: Transaction not found
+  /api/v1/portfolio/pnl:
+    get:
+      tags: [Portfolio]
+      summary: Current P&L summary
+      description: Returns the authenticated user's current profit and loss summary with per-asset breakdown. Requires a valid JWT session.
+      parameters:
+        - { in: query, name: quote, schema: { type: string, default: USD }, description: "Reference currency for P&L computation" }
+      responses:
+        "200":
+          description: P&L snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PnLSnapshot" }
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden (API token access not allowed)
   /api/v1/portfolio/credentials:
     post:
       tags: [Portfolio]
@@ -1436,6 +1592,52 @@ components:
         last_sync_at: { type: string, format: date-time, nullable: true }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    Transaction:
+      type: object
+      description: "A normalized transaction record derived from a ledger entry."
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        asset_symbol: { type: string }
+        quantity: { type: number, format: double }
+        type: { type: string, enum: [buy, sell, transfer, fee] }
+        timestamp: { type: string, format: date-time }
+        source: { type: string }
+        source_ref: { type: string }
+        reference_value: { type: number, format: double, nullable: true }
+        reference_currency: { type: string }
+        resolution: { type: string, enum: [exact, hourly, daily, unresolvable] }
+        manually_edited: { type: boolean }
+        notes: { type: string }
+        fee: { type: number, format: double, nullable: true, description: "Trade fee amount, null when unknown" }
+        fee_currency: { type: string, description: "Currency the fee is denominated in" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PnLSnapshot:
+      type: object
+      description: "Computed FIFO profit and loss snapshot for a user."
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        reference_currency: { type: string }
+        total_realized: { type: number, format: double }
+        total_unrealized: { type: number, format: double }
+        total_pnl: { type: number, format: double }
+        has_approximate: { type: boolean, description: "True if any transaction used hourly or daily price resolution" }
+        excluded_count: { type: integer, description: "Number of unresolvable transactions excluded from computation" }
+        assets:
+          type: array
+          items: { $ref: "#/components/schemas/AssetPnL" }
+        computed_at: { type: string, format: date-time }
+    AssetPnL:
+      type: object
+      description: "Per-asset P&L breakdown within a snapshot."
+      properties:
+        asset_symbol: { type: string }
+        realized_pnl: { type: number, format: double }
+        unrealized_pnl: { type: number, format: double }
+        total_pnl: { type: number, format: double }
+        transaction_count: { type: integer }
 `
 }
 

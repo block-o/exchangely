@@ -94,11 +94,13 @@ type Config struct {
 	APIBaseURL string
 
 	// Portfolio configuration.
-	PortfolioEnabled       bool   // BACKEND_PORTFOLIO_ENABLED, default: false
-	PortfolioEncryptionKey string // BACKEND_PORTFOLIO_ENCRYPTION_KEY, hex-encoded 32-byte AES-256 master key
-	EtherscanAPIKey        string // BACKEND_ETHERSCAN_API_KEY
-	SolanaRPCURL           string // BACKEND_SOLANA_RPC_URL, default: https://api.mainnet-beta.solana.com
-	BitcoinAPIURL          string // BACKEND_BITCOIN_API_URL, default: https://blockstream.info/api
+	PortfolioEnabled        bool          // BACKEND_PORTFOLIO_ENABLED, default: false
+	PortfolioEncryptionKey  string        // BACKEND_PORTFOLIO_ENCRYPTION_KEY, hex-encoded 32-byte AES-256 master key
+	EtherscanAPIKey         string        // BACKEND_ETHERSCAN_API_KEY
+	SolanaRPCURL            string        // BACKEND_SOLANA_RPC_URL, default: https://api.mainnet-beta.solana.com
+	BitcoinAPIURL           string        // BACKEND_BITCOIN_API_URL, default: https://blockstream.info/api
+	RecomputeDebounceWindow time.Duration // BACKEND_RECOMPUTE_DEBOUNCE_WINDOW, default: 30s
+	PnLRefreshInterval      time.Duration // BACKEND_PNL_REFRESH_INTERVAL, default: 1h
 }
 
 func Load() Config {
@@ -162,6 +164,8 @@ func Load() Config {
 		EtherscanAPIKey:           getenv("BACKEND_ETHERSCAN_API_KEY", ""),
 		SolanaRPCURL:              getenv("BACKEND_SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"),
 		BitcoinAPIURL:             getenv("BACKEND_BITCOIN_API_URL", "https://blockstream.info/api"),
+		RecomputeDebounceWindow:   parseDuration(getenv("BACKEND_RECOMPUTE_DEBOUNCE_WINDOW", "30s")),
+		PnLRefreshInterval:        parseDuration(getenv("BACKEND_PNL_REFRESH_INTERVAL", "1h")),
 	}
 }
 

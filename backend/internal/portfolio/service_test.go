@@ -134,6 +134,20 @@ func (r *mockHoldingRepo) DeleteBySource(_ context.Context, userID uuid.UUID, so
 	return nil
 }
 
+func (r *mockHoldingRepo) ListDistinctUserIDs(_ context.Context) ([]uuid.UUID, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	seen := make(map[uuid.UUID]struct{})
+	var ids []uuid.UUID
+	for _, h := range r.holdings {
+		if _, ok := seen[h.UserID]; !ok {
+			seen[h.UserID] = struct{}{}
+			ids = append(ids, h.UserID)
+		}
+	}
+	return ids, nil
+}
+
 // --- Mock: CredentialRepository ---
 
 type mockCredentialRepo struct {
@@ -728,7 +742,7 @@ func TestPropertyUnknownAssetsSkippedDuringSync(t *testing.T) {
 		}
 		_ = credRepo.Create(ctx, cred)
 
-		if err := svc.SyncCredential(ctx, userID, credID); err != nil {
+		if _, err := svc.SyncCredential(ctx, userID, credID); err != nil {
 			t.Fatalf("SyncCredential failed: %v", err)
 		}
 

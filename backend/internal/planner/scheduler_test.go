@@ -10,7 +10,7 @@ import (
 )
 
 func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 
 	// Test hourly backfill for a single pair — tasks walk backwards from yesterday.
@@ -56,7 +56,7 @@ func TestBuildInitialBackfillTasksPartitionsByPairAndInterval(t *testing.T) {
 }
 
 func TestBuildRealtimeTasksStartBeforeBackfillCompletion(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 2, 12, 34, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildRealtimeTasks([]pair.Pair{
@@ -91,7 +91,7 @@ func TestBuildRealtimeTasksStartBeforeBackfillCompletion(t *testing.T) {
 }
 
 func TestBuildInitialBackfillTasksStopsAtRealtimeCutover(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 12, 34, 0, 0, time.UTC)
 	realtimeStarted := time.Date(2026, 4, 3, 10, 0, 0, 0, time.UTC)
 
@@ -122,7 +122,7 @@ func TestBuildInitialBackfillTasksStopsAtRealtimeCutover(t *testing.T) {
 }
 
 func TestBuildConsolidationTasksIncludesOnlyFullyCaughtUpPairs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 2, 12, 34, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildConsolidationTasks([]pair.Pair{
@@ -156,7 +156,7 @@ func TestBuildConsolidationTasksIncludesOnlyFullyCaughtUpPairs(t *testing.T) {
 // gets the same task ID regardless of when BuildRealtimeTasks is called.
 // This ensures only one realtime task per pair can exist in the queue at a time.
 func TestRealtimeTasksUseStableIDPerPair(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 
 	caughtUp := map[string]SyncState{
 		"BTCEUR": {
@@ -194,7 +194,7 @@ func TestRealtimeTasksUseStableIDPerPair(t *testing.T) {
 // TestNewSchedulerDefaultsPollInterval verifies that a zero or negative
 // pollInterval falls back to the 5-second default.
 func TestNewSchedulerDefaultsPollInterval(t *testing.T) {
-	s := NewScheduler(0, 0, 0, 0)
+	s := NewScheduler(0, 0, 0, 0, 0)
 	if s.realtimePollInterval != 5*time.Second {
 		t.Fatalf("expected 5s default, got %v", s.realtimePollInterval)
 	}
@@ -204,16 +204,22 @@ func TestNewSchedulerDefaultsPollInterval(t *testing.T) {
 	if s.gapValidationInterval != 24*time.Hour {
 		t.Fatalf("expected 24h default for gap validation, got %v", s.gapValidationInterval)
 	}
-	s2 := NewScheduler(-1*time.Second, -1*time.Second, -1*time.Second, -1*time.Second)
+	if s.pnlRefreshInterval != 1*time.Hour {
+		t.Fatalf("expected 1h default for pnl refresh, got %v", s.pnlRefreshInterval)
+	}
+	s2 := NewScheduler(-1*time.Second, -1*time.Second, -1*time.Second, -1*time.Second, -1*time.Second)
 	if s2.realtimePollInterval != 5*time.Second {
 		t.Fatalf("expected 5s default for negative, got %v", s2.realtimePollInterval)
+	}
+	if s2.pnlRefreshInterval != 1*time.Hour {
+		t.Fatalf("expected 1h default for negative pnl refresh, got %v", s2.pnlRefreshInterval)
 	}
 }
 
 // TestBuildCleanupTask verifies that the cleanup task uses a stable ID
 // so only one pending/running cleanup task exists at a time.
 func TestBuildCleanupTask(t *testing.T) {
-	s := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	s := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now1 := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	now2 := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
 
@@ -238,7 +244,7 @@ func TestBuildCleanupTask(t *testing.T) {
 // TestBackfillWalksBackwardsFromYesterday verifies that backfill tasks are
 // generated from yesterday going backwards into the past.
 func TestBackfillWalksBackwardsFromYesterday(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	yesterday := time.Date(2026, 4, 4, 0, 0, 0, 0, time.UTC)
 
@@ -270,7 +276,7 @@ func TestBackfillWalksBackwardsFromYesterday(t *testing.T) {
 // TestBackfillProbeEmitsOncePerPairPerDay verifies that the daily backfill
 // probe generates one task per pair keyed by the calendar day.
 func TestBackfillProbeEmitsOncePerPairPerDay(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 30, 0, 0, time.UTC)
 	synced := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
 
@@ -321,7 +327,7 @@ func TestBackfillProbeEmitsOncePerPairPerDay(t *testing.T) {
 // TestRealtimeTaskIDIsStableAcrossHours verifies that the realtime task ID
 // does not change when the hour rolls over. The ID is purely pair-based.
 func TestRealtimeTaskIDIsStableAcrossHours(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	state := map[string]SyncState{
 		"BTCEUR": {HourlyBackfillCompleted: true, DailyBackfillCompleted: true},
 	}
@@ -346,7 +352,7 @@ func TestRealtimeTaskIDIsStableAcrossHours(t *testing.T) {
 // TestRealtimeTaskIDDiffersBetweenPairs verifies that different pairs get
 // different stable IDs so they don't collide in the task table.
 func TestRealtimeTaskIDDiffersBetweenPairs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	state := map[string]SyncState{
 		"BTCEUR": {},
@@ -374,7 +380,7 @@ func TestRealtimeTaskIDDiffersBetweenPairs(t *testing.T) {
 // stable, the WindowStart/WindowEnd reflect the current hour so the exchange
 // API receives the right time context.
 func TestRealtimeTaskWindowUpdatesEachTick(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	state := map[string]SyncState{"BTCEUR": {}}
 	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
 
@@ -400,7 +406,7 @@ func TestRealtimeTaskWindowUpdatesEachTick(t *testing.T) {
 // TestRealtimeTaskSkipsPairWithoutSyncState verifies that pairs not yet
 // present in the sync state map are skipped (no crash, no task).
 func TestRealtimeTaskSkipsPairWithoutSyncState(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildRealtimeTasks(
@@ -419,7 +425,7 @@ func TestRealtimeTaskSkipsPairWithoutSyncState(t *testing.T) {
 // TestIntegrityCheckTasksUseStablePerPairIDs verifies that integrity check
 // tasks use stable per-pair sweep IDs and only emit for pairs with coverage.
 func TestIntegrityCheckTasksUseStablePerPairIDs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 	pairs := []pair.Pair{{Symbol: "BTCEUR"}, {Symbol: "ETHUSD"}}
@@ -453,7 +459,7 @@ func TestIntegrityCheckTasksUseStablePerPairIDs(t *testing.T) {
 // TestIntegrityCheckSkipsFullyVerifiedPairs verifies that pairs with all
 // days already verified don't get new integrity tasks.
 func TestIntegrityCheckSkipsFullyVerifiedPairs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	synced := time.Date(2026, 4, 3, 0, 0, 0, 0, time.UTC)
 	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
@@ -479,7 +485,7 @@ func TestIntegrityCheckSkipsFullyVerifiedPairs(t *testing.T) {
 // TestBackfillProbeTargetsHourBeforeOldestSynced verifies the probe window
 // is exactly one hour before HourlyLastSynced.
 func TestBackfillProbeTargetsHourBeforeOldestSynced(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	synced := time.Date(2026, 1, 15, 8, 0, 0, 0, time.UTC)
 
@@ -511,7 +517,7 @@ func TestBackfillProbeTargetsHourBeforeOldestSynced(t *testing.T) {
 // TestBackfillProbeIDIsIdempotentWithinDay verifies that multiple calls on
 // the same calendar day produce the same task ID (so Enqueue deduplicates).
 func TestBackfillProbeIDIsIdempotentWithinDay(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	synced := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 	state := map[string]SyncState{"BTCEUR": {HourlyLastSynced: synced}}
 	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
@@ -530,7 +536,7 @@ func TestBackfillProbeIDIsIdempotentWithinDay(t *testing.T) {
 // TestBackfillProbeIDChangesAcrossDays verifies that the probe gets a fresh
 // ID each calendar day so it re-runs daily.
 func TestBackfillProbeIDChangesAcrossDays(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	synced := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 	state := map[string]SyncState{"BTCEUR": {HourlyLastSynced: synced}}
 	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
@@ -549,7 +555,7 @@ func TestBackfillProbeIDChangesAcrossDays(t *testing.T) {
 // TestBackfillProbeSkipsFreshPairs verifies that pairs with no sync history
 // (HourlyLastSynced is zero) don't get a probe — there's nothing to extend.
 func TestBackfillProbeSkipsFreshPairs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildBackfillProbeTasks(
@@ -565,7 +571,7 @@ func TestBackfillProbeSkipsFreshPairs(t *testing.T) {
 // TestBackfillProbeEmitsForMultiplePairs verifies that each pair gets its own
 // independent probe task.
 func TestBackfillProbeEmitsForMultiplePairs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildBackfillProbeTasks(
@@ -594,7 +600,7 @@ func TestBackfillProbeEmitsForMultiplePairs(t *testing.T) {
 // TestBackfillProbeUsesCorrectPairCursor verifies that each pair's probe
 // targets its own HourlyLastSynced, not a shared cursor.
 func TestBackfillProbeUsesCorrectPairCursor(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
 
 	btcSynced := time.Date(2026, 2, 1, 10, 0, 0, 0, time.UTC)
@@ -635,7 +641,7 @@ func findTaskByType(tasks []task.Task, taskType string) *task.Task {
 // TestBackfillTasksHaveDescriptions verifies that backfill tasks generated by
 // the scheduler include a non-empty description with the interval and window.
 func TestBackfillTasksHaveDescriptions(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildInitialBackfillTasksLimited([]pair.Pair{
@@ -661,7 +667,7 @@ func TestBackfillTasksHaveDescriptions(t *testing.T) {
 // TestConsolidationTasksHaveDescriptions verifies consolidation tasks include
 // a description mentioning the target day.
 func TestConsolidationTasksHaveDescriptions(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildConsolidationTasks([]pair.Pair{
@@ -680,7 +686,7 @@ func TestConsolidationTasksHaveDescriptions(t *testing.T) {
 
 // TestCleanupTaskHasDescription verifies the cleanup task gets a description.
 func TestCleanupTaskHasDescription(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	item := scheduler.BuildCleanupTask(now)
@@ -691,7 +697,7 @@ func TestCleanupTaskHasDescription(t *testing.T) {
 
 // TestNewsFetchTaskHasDescription verifies the news fetch tasks get descriptions.
 func TestNewsFetchTasksHaveDescriptions(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	items := scheduler.BuildNewsFetchTasks(now)
@@ -711,7 +717,7 @@ func TestNewsFetchTasksHaveDescriptions(t *testing.T) {
 // TestNewsFetchTasksUseStableIDs verifies that news fetch tasks use stable
 // per-source IDs so only one pending/running task per source can exist.
 func TestNewsFetchTasksUseStableIDs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	t1 := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 4, 5, 14, 5, 0, 0, time.UTC)
 
@@ -741,7 +747,7 @@ func TestNewsFetchTasksUseStableIDs(t *testing.T) {
 // TestRealtimeTasksHaveNoDescription verifies that live_ticker tasks
 // intentionally have an empty description (they're self-explanatory).
 func TestRealtimeTasksHaveNoDescription(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildRealtimeTasks([]pair.Pair{
@@ -761,7 +767,7 @@ func TestRealtimeTasksHaveNoDescription(t *testing.T) {
 // TestIntegrityCheckTasksHaveDescriptions verifies that integrity_check tasks
 // emitted by BuildIntegrityCheckTasks include a description.
 func TestIntegrityCheckTasksHaveDescriptions(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 
@@ -784,7 +790,7 @@ func TestIntegrityCheckTasksHaveDescriptions(t *testing.T) {
 // TestGapValidationTasksHaveDescriptions verifies gap validation tasks include
 // a description.
 func TestGapValidationTasksHaveDescriptions(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 
@@ -808,7 +814,7 @@ func TestGapValidationTasksHaveDescriptions(t *testing.T) {
 
 // TestBackfillProbeTasksHaveDescriptions verifies probe tasks include a description.
 func TestBackfillProbeTasksHaveDescriptions(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	synced := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
 
@@ -830,7 +836,7 @@ func TestBackfillProbeTasksHaveDescriptions(t *testing.T) {
 // need backfill, the budget is distributed round-robin so no single pair
 // monopolises the entire batch.
 func TestBackfillRoundRobinDistributesFairly(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	pairs := []pair.Pair{
@@ -865,7 +871,7 @@ func TestBackfillRoundRobinDistributesFairly(t *testing.T) {
 // TestBackfillRoundRobinUnevenBudget verifies fair distribution when the
 // budget doesn't divide evenly across pairs.
 func TestBackfillRoundRobinUnevenBudget(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	pairs := []pair.Pair{
@@ -900,7 +906,7 @@ func TestBackfillRoundRobinUnevenBudget(t *testing.T) {
 // TestBackfillRoundRobinSkipsCompletedPairs verifies that pairs with completed
 // hourly backfill don't starve other pairs of budget.
 func TestBackfillRoundRobinSkipsCompletedPairs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	pairs := []pair.Pair{
@@ -930,7 +936,7 @@ func TestBackfillRoundRobinSkipsCompletedPairs(t *testing.T) {
 // pending/running backfill tasks are excluded from new task generation,
 // allowing the budget to go to pairs that actually need work.
 func TestBackfillSkipsPairsWithActiveTasks(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	pairs := []pair.Pair{
@@ -965,7 +971,7 @@ func TestBackfillSkipsPairsWithActiveTasks(t *testing.T) {
 // TestBackfillAllPairsActiveReturnsEmpty verifies that when all pairs have
 // active backfill tasks, no new tasks are generated.
 func TestBackfillAllPairsActiveReturnsEmpty(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	pairs := []pair.Pair{
@@ -997,7 +1003,7 @@ func TestBackfillAllPairsActiveReturnsEmpty(t *testing.T) {
 // fail and go back to pending (with retry delay). Tick 2 should skip those
 // 9 pairs (they have active tasks) and give the full budget to the remaining 3.
 func TestFailedTasksDoNotStarveRemainingPairs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	// 12 pairs, all needing hourly backfill.
@@ -1071,7 +1077,7 @@ func TestFailedTasksDoNotStarveRemainingPairs(t *testing.T) {
 // have active tasks, the remaining pairs share the budget fairly via
 // round-robin rather than the first remaining pair hogging everything.
 func TestFailedTasksBudgetRedistributesEvenly(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	pairs := []pair.Pair{
@@ -1125,7 +1131,7 @@ func TestFailedTasksBudgetRedistributesEvenly(t *testing.T) {
 // active backfill tasks (all failed and pending retry), the scheduler
 // generates zero new tasks instead of re-flooding the queue.
 func TestAllPairsFailedNoNewWork(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	pairs := []pair.Pair{
@@ -1159,7 +1165,7 @@ func TestAllPairsFailedNoNewWork(t *testing.T) {
 // lifecycle: initial distribution → failure blocks re-enqueue → retry
 // window expires and pairs become eligible again.
 func TestRecoveryAfterFailedPairsRetryExpires(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	pairs := []pair.Pair{
@@ -1219,7 +1225,7 @@ func TestRecoveryAfterFailedPairsRetryExpires(t *testing.T) {
 // correctly flows to pairs that need work when some pairs are active (failed)
 // and others are fully completed.
 func TestMixedActiveAndCompletedPairsBudgetGoesToNeedy(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	pairs := []pair.Pair{
@@ -1276,7 +1282,7 @@ func TestMixedActiveAndCompletedPairsBudgetGoesToNeedy(t *testing.T) {
 // TestGapValidationSweepUsesStablePerPairID verifies that gap validation
 // tasks use a stable per-pair sweep ID so only one can be pending at a time.
 func TestGapValidationSweepUsesStablePerPairID(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 	state := map[string]SyncState{
 		"BTCEUR": {HourlyLastSynced: synced},
@@ -1304,7 +1310,7 @@ func TestGapValidationSweepUsesStablePerPairID(t *testing.T) {
 // TestGapValidationSkipsFullyCoveredPairs verifies that pairs with all days
 // already marked complete in data_coverage don't get new gap validation tasks.
 func TestGapValidationSkipsFullyCoveredPairs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	synced := time.Date(2026, 4, 3, 0, 0, 0, 0, time.UTC)
 	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
@@ -1330,7 +1336,7 @@ func TestGapValidationSkipsFullyCoveredPairs(t *testing.T) {
 // TestGapValidationSkipsPairsWithNoSyncHistory verifies that pairs without
 // any sync history don't get gap validation tasks.
 func TestGapValidationSkipsPairsWithNoSyncHistory(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	pairs := []pair.Pair{{Symbol: "BTCEUR"}}
 
@@ -1346,7 +1352,7 @@ func TestGapValidationSkipsPairsWithNoSyncHistory(t *testing.T) {
 // TestGapValidationEmitsForMultiplePairs verifies that each pair with gaps
 // gets its own independent sweep task.
 func TestGapValidationEmitsForMultiplePairs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 
@@ -1374,7 +1380,7 @@ func TestGapValidationEmitsForMultiplePairs(t *testing.T) {
 // TestGapValidationWindowSpansFullRange verifies that the sweep task window
 // covers from the oldest synced point to yesterday.
 func TestGapValidationWindowSpansFullRange(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 10, 14, 0, 0, 0, time.UTC)
 	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 
@@ -1400,7 +1406,7 @@ func TestGapValidationWindowSpansFullRange(t *testing.T) {
 // TestIntegrityCheckEmitsForRealtimeCoveredPairs verifies that pairs with
 // realtime started (but not hourly backfill complete) still get integrity tasks.
 func TestIntegrityCheckEmitsForRealtimeCoveredPairs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 
@@ -1425,7 +1431,7 @@ func TestIntegrityCheckEmitsForRealtimeCoveredPairs(t *testing.T) {
 // TestIntegrityCheckSkipsPairsWithNoCoverage verifies that pairs without
 // backfill or realtime coverage don't get integrity tasks.
 func TestIntegrityCheckSkipsPairsWithNoCoverage(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildIntegrityCheckTasks(
@@ -1445,7 +1451,7 @@ func TestIntegrityCheckSkipsPairsWithNoCoverage(t *testing.T) {
 // TestIntegrityCheckEmitsForMultiplePairs verifies independent sweep tasks
 // per pair.
 func TestIntegrityCheckEmitsForMultiplePairs(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 	synced := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 
@@ -1475,7 +1481,7 @@ func TestIntegrityCheckEmitsForMultiplePairs(t *testing.T) {
 // TestNewsFetchTasksMatchSourceList verifies that the scheduler emits one
 // task per known RSS source.
 func TestNewsFetchTasksMatchSourceList(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildNewsFetchTasks(now)
@@ -1497,7 +1503,7 @@ func TestNewsFetchTasksMatchSourceList(t *testing.T) {
 
 // TestNewsFetchTasksHaveCorrectType verifies all news tasks have the right type.
 func TestNewsFetchTasksHaveCorrectType(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	for _, item := range scheduler.BuildNewsFetchTasks(now) {
@@ -1510,7 +1516,7 @@ func TestNewsFetchTasksHaveCorrectType(t *testing.T) {
 // TestRealtimeTasksDoNotEmitIntegrityChecks verifies that BuildRealtimeTasks
 // no longer emits integrity_check tasks (they are now separate sweep tasks).
 func TestRealtimeTasksDoNotEmitIntegrityChecks(t *testing.T) {
-	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
 
 	tasks := scheduler.BuildRealtimeTasks([]pair.Pair{

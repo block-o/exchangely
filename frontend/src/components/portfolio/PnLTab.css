@@ -1,0 +1,63 @@
+/* PnLTab styles */
+
+.pnl-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.pnl-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--color-subtle-border);
+  border-radius: 12px;
+  background: var(--color-subtle-bg);
+}
+
+.pnl-summary-label {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+
+.pnl-summary-value {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.pnl-positive {
+  color: var(--color-up);
+}
+
+.pnl-negative {
+  color: var(--color-down);
+}
+
+.pnl-neutral {
+  color: var(--color-text-primary);
+}
+
+.pnl-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 639px) {
+  .pnl-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .pnl-summary-value {
+    font-size: 1.1rem;
+  }
+}

@@ -46,6 +46,9 @@ func (r *sseHoldingRepo) DeleteBySourceRef(_ context.Context, _ uuid.UUID, _ str
 func (r *sseHoldingRepo) DeleteBySource(_ context.Context, _ uuid.UUID, _ string) error {
 	return nil
 }
+func (r *sseHoldingRepo) ListDistinctUserIDs(_ context.Context) ([]uuid.UUID, error) {
+	return nil, nil
+}
 
 type sseMarketRepo struct {
 	prices map[string]float64
@@ -282,5 +285,120 @@ func TestSSEConnectionClosureOnJWTExpiry(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "event: portfolio") {
 		t.Fatalf("expected initial portfolio event before JWT expiry, got:\n%s", body)
+	}
+}
+
+// TestSSETransactionsAndPnLEventsOnPortfolioNotification verifies that when a
+// portfolio update notification is received, the SSE stream emits both
+// transactions_updated and pnl_updated events.
+func TestSSETransactionsAndPnLEventsOnPortfolioNotification(t *testing.T) {
+	userID := uuid.New()
+	holdings := []domain.Holding{
+		{
+			ID:            uuid.New(),
+			UserID:        userID,
+			AssetSymbol:   "BTC",
+			Quantity:      1.0,
+			QuoteCurrency: "USD",
+			Source:        "manual",
+		},
+	}
+	prices := map[string]float64{
+		"BTCUSD": 50000.0,
+	}
+
+	ph, _ := newSSETestSetup(holdings, prices)
+
+	// Attach a portfolio update broadcaster.
+	broadcaster := portfolio.NewPortfolioUpdateBroadcaster()
+	ph = ph.WithPortfolioNotifier(broadcaster)
+
+	r := sseAuthenticatedRequest(http.MethodGet, "/api/v1/portfolio/stream", userID, 15*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		ph.StreamPortfolio(w, r)
+		close(done)
+	}()
+
+	// Give the handler time to subscribe and send initial snapshot.
+	time.Sleep(100 * time.Millisecond)
+
+	// Simulate a portfolio update notification (e.g. recompute completed).
+	broadcaster.NotifyPortfolioUpdate(userID)
+
+	// Wait for the handler to process the notification.
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	<-done
+
+	body := w.Body.String()
+
+	if !strings.Contains(body, "event: transactions_updated") {
+		t.Fatalf("expected transactions_updated SSE event, got:\n%s", body)
+	}
+	if !strings.Contains(body, "event: pnl_updated") {
+		t.Fatalf("expected pnl_updated SSE event, got:\n%s", body)
+	}
+}
+
+// TestSSEIgnoresNotificationsForOtherUsers verifies that portfolio update
+// notifications for a different user are not emitted on the current user's stream.
+func TestSSEIgnoresNotificationsForOtherUsers(t *testing.T) {
+	userID := uuid.New()
+	otherUserID := uuid.New()
+	holdings := []domain.Holding{
+		{
+			ID:            uuid.New(),
+			UserID:        userID,
+			AssetSymbol:   "BTC",
+			Quantity:      1.0,
+			QuoteCurrency: "USD",
+			Source:        "manual",
+		},
+	}
+	prices := map[string]float64{
+		"BTCUSD": 50000.0,
+	}
+
+	ph, _ := newSSETestSetup(holdings, prices)
+
+	broadcaster := portfolio.NewPortfolioUpdateBroadcaster()
+	ph = ph.WithPortfolioNotifier(broadcaster)
+
+	r := sseAuthenticatedRequest(http.MethodGet, "/api/v1/portfolio/stream", userID, 15*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		ph.StreamPortfolio(w, r)
+		close(done)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Notify for a different user.
+	broadcaster.NotifyPortfolioUpdate(otherUserID)
+
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	<-done
+
+	body := w.Body.String()
+
+	if strings.Contains(body, "event: transactions_updated") {
+		t.Fatalf("should not emit transactions_updated for a different user, got:\n%s", body)
+	}
+	if strings.Contains(body, "event: pnl_updated") {
+		t.Fatalf("should not emit pnl_updated for a different user, got:\n%s", body)
 	}
 }

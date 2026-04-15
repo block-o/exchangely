@@ -36,6 +36,12 @@
   flex: 1;
 }
 
+.portfolio-sources-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .portfolio-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -557,6 +563,19 @@
   font-size: 0.8rem;
   color: var(--color-down);
   margin-top: 4px;
+}
+
+.portfolio-cred-hint {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.portfolio-cred-caps {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
 }
 
 .portfolio-field-hint {

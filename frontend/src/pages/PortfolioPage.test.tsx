@@ -30,19 +30,25 @@ vi.mock("../app/auth", () => ({
   useAuth: () => mockAuth,
 }));
 
+let mockSettings = { quoteCurrency: "USD", setQuoteCurrency: vi.fn(), theme: "dark", setTheme: vi.fn() };
+
 vi.mock("../app/settings", () => ({
-  useSettings: () => ({ quoteCurrency: "USD", setQuoteCurrency: vi.fn(), theme: "dark", setTheme: vi.fn() }),
+  useSettings: () => mockSettings,
 }));
 
 // --- Mock portfolio API ---
 const mockGetValuation = vi.fn();
 const mockGetHoldings = vi.fn();
 const mockSyncAll = vi.fn();
+const mockTriggerRecompute = vi.fn();
+const mockSubscribePortfolioStream = vi.fn();
 
 vi.mock("../api/portfolio", () => ({
   getValuation: (...args: unknown[]) => mockGetValuation(...args),
   getHoldings: (...args: unknown[]) => mockGetHoldings(...args),
   syncAll: (...args: unknown[]) => mockSyncAll(...args),
+  triggerRecompute: (...args: unknown[]) => mockTriggerRecompute(...args),
+  subscribePortfolioStream: (...args: unknown[]) => mockSubscribePortfolioStream(...args),
   getCredentials: vi.fn(() => Promise.resolve([])),
   createCredential: vi.fn(() => Promise.resolve({})),
   deleteCredential: vi.fn(() => Promise.resolve()),
@@ -51,13 +57,6 @@ vi.mock("../api/portfolio", () => ({
   createWallet: vi.fn(() => Promise.resolve({})),
   deleteWallet: vi.fn(() => Promise.resolve()),
   syncWallet: vi.fn(() => Promise.resolve()),
-  subscribePortfolioStream: vi.fn(() => ({
-    close: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    onopen: null,
-    onerror: null,
-  })),
 }));
 
 vi.mock("../api/assets", () => ({
@@ -108,10 +107,19 @@ describe("PortfolioPage", () => {
       logout: vi.fn(),
       refreshToken: vi.fn(),
     };
+    mockSettings = { quoteCurrency: "USD", setQuoteCurrency: vi.fn(), theme: "dark", setTheme: vi.fn() };
+    mockTriggerRecompute.mockResolvedValue(undefined);
+    mockSubscribePortfolioStream.mockReturnValue({
+      close: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onopen: null,
+      onerror: null,
+    });
   });
 
   describe("PANEL_OPTIONS tabs", () => {
-    it("renders all five tabs in the correct order", async () => {
+    it("renders all four tabs in the correct order", async () => {
       setupEmpty();
       render(<PortfolioPage />);
 
@@ -120,31 +128,30 @@ describe("PortfolioPage", () => {
       });
 
       const tabs = screen.getAllByRole("tab");
-      expect(tabs).toHaveLength(5);
-      expect(tabs[0]).toHaveTextContent("Overview");
-      expect(tabs[1]).toHaveTextContent("Exchanges");
-      expect(tabs[2]).toHaveTextContent("Wallets");
-      expect(tabs[3]).toHaveTextContent("Ledger");
-      expect(tabs[4]).toHaveTextContent("Others");
+      expect(tabs).toHaveLength(4);
+      expect(tabs[0]).toHaveTextContent("Holdings");
+      expect(tabs[1]).toHaveTextContent("P&L");
+      expect(tabs[2]).toHaveTextContent("Transactions");
+      expect(tabs[3]).toHaveTextContent("Sources");
     });
 
-    it("starts with Overview tab active", async () => {
+    it("starts with Holdings tab active", async () => {
       setupEmpty();
       render(<PortfolioPage />);
 
       await waitFor(() => {
-        const overviewTab = screen.getByRole("tab", { name: "Overview" });
-        expect(overviewTab).toHaveAttribute("aria-selected", "true");
+        const holdingsTab = screen.getByRole("tab", { name: "Holdings" });
+        expect(holdingsTab).toHaveAttribute("aria-selected", "true");
       });
     });
 
-    it("Others tab is last (rightmost)", async () => {
+    it("Sources tab is last (rightmost)", async () => {
       setupEmpty();
       render(<PortfolioPage />);
 
       await waitFor(() => {
         const tabs = screen.getAllByRole("tab");
-        expect(tabs[tabs.length - 1]).toHaveTextContent("Others");
+        expect(tabs[tabs.length - 1]).toHaveTextContent("Sources");
       });
     });
   });
@@ -159,66 +166,34 @@ describe("PortfolioPage", () => {
       });
     });
 
-    it("shows valuation and holdings on Overview when portfolio has data", async () => {
+    it("shows valuation and holdings on Holdings tab when portfolio has data", async () => {
       setupPopulated();
       render(<PortfolioPage />);
 
       await waitFor(() => {
         expect(screen.getByText("Total Portfolio Value")).toBeInTheDocument();
       });
-      // BTC appears in both allocation chart and holdings table
       expect(screen.getAllByText("BTC").length).toBeGreaterThanOrEqual(1);
     });
 
-    it("switches to Exchanges tab and shows exchange panel", async () => {
+    it("switches to Sources tab and shows all source panels", async () => {
       setupEmpty();
       render(<PortfolioPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole("tab", { name: "Exchanges" })).toBeInTheDocument();
+        expect(screen.getByRole("tab", { name: "Sources" })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("tab", { name: "Exchanges" }));
+      fireEvent.click(screen.getByRole("tab", { name: "Sources" }));
 
       await waitFor(() => {
         expect(screen.getByText("Exchange Connections")).toBeInTheDocument();
       });
+      expect(screen.getByText("Linked Wallets")).toBeInTheDocument();
       expect(screen.queryByText("Your portfolio is empty")).not.toBeInTheDocument();
     });
 
-    it("switches to Wallets tab and shows wallet panel", async () => {
-      setupEmpty();
-      render(<PortfolioPage />);
-
-      await waitFor(() => {
-        expect(screen.getByRole("tab", { name: "Wallets" })).toBeInTheDocument();
-      });
-
-      fireEvent.click(screen.getByRole("tab", { name: "Wallets" }));
-
-      await waitFor(() => {
-        expect(screen.getByText("Linked Wallets")).toBeInTheDocument();
-      });
-    });
-
-    it("switches to Others tab and shows manual holding form", async () => {
-      setupEmpty();
-      render(<PortfolioPage />);
-
-      await waitFor(() => {
-        expect(screen.getByRole("tab", { name: "Others" })).toBeInTheDocument();
-      });
-
-      fireEvent.click(screen.getByRole("tab", { name: "Others" }));
-
-      await waitFor(() => {
-        expect(screen.getByLabelText("Asset")).toBeInTheDocument();
-      });
-      expect(screen.getByLabelText("Quantity")).toBeInTheDocument();
-      expect(screen.getByText("Track a position that isn't linked to an exchange or wallet.")).toBeInTheDocument();
-    });
-
-    it("EmptyState 'Add Holding' card switches to Others tab", async () => {
+    it("EmptyState 'Add Holding' card switches to Sources tab", async () => {
       setupEmpty();
       render(<PortfolioPage />);
 
@@ -226,17 +201,15 @@ describe("PortfolioPage", () => {
         expect(screen.getByText("Your portfolio is empty")).toBeInTheDocument();
       });
 
-      // Click the "Add Holding" card in EmptyState
       const cards = screen.getAllByRole("button");
       const addCard = cards.find((b) => b.textContent?.includes("Add Holding"));
       expect(addCard).toBeTruthy();
       fireEvent.click(addCard!);
 
       await waitFor(() => {
-        const othersTab = screen.getByRole("tab", { name: "Others" });
-        expect(othersTab).toHaveAttribute("aria-selected", "true");
+        const sourcesTab = screen.getByRole("tab", { name: "Sources" });
+        expect(sourcesTab).toHaveAttribute("aria-selected", "true");
       });
-      expect(screen.getByLabelText("Asset")).toBeInTheDocument();
     });
   });
 
@@ -249,15 +222,12 @@ describe("PortfolioPage", () => {
         expect(screen.getByText("Total Portfolio Value")).toBeInTheDocument();
       });
       expect(screen.queryByText("Exchange Connections")).not.toBeInTheDocument();
-      expect(screen.queryByText("Linked Wallets")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Asset")).not.toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole("tab", { name: "Exchanges" }));
+      fireEvent.click(screen.getByRole("tab", { name: "Sources" }));
       await waitFor(() => {
         expect(screen.getByText("Exchange Connections")).toBeInTheDocument();
       });
       expect(screen.queryByText("Total Portfolio Value")).not.toBeInTheDocument();
-      expect(screen.queryByText("Linked Wallets")).not.toBeInTheDocument();
     });
   });
 
@@ -292,6 +262,102 @@ describe("PortfolioPage", () => {
       await waitFor(() => {
         expect(screen.getByRole("alert")).toHaveTextContent("Network error");
       });
+    });
+  });
+
+  describe("currency resync notification", () => {
+    it("shows warning banner and recalculating tab labels when currency changes", async () => {
+      setupEmpty();
+      const { rerender } = render(<PortfolioPage />);
+
+      await waitFor(() => {
+        expect(screen.getByRole("tablist")).toBeInTheDocument();
+      });
+
+      // No banner initially
+      expect(screen.queryByText(/recalculated/)).not.toBeInTheDocument();
+
+      // Simulate currency change
+      mockSettings.quoteCurrency = "EUR";
+      rerender(<PortfolioPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/recalculated in the new currency/)).toBeInTheDocument();
+      });
+
+      // Tab labels should show recalculating badge
+      const tabs = screen.getAllByRole("tab");
+      const txTab = tabs.find((t) => t.textContent?.includes("Transactions"));
+      const pnlTab = tabs.find((t) => t.textContent?.includes("P&L"));
+      expect(txTab).toHaveTextContent("Transactions (recalculating…)");
+      expect(pnlTab).toHaveTextContent("P&L (recalculating…)");
+
+      // triggerRecompute should have been called
+      expect(mockTriggerRecompute).toHaveBeenCalled();
+    });
+
+    it("clears resync banner when SSE event fires", async () => {
+      setupEmpty();
+
+      // Capture the SSE event listeners so we can fire them
+      const listeners: Record<string, (() => void)[]> = {};
+      mockSubscribePortfolioStream.mockReturnValue({
+        close: vi.fn(),
+        addEventListener: vi.fn((event: string, handler: () => void) => {
+          if (!listeners[event]) listeners[event] = [];
+          listeners[event].push(handler);
+        }),
+        removeEventListener: vi.fn(),
+      });
+
+      const { rerender } = render(<PortfolioPage />);
+
+      await waitFor(() => {
+        expect(screen.getByRole("tablist")).toBeInTheDocument();
+      });
+
+      // Trigger currency change
+      mockSettings.quoteCurrency = "EUR";
+      rerender(<PortfolioPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/recalculated in the new currency/)).toBeInTheDocument();
+      });
+
+      // Simulate SSE completion event
+      if (listeners["portfolio"]) {
+        listeners["portfolio"].forEach((fn) => fn());
+      }
+
+      await waitFor(() => {
+        expect(screen.queryByText(/recalculated in the new currency/)).not.toBeInTheDocument();
+      });
+
+      // Tab labels should be back to normal
+      const tabs = screen.getAllByRole("tab");
+      const txTab = tabs.find((t) => t.textContent?.includes("Transactions"));
+      expect(txTab).toHaveTextContent("Transactions");
+      expect(txTab?.textContent).not.toContain("recalculating");
+    });
+
+    it("displays stale data during resync rather than empty states", async () => {
+      setupPopulated();
+      const { rerender } = render(<PortfolioPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Total Portfolio Value")).toBeInTheDocument();
+      });
+
+      // Trigger currency change — stale data should remain visible
+      mockSettings.quoteCurrency = "EUR";
+      rerender(<PortfolioPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/recalculated in the new currency/)).toBeInTheDocument();
+      });
+
+      // The existing portfolio data should still be visible
+      expect(screen.getByText("Total Portfolio Value")).toBeInTheDocument();
     });
   });
 });

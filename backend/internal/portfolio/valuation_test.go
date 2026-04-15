@@ -65,6 +65,9 @@ func (r *valuationHoldingRepo) DeleteBySourceRef(_ context.Context, _ uuid.UUID,
 func (r *valuationHoldingRepo) DeleteBySource(_ context.Context, _ uuid.UUID, _ string) error {
 	return nil
 }
+func (r *valuationHoldingRepo) ListDistinctUserIDs(_ context.Context) ([]uuid.UUID, error) {
+	return nil, nil
+}
 
 // --- Rapid generators for valuation tests ---
 

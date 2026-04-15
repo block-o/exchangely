@@ -252,3 +252,24 @@ func (r *HoldingRepository) DeleteBySource(ctx context.Context, userID uuid.UUID
 	`, userID, source)
 	return err
 }
+
+// ListDistinctUserIDs returns the unique user IDs that have at least one holding.
+func (r *HoldingRepository) ListDistinctUserIDs(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DISTINCT user_id FROM portfolio_holdings
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}

@@ -214,6 +214,29 @@ export function UsersTab() {
     }
   };
 
+  const handleRecomputePnL = async (userId: string) => {
+    setActionLoading(true);
+    setActionMessage(null);
+    try {
+      const res = await authFetch(
+        `${API_BASE_URL}/system/users/${userId}/recompute-pnl`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(errorData.error || "Failed to trigger P&L recalculation");
+      }
+      setActionMessage({ type: "success", text: "P&L recalculation queued" });
+    } catch (e) {
+      setActionMessage({
+        type: "error",
+        text: e instanceof Error ? e.message : "Failed to trigger P&L recalculation",
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString("en-US", {
@@ -699,6 +722,32 @@ export function UsersTab() {
                   </button>
                 </div>
               )}
+
+              {/* Recalculate P&L */}
+              <div>
+                <label
+                  style={{ fontSize: "0.82rem", fontWeight: 500, marginBottom: "0.35rem", display: "block" }}
+                >
+                  Portfolio
+                </label>
+                <button
+                  onClick={() => handleRecomputePnL(selectedUser.id)}
+                  disabled={actionLoading}
+                  style={{
+                    width: "100%",
+                    padding: "0.5rem 1rem",
+                    fontSize: "0.88rem",
+                    borderRadius: "6px",
+                    border: "1px solid var(--color-interactive-border)",
+                    background: colors.infoBg,
+                    color: colors.infoText,
+                    cursor: actionLoading ? "not-allowed" : "pointer",
+                    opacity: actionLoading ? 0.5 : 1,
+                  }}
+                >
+                  Recalculate P&amp;L
+                </button>
+              </div>
             </div>
           </div>
         </div>

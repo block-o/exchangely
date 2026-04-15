@@ -76,6 +76,18 @@ Require auth to be in place. Transform Exchangely from a dashboard into a tool p
 - [x] Historical portfolio value chart (1d, 7d, 30d, 1y) using stored candle data
 - [x] SSE-driven live portfolio value updates (reuse ticker stream)
 - [x] Secure API key storage (encrypted at rest in PostgreSQL)
+- [x] Transaction normalization from exchange syncs, wallet syncs, and Ledger imports
+- [x] Price resolution fallback chain (hourly candle → daily candle → unresolvable) for transaction values
+- [x] FIFO P&L engine: realized/unrealized profit & loss from transactions
+- [x] Multi-currency P&L: executors compute for all currencies in user's transactions
+- [x] Debounced recompute tasks with stable per-user IDs
+- [x] Periodic P&L refresh with current ticker prices (configurable interval)
+- [x] Admin-only P&L recompute trigger per user
+- [x] Kraken trade history fetching via TradeHistoryConnector interface
+- [x] Portfolio page restructured: Holdings | P&L | Transactions | Sources tabs
+- [x] Exchange capability badges (Balances + Transactions status per credential)
+- [x] Currency change resync notification with SSE-driven completion
+- [x] Portfolio task types visible in Operations panel (filter, icons, descriptions)
 
 ### 2.2 Price Alert Webhooks
 - [ ] Design alert model: user, pair, condition (above/below/crosses), threshold, delivery method

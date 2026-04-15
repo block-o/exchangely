@@ -9,6 +9,7 @@ import (
 	"github.com/block-o/exchangely/backend/internal/domain/pair"
 	"github.com/block-o/exchangely/backend/internal/domain/task"
 	postgresrepo "github.com/block-o/exchangely/backend/internal/storage/postgres"
+	"github.com/google/uuid"
 )
 
 func TestRunTickSkipsSchedulingWhenLeaseNotAcquired(t *testing.T) {
@@ -17,7 +18,7 @@ func TestRunTickSkipsSchedulingWhenLeaseNotAcquired(t *testing.T) {
 		"planner_leader",
 		15*time.Second,
 		10*time.Second,
-		NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour),
+		NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour),
 		4,
 		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
 		&fakeSyncProvider{states: map[string]postgresrepo.SyncState{}},
@@ -26,6 +27,7 @@ func TestRunTickSkipsSchedulingWhenLeaseNotAcquired(t *testing.T) {
 		&fakeCoverageProvider{},
 		&fakeIntegrityCoverageProvider{},
 		&fakeTaskPublisher{},
+		nil,
 	)
 
 	tasks := runner.tasks.(*fakeTaskSink)
@@ -55,7 +57,7 @@ func TestRunTickSeedsMissingPairsAndEnqueuesTasks(t *testing.T) {
 		"planner_leader",
 		15*time.Second,
 		10*time.Second,
-		NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour),
+		NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour),
 		4,
 		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
 		syncProvider,
@@ -64,6 +66,7 @@ func TestRunTickSeedsMissingPairsAndEnqueuesTasks(t *testing.T) {
 		&fakeCoverageProvider{},
 		&fakeIntegrityCoverageProvider{},
 		publisher,
+		nil,
 	)
 
 	if err := runner.runTick(context.Background()); err != nil {
@@ -102,7 +105,7 @@ func TestRunTickPublishesRealtimeForCaughtUpPairs(t *testing.T) {
 		"planner_leader",
 		15*time.Second,
 		10*time.Second,
-		NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour),
+		NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour),
 		4,
 		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
 		&fakeSyncProvider{
@@ -115,6 +118,7 @@ func TestRunTickPublishesRealtimeForCaughtUpPairs(t *testing.T) {
 		&fakeCoverageProvider{},
 		&fakeIntegrityCoverageProvider{},
 		publisher,
+		nil,
 	)
 
 	if err := runner.runTick(context.Background()); err != nil {
@@ -142,7 +146,7 @@ func TestRunTickEnqueuesRealtimeBeforeCappedBackfill(t *testing.T) {
 		"planner_leader",
 		15*time.Second,
 		10*time.Second,
-		NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour),
+		NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour),
 		2,
 		fakePairProvider{pairs: []pair.Pair{
 			{Symbol: "BTCEUR"},
@@ -159,6 +163,7 @@ func TestRunTickEnqueuesRealtimeBeforeCappedBackfill(t *testing.T) {
 		&fakeCoverageProvider{},
 		&fakeIntegrityCoverageProvider{},
 		publisher,
+		nil,
 	)
 
 	if err := runner.runTick(context.Background()); err != nil {
@@ -188,6 +193,77 @@ func TestRunTickEnqueuesRealtimeBeforeCappedBackfill(t *testing.T) {
 	}
 	if len(taskSink.batches[1]) <= backfillCount {
 		t.Fatalf("expected follow-up batch to also include non-backfill tasks, got %+v", taskSink.batches[1])
+	}
+}
+
+func TestRunTickEnqueuesPnLRefreshWhenPortfolioUsersExist(t *testing.T) {
+	taskSink := &fakeTaskSink{}
+	publisher := &fakeTaskPublisher{}
+	userID := uuid.MustParse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+
+	runner := NewRunner(
+		"instance-a",
+		"planner_leader",
+		15*time.Second,
+		10*time.Second,
+		NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour),
+		4,
+		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
+		&fakeSyncProvider{states: map[string]postgresrepo.SyncState{"BTCEUR": {}}},
+		fakeLeaseCoordinator{acquired: true},
+		taskSink,
+		&fakeCoverageProvider{},
+		&fakeIntegrityCoverageProvider{},
+		publisher,
+		&fakePortfolioUserProvider{userIDs: []uuid.UUID{userID}},
+	)
+
+	if err := runner.runTick(context.Background()); err != nil {
+		t.Fatalf("runTick failed: %v", err)
+	}
+
+	foundPnLRefresh := false
+	expectedID := "pnl_refresh:" + userID.String() + ":periodic"
+	for _, item := range taskSink.tasks {
+		if item.Type == task.TypePnLRefresh && item.ID == expectedID {
+			foundPnLRefresh = true
+			break
+		}
+	}
+	if !foundPnLRefresh {
+		t.Fatalf("expected pnl_refresh task with ID %s in %+v", expectedID, taskSink.tasks)
+	}
+}
+
+func TestRunTickSkipsPnLRefreshWhenPortfolioDisabled(t *testing.T) {
+	taskSink := &fakeTaskSink{}
+	publisher := &fakeTaskPublisher{}
+
+	runner := NewRunner(
+		"instance-a",
+		"planner_leader",
+		15*time.Second,
+		10*time.Second,
+		NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour),
+		4,
+		fakePairProvider{pairs: []pair.Pair{{Symbol: "BTCEUR"}}},
+		&fakeSyncProvider{states: map[string]postgresrepo.SyncState{"BTCEUR": {}}},
+		fakeLeaseCoordinator{acquired: true},
+		taskSink,
+		&fakeCoverageProvider{},
+		&fakeIntegrityCoverageProvider{},
+		publisher,
+		nil,
+	)
+
+	if err := runner.runTick(context.Background()); err != nil {
+		t.Fatalf("runTick failed: %v", err)
+	}
+
+	for _, item := range taskSink.tasks {
+		if item.Type == task.TypePnLRefresh {
+			t.Fatalf("expected no pnl_refresh tasks when portfolio is disabled, got %+v", item)
+		}
 	}
 }
 
@@ -318,4 +394,16 @@ func (f *fakeIntegrityCoverageProvider) GetAllVerifiedDays(_ context.Context) (m
 		return make(map[string]map[string]bool), nil
 	}
 	return f.coverage, nil
+}
+
+type fakePortfolioUserProvider struct {
+	userIDs []uuid.UUID
+	err     error
+}
+
+func (f *fakePortfolioUserProvider) ListDistinctUserIDs(_ context.Context) ([]uuid.UUID, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return append([]uuid.UUID{}, f.userIDs...), nil
 }

@@ -103,6 +103,7 @@ type HoldingRepository interface {
 	Delete(ctx context.Context, id, userID uuid.UUID) error
 	FindByID(ctx context.Context, id, userID uuid.UUID) (*Holding, error)
 	ListByUserID(ctx context.Context, userID uuid.UUID) ([]Holding, error)
+	ListDistinctUserIDs(ctx context.Context) ([]uuid.UUID, error)
 	UpsertBySource(ctx context.Context, userID uuid.UUID, source, sourceRef string, holdings []Holding) error
 	DeleteBySourceRef(ctx context.Context, userID uuid.UUID, sourceRef string) error
 	DeleteBySource(ctx context.Context, userID uuid.UUID, source string) error

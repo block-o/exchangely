@@ -16,7 +16,7 @@ import (
 
 func TestHourlyBackfillTaskExecutesAndUpdatesProgress(t *testing.T) {
 	now := time.Date(2024, 1, 3, 12, 0, 0, 0, time.UTC)
-	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 
 	// Backwards backfill: cursor starts at yesterday (Jan 2 00:00) and walks backwards.
 	// HourlyLastSynced at Jan 2 00:00 means we've fetched down to that point.
@@ -79,7 +79,7 @@ func TestHourlyBackfillTaskExecutesAndUpdatesProgress(t *testing.T) {
 
 func TestDailyPromotionMakesPairRealtimeEligible(t *testing.T) {
 	now := time.Date(2024, 1, 3, 12, 0, 0, 0, time.UTC)
-	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 
 	// Backwards daily backfill: cursor starts at yesterday (Jan 2) and walks backwards.
 	// DailyLastSynced at Jan 2 means we've fetched down to that point.
@@ -223,7 +223,7 @@ func (s *integrationMarketSource) FetchCandles(_ context.Context, _ provider.Req
 // emits a stable per-pair integrity sweep task, and the scheduler skips
 // pairs that are fully verified.
 func TestIntegrityCheckSweepLifecycle(t *testing.T) {
-	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2024, 1, 5, 12, 0, 0, 0, time.UTC)
 	synced := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -260,7 +260,7 @@ func TestIntegrityCheckSweepLifecycle(t *testing.T) {
 // emits a stable per-pair gap sweep task, and the scheduler skips pairs
 // that are fully covered.
 func TestGapValidationSweepLifecycle(t *testing.T) {
-	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 	now := time.Date(2024, 1, 5, 12, 0, 0, 0, time.UTC)
 	synced := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -296,7 +296,7 @@ func TestGapValidationSweepLifecycle(t *testing.T) {
 // TestNewsFetchPerSourceLifecycle verifies that the scheduler emits one
 // stable task per RSS source and that the IDs don't change across ticks.
 func TestNewsFetchPerSourceLifecycle(t *testing.T) {
-	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour)
+	scheduler := planner.NewScheduler(5*time.Second, 5*time.Minute, 24*time.Hour, 24*time.Hour, 1*time.Hour)
 
 	tick1 := scheduler.BuildNewsFetchTasks(time.Date(2024, 1, 5, 12, 0, 0, 0, time.UTC))
 	tick2 := scheduler.BuildNewsFetchTasks(time.Date(2024, 1, 5, 12, 5, 0, 0, time.UTC))
